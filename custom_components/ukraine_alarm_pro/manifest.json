@@ -1,0 +1,12 @@
+{
+  "domain": "ukraine_alarm_pro",
+  "name": "Ukraine Alarm Pro",
+  "codeowners": ["@ABovsh"],
+  "config_flow": true,
+  "documentation": "https://github.com/ABovsh/ukraine-alarm-pro",
+  "integration_type": "hub",
+  "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/ABovsh/ukraine-alarm-pro/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

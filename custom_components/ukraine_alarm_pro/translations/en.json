@@ -1,0 +1,11 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ukraine Alarm Pro",
+        "data": { "regions": "Regions to monitor" }
+      }
+    },
+    "abort": { "cannot_connect": "Could not fetch the region list" }
+  }
+}
