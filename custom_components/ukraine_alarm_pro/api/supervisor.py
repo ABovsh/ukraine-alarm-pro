@@ -13,6 +13,9 @@ from .errors import TransportError
 
 _LOGGER = logging.getLogger(__name__)
 
+# Backoff jitter only — SystemRandom to keep security scanners quiet.
+_RNG = random.SystemRandom()
+
 MODE_WS = "websocket"
 MODE_POLL = "polling"
 
@@ -93,7 +96,7 @@ class TransportSupervisor:
                 delay = self._ws_probe_interval
             else:
                 delay = self._ws_retry_delay * (2 ** max(failures - 1, 0))
-            await asyncio.sleep(delay * (1 + random.random() * 0.2))
+            await asyncio.sleep(delay * (1 + _RNG.random() * 0.2))
 
     def _set_mode(self, mode: str) -> None:
         if mode == self.mode:
