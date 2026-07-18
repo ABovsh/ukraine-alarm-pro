@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload coverage report
         # One leg only so two matrix legs can't race to upload the same artifact.
-        if: github.event_name == 'push' && matrix.ha-label == 'min'
+        if: github.event_name != 'pull_request' && matrix.ha-label == 'min'
         uses: "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7.0.1
         with:
           name: coverage-xml
@@ -86,7 +86,7 @@ jobs:
     needs: test
     # Gated until the SonarCloud project + SONAR_TOKEN secret exist:
     # flip repo variable SONAR_ENABLED to "true" to activate.
-    if: github.event_name == 'push' && vars.SONAR_ENABLED == 'true'
+    if: github.event_name != 'pull_request' && vars.SONAR_ENABLED == 'true'
     runs-on: "ubuntu-latest"
     steps:
       - uses: "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0" # v7.0.0
