@@ -27,7 +27,7 @@ jobs:
           # HA lines older than 2025.7 can't be tested cleanly even though the
           # declared minimum stays 2025.1).
           - python-version: "3.13"
-            ha-pin: "homeassistant==2025.7.0 pytest-homeassistant-custom-component==0.13.260"
+            ha-pin: "homeassistant==2025.7.0 pytest-homeassistant-custom-component==0.13.260 pycares<5"
             ha-label: "min"
           # Ceiling: latest HA + deps on a current Python.
           - python-version: "3.13"
