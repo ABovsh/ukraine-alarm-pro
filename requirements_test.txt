@@ -1,5 +1,6 @@
-homeassistant
+homeassistant>=2025.1.0
 aiohttp
-pytest
+pytest>=8.0.0
 pytest-asyncio
+pytest-homeassistant-custom-component>=0.13.108
 ruff
