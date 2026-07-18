@@ -79,6 +79,11 @@ class TransportSupervisor:
                 _LOGGER.debug("WS failure %s/%s: %s", failures, self._max_ws_failures, err)
             except asyncio.CancelledError:
                 raise
+            except Exception:  # noqa: BLE001 — task must never die silently
+                failures += 1
+                _LOGGER.exception(
+                    "Unexpected WS transport error (%s/%s)", failures, self._max_ws_failures
+                )
             if failures >= self._max_ws_failures:
                 self._set_mode(MODE_POLL)
                 delay = self._ws_probe_interval
@@ -103,4 +108,8 @@ class TransportSupervisor:
                 self._emit(await self._poll.fetch())
             except TransportError as err:
                 _LOGGER.warning("Poll fallback failed: %s", err)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — task must never die silently
+                _LOGGER.exception("Unexpected poll fallback error")
             await asyncio.sleep(self._poll_interval)

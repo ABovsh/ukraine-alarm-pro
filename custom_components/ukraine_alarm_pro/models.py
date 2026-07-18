@@ -11,7 +11,9 @@ class ThreatLevel(Enum):
     """Alert threat levels, ordered by ascending severity."""
 
     NONE = "none"
-    UNKNOWN = "unknown"
+    # not "unknown": that string is HA's reserved STATE_UNKNOWN sentinel and
+    # would make a real unrecognized-type alert look like "no data yet"
+    UNKNOWN = "unrecognized"
     AIR = "air"
     ARTILLERY = "artillery"
     URBAN_FIGHTS = "urban_fights"
@@ -56,14 +58,20 @@ class Snapshot:
 def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     """Normalize a WS publication ({"alerts": [...]}) or poll response ([...])."""
     items = raw.get("alerts", []) if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        items = []
     regions: dict[str, list[Alert]] = {}
     for region in items:
+        if not isinstance(region, dict):
+            continue
         region_id = str(region.get("regionId", ""))
         if not region_id:
             continue
+        active = region.get("activeAlerts")
         regions[region_id] = [
             Alert(type=a.get("type", ""), last_update=a.get("lastUpdate", ""))
-            for a in region.get("activeAlerts", [])
+            for a in (active if isinstance(active, list) else [])
+            if isinstance(a, dict)
         ]
     return Snapshot(regions=regions)
 

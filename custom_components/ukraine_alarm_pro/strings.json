@@ -3,9 +3,29 @@
     "step": {
       "user": {
         "title": "Ukraine Alarm Pro",
-        "data": { "regions": "Regions to monitor" }
+        "data": {
+          "regions": "Regions to monitor"
+        }
       }
     },
-    "abort": { "cannot_connect": "Could not fetch the region list" }
+    "abort": {
+      "cannot_connect": "Could not fetch the region list",
+      "single_instance_allowed": "Already configured. Only a single instance is possible."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "threat": {
+        "state": {
+          "none": "No alert",
+          "unrecognized": "Unrecognized threat",
+          "air": "Air raid",
+          "artillery": "Artillery shelling",
+          "urban_fights": "Urban fights",
+          "chemical": "Chemical threat",
+          "nuclear": "Nuclear threat"
+        }
+      }
+    }
   }
 }

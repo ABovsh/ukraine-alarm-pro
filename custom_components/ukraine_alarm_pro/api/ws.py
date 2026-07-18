@@ -43,7 +43,10 @@ class WsTransport:
             msg = await ws.receive(timeout=30)
             if msg.type != aiohttp.WSMsgType.TEXT:
                 raise TransportError(f"unexpected ws frame: {msg.type}")
-            frame = json.loads(msg.data)
+            try:
+                frame = json.loads(msg.data)
+            except ValueError as err:
+                raise TransportError(f"malformed ws frame: {err}") from err
             if frame.get("id") == want:
                 if "error" in frame:
                     raise TransportError(f"centrifugo error: {frame['error']}")
@@ -73,7 +76,7 @@ class WsTransport:
             raise TransportError(f"ws connect failed: {err}") from err
 
         publications = history.get("result", {}).get("publications") or []
-        if publications:
+        if publications and isinstance(publications[-1], dict):
             yield parse_alert_payload(publications[-1].get("data", {}))
 
         try:
@@ -81,10 +84,15 @@ class WsTransport:
                 msg = await self._ws.receive()
                 if msg.type != aiohttp.WSMsgType.TEXT:
                     raise TransportError(f"ws closed: {msg.type}")
-                frame = json.loads(msg.data)
+                try:
+                    frame = json.loads(msg.data)
+                except ValueError as err:
+                    raise TransportError(f"malformed ws frame: {err}") from err
                 result = frame.get("result", {})
                 if result.get("channel") == CHANNEL:
-                    yield parse_alert_payload(result.get("data", {}).get("data", {}))
+                    data = result.get("data")
+                    payload = data.get("data", {}) if isinstance(data, dict) else {}
+                    yield parse_alert_payload(payload)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise TransportError(f"ws stream failed: {err}") from err
         finally:
