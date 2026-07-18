@@ -1,0 +1,5 @@
+homeassistant
+aiohttp
+pytest
+pytest-asyncio
+ruff

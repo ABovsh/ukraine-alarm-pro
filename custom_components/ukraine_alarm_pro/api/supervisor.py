@@ -41,12 +41,16 @@ class TransportSupervisor:
         self._ws_retry_delay = ws_retry_delay
         self._ws_probe_interval = ws_probe_interval
         self._listener: Callable[[Snapshot], None] | None = None
+        self._mode_listener: Callable[[str], None] | None = None
         self._task: asyncio.Task | None = None
         self._poll_task: asyncio.Task | None = None
         self.mode = MODE_WS
 
     def set_listener(self, listener: Callable[[Snapshot], None]) -> None:
         self._listener = listener
+
+    def set_mode_listener(self, listener: Callable[[str], None]) -> None:
+        self._mode_listener = listener
 
     def _emit(self, snap: Snapshot) -> None:
         if self._listener is not None:
@@ -101,6 +105,8 @@ class TransportSupervisor:
         elif mode == MODE_WS and self._poll_task is not None:
             self._poll_task.cancel()
             self._poll_task = None
+        if self._mode_listener is not None:
+            self._mode_listener(mode)
 
     async def _poll_loop(self) -> None:
         while True:

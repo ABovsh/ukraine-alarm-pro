@@ -25,3 +25,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
     def handle_snapshot(self, snap: Snapshot) -> None:
         self.last_push = dt_util.utcnow()
         self.async_set_updated_data(snap)
+
+    def handle_mode_change(self, mode: str) -> None:
+        """Refresh entities immediately so the transport sensor never lags."""
+        self.async_update_listeners()

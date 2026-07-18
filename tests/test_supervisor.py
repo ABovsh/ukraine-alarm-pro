@@ -2,7 +2,6 @@
 
 import asyncio
 
-import pytest
 
 from custom_components.ukraine_alarm_pro.api.supervisor import TransportSupervisor
 from custom_components.ukraine_alarm_pro.api.errors import TransportError

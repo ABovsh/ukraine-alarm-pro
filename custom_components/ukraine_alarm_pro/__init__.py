@@ -26,6 +26,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.handle_snapshot(snap)
 
     supervisor.set_listener(_on_snapshot)
+
+    @callback
+    def _on_mode_change(mode: str) -> None:
+        coordinator.handle_mode_change(mode)
+
+    supervisor.set_mode_listener(_on_mode_change)
     await supervisor.start()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
