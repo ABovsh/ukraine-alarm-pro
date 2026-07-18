@@ -22,11 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Floor: minimum supported HA on the minimum supported Python.
-          # The test-helper package pins HA exactly, so pin the matching pair
-          # (phcc 0.13.202 == HA 2025.1.1, the oldest pair in the 2025.1 line).
+          # Floor: oldest HA + test-helper pair whose cleanup checks know about
+          # HA's safe-shutdown thread (phcc < 0.13.260 false-fails on it, so
+          # HA lines older than 2025.7 can't be tested cleanly even though the
+          # declared minimum stays 2025.1).
           - python-version: "3.12"
-            ha-pin: "homeassistant==2025.1.1 pytest-homeassistant-custom-component==0.13.202"
+            ha-pin: "homeassistant==2025.7.0 pytest-homeassistant-custom-component==0.13.260"
             ha-label: "min"
           # Ceiling: latest HA + deps on a current Python.
           - python-version: "3.13"
