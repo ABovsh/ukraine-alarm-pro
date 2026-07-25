@@ -78,6 +78,18 @@ class Snapshot:
     def active_region_count(self) -> int:
         return sum(1 for alerts in self.regions.values() if alerts)
 
+    @property
+    def active(self) -> dict[str, frozenset[Alert]]:
+        """Comparable view of what is actually in alert.
+
+        The two feeds describe the same map differently — the WebSocket may
+        spell out regions it just cleared, the polling endpoint omits them, and
+        neither guarantees an order — so only this view is safe to compare.
+        """
+        return {
+            rid: frozenset(alerts) for rid, alerts in self.regions.items() if alerts
+        }
+
 
 def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     """Normalize a WS publication ({"alerts": [...]}) or poll response ([...]).

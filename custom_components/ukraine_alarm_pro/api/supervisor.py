@@ -251,7 +251,7 @@ class TransportSupervisor:
             snap = await self._fetch_poll("Watchdog cross-check failed")
             if snap is not None:
                 self._emit(snap)
-                if snap == previous:
+                if previous is not None and snap.active == previous.active:
                     _LOGGER.debug(
                         "No alert data for %.0fs, but the feed agrees with the "
                         "last push — the alert map simply did not change",

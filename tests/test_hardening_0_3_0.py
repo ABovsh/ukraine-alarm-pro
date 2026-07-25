@@ -111,6 +111,26 @@ async def test_quiet_feed_is_not_mistaken_for_a_dead_websocket():
     await sup.stop()
 
 
+async def test_cross_check_ignores_how_each_source_lists_calm_regions():
+    """The WS may spell out cleared regions; the poll endpoint omits them."""
+    ws_snap = parse_alert_payload(
+        {
+            "alerts": [
+                {"regionId": "31", "activeAlerts": [{"type": "AIR", "lastUpdate": "a"}]},
+                {"regionId": "703", "activeAlerts": []},
+            ]
+        }
+    )
+    ws, poll = SilentWs(snap=ws_snap), Poll(snap=SNAP_A)
+    sup = _sup(ws, poll, stale_after=0.03, watchdog_interval=0.02)
+    sup.set_listener(lambda snap: None)
+    await sup.start()
+    await asyncio.sleep(0.2)
+    assert poll.fetches >= 1
+    assert ws.closed == 0
+    await sup.stop()
+
+
 async def test_watchdog_reconnects_when_poll_proves_the_websocket_missed_updates():
     ws, poll = SilentWs(snap=SNAP_A), Poll(snap=SNAP_B)
     sup = _sup(ws, poll, stale_after=0.03, watchdog_interval=0.02)
