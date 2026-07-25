@@ -28,8 +28,6 @@ The core integration polls the volunteer-run siren.pp.ua proxy every 10 s per re
   entity silent while its raions are under an air raid — at the time of writing that was 6
   of 29 oblasts simultaneously. Here every region also inherits alerts from its ancestors
   **and** its descendants, so no level is a blind spot
-- **Reports the threat type**, not just on/off: air raid, artillery, urban fights, chemical
-  or nuclear, with a per-alert breakdown of which region each alert came from
 - **Populated within seconds of a restart** — the alert map is fetched immediately instead
   of waiting for the feed to publish something
 - Auto-degrades to proxy polling (60 s interval, 30 s timeout), auto-recovers, and tells you
