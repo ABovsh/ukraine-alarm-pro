@@ -10,8 +10,8 @@ from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 
 ENTRY_DATA = {
     "regions": {
-        "703": {"name": "Вишнева громада", "ancestors": ["75", "14"]},
-        "31": {"name": "м. Київ", "ancestors": []},
+        "703": {"name": "Вишнева громада", "ancestors": ["75", "14"], "descendants": []},
+        "31": {"name": "м. Київ", "ancestors": [], "descendants": []},
     }
 }
 
@@ -32,6 +32,7 @@ async def _setup(hass: HomeAssistant):
     sup = AsyncMock()
     sup.mode = "websocket"
     sup.set_listener = MagicMock()
+    sup.set_mode_listener = MagicMock()
     with patch(
         "custom_components.ukraine_alarm_pro.TransportSupervisor", return_value=sup
     ):

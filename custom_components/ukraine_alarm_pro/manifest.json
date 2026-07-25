@@ -9,6 +9,10 @@
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/ABovsh/ukraine-alarm-pro/issues",
+  "loggers": [
+    "custom_components.ukraine_alarm_pro"
+  ],
   "requirements": [],
-  "version": "0.1.2"
+  "single_config_entry": true,
+  "version": "0.2.0"
 }

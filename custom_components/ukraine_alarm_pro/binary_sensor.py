@@ -1,4 +1,4 @@
-"""Binary sensors: per-region any-alert flag."""
+"""Binary sensors: per-region any-alert flag + feed health."""
 
 from __future__ import annotations
 
@@ -6,28 +6,31 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_REGIONS, DOMAIN
-from .coordinator import AlarmCoordinator
-from .entity import UapEntity
+from . import UkraineAlarmProConfigEntry
+from .const import CONF_REGIONS, STALE_AFTER_SECONDS
+from .entity import UapEntity, UapStalenessEntity
 from .models import ThreatLevel, region_threat
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: UkraineAlarmProConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: AlarmCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
+    coordinator = entry.runtime_data
+    entities: list[BinarySensorEntity] = [
         RegionAlertBinarySensor(coordinator, entry.entry_id, rid, info)
         for rid, info in entry.data[CONF_REGIONS].items()
-    )
+    ]
+    entities.append(DataStaleBinarySensor(coordinator, entry.entry_id))
+    async_add_entities(entities)
 
 
 class RegionAlertBinarySensor(UapEntity, BinarySensorEntity):
-    """On when the region (or an ancestor) has any active alert."""
+    """On when the region, an ancestor or a descendant has any active alert."""
 
     _attr_device_class = BinarySensorDeviceClass.SAFETY
 
@@ -35,6 +38,7 @@ class RegionAlertBinarySensor(UapEntity, BinarySensorEntity):
         super().__init__(coordinator, entry_id)
         self._region_id = region_id
         self._ancestors = info["ancestors"]
+        self._descendants = info.get("descendants", [])
         self._attr_name = f"{info['name']} alert"
         self._attr_unique_id = f"{entry_id}_{region_id}_alert"
         self.entity_id = f"binary_sensor.uap_{region_id}_alert"
@@ -44,6 +48,35 @@ class RegionAlertBinarySensor(UapEntity, BinarySensorEntity):
         if self.coordinator.data is None:
             return None
         return (
-            region_threat(self.coordinator.data, self._region_id, self._ancestors)
+            region_threat(
+                self.coordinator.data,
+                self._region_id,
+                self._ancestors,
+                self._descendants,
+            )
             is not ThreatLevel.NONE
         )
+
+
+class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):
+    """On when no snapshot arrived recently — the alert state is not trustworthy."""
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_name = "Data stale"
+
+    def __init__(self, coordinator, entry_id) -> None:
+        super().__init__(coordinator, entry_id)
+        self._attr_unique_id = f"{entry_id}_data_stale"
+        self.entity_id = "binary_sensor.uap_data_stale"
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.is_stale
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "seconds_since_update": self.coordinator.seconds_since_push,
+            "stale_after_seconds": STALE_AFTER_SECONDS,
+            "transport": self.coordinator.supervisor.mode,
+        }

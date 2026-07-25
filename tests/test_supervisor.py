@@ -2,9 +2,8 @@
 
 import asyncio
 
-
-from custom_components.ukraine_alarm_pro.api.supervisor import TransportSupervisor
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
+from custom_components.ukraine_alarm_pro.api.supervisor import TransportSupervisor
 from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 
 SNAP_WS = parse_alert_payload({"alerts": [{"regionId": "703", "regionType": "Community", "activeAlerts": [{"type": "AIR", "lastUpdate": "x"}]}]})

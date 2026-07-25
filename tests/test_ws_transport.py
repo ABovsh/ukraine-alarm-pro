@@ -7,8 +7,8 @@ import pytest
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
-from custom_components.ukraine_alarm_pro.api.ws import WsTransport
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
+from custom_components.ukraine_alarm_pro.api.ws import WsTransport
 
 SNAPSHOT_DATA = {
     "alerts": [

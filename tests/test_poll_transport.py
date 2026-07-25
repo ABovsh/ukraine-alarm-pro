@@ -6,8 +6,8 @@ import pytest
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
-from custom_components.ukraine_alarm_pro.api.poll import PollTransport
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
+from custom_components.ukraine_alarm_pro.api.poll import PollTransport
 from custom_components.ukraine_alarm_pro.models import Snapshot
 
 PAYLOAD = [
