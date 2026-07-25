@@ -123,7 +123,8 @@ class TransportSupervisor:
             return await self._poll.fetch()
         except asyncio.CancelledError:
             raise
-        except Exception as err:  # noqa: BLE001 - best effort, never fatal
+        # Best effort only: a failing cross-check must never kill the caller.
+        except Exception as err:  # noqa: BLE001
             _LOGGER.debug("%s: %s", context, err)
             return None
 
