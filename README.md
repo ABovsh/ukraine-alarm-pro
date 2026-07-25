@@ -12,30 +12,30 @@
 
 **English** · [Українська](README.uk.md)
 
-Air-raid alert integration for Home Assistant with **push updates** (~1 s latency) over the
+Air-raid alert integration for Home Assistant with **push updates** — delivered as soon as
+the source publishes them, not on a poll cycle — over the
 anonymous WebSocket behind the official [alert map](https://map.ukrainealarm.com/) — no API
 key required — with automatic fallback to siren.pp.ua polling when the WebSocket is down.
 
 ## Why not core `ukraine_alarm`?
 
-The core integration polls the volunteer-run siren.pp.ua proxy every 10 s per region with a
-10 s timeout, which fails intermittently when the proxy is under load. This integration:
+The core integration creates one config entry per region, each polling the volunteer-run
+siren.pp.ua proxy every 10 s (30 s request timeout), which fails intermittently when the
+proxy is under load. This integration:
 
-- **Pushes** alerts over the official map's Centrifugo WebSocket (keyless, ~1 s latency)
+- **Pushes** alerts over the official map's Centrifugo WebSocket instead of polling
 - One connection serves **all** configured regions (core: one poll loop per region)
 - **Sees alerts declared below your region.** Most alerts are declared for a single raion or
   hromada, not for the whole oblast. Matching only the exact region id leaves an oblast
   entity silent while its raions are under an air raid — at the time of writing that was 6
   of 29 oblasts simultaneously. Here every region also inherits alerts from its ancestors
   **and** its descendants, so no level is a blind spot
-- **Populated within seconds of a restart** — the alert map is fetched immediately instead
-  of waiting for the feed to publish something
-- Auto-degrades to proxy polling (60 s interval, 30 s timeout), auto-recovers, and tells you
-  in **Repairs** while it is degraded
-- **Never emits a false "all clear".** Entities keep their last state on transport loss, an
-  unusable feed response is treated as a failure rather than as silence, and staleness is
-  exposed explicitly (`binary_sensor.uap_data_stale`) instead of being hidden
-- Ships **Ukrainian and English** translations, diagnostics, and a country-wide alert counter
+- Auto-degrades to that same proxy polling (60 s interval, 30 s timeout), auto-recovers to
+  the WebSocket, and tells you in **Repairs** while it is degraded
+- **Keeps the last known state when the source fails.** Core entities become `unavailable`,
+  so a template or automation reading them mid-outage sees nothing at all; here the last
+  state stays put and `binary_sensor.uap_data_stale` says explicitly when to distrust it
+- Adds **diagnostics** and a country-wide alert counter (core has neither)
 
 ## How a region ends up "in alert"
 

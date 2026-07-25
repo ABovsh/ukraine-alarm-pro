@@ -35,7 +35,7 @@
   "issues": {
     "websocket_unavailable": {
       "title": "Alert WebSocket unavailable",
-      "description": "The push connection to the official alert map failed, so alerts are being polled every 60 seconds instead of arriving in about a second. The integration keeps probing the WebSocket and clears this issue once it is back."
+      "description": "The push connection to the official alert map failed, so alerts are being polled every 60 seconds instead of arriving as soon as they are published. The integration keeps probing the WebSocket and clears this issue once it is back."
     }
   },
   "entity": {
