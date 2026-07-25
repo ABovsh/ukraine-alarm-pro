@@ -113,7 +113,8 @@ async def _async_backfill_descendants(
 
     try:
         flat = _flatten(await async_fetch_regions(session))
-    except Exception as err:  # noqa: BLE001 — best effort, never blocks setup
+    # Best effort only: a broken region tree must never block setup.
+    except Exception as err:  # noqa: BLE001
         _LOGGER.warning(
             "Could not refresh the region tree (%s); region alerts declared at "
             "a lower administrative level stay invisible until the next reload",
