@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -36,7 +38,7 @@ class RegionThreatSensor(UapEntity, SensorEntity):
     """Highest active threat in a region (any administrative level)."""
 
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = [level.value for level in ThreatLevel]
+    _attr_options: ClassVar[list[str]] = [level.value for level in ThreatLevel]
     _attr_translation_key = "threat"
 
     def __init__(self, coordinator, entry_id, region_id, info) -> None:

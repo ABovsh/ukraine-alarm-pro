@@ -109,7 +109,7 @@ async def _async_backfill_descendants(
 
     # Imported late: config_flow pulls in voluptuous/selectors that setup
     # does not otherwise need.
-    from .config_flow import _flatten, async_fetch_regions  # noqa: PLC0415
+    from .config_flow import _flatten, async_fetch_regions
 
     try:
         flat = _flatten(await async_fetch_regions(session))

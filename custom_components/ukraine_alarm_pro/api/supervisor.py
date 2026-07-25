@@ -115,7 +115,7 @@ class TransportSupervisor:
                 _LOGGER.debug("WS failure %s/%s: %s", failures, self._max_ws_failures, err)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 — task must never die silently
+            except Exception:  # the transport task must never die silently
                 failures += 1
                 _LOGGER.exception(
                     "Unexpected WS transport error (%s/%s)", failures, self._max_ws_failures
@@ -148,7 +148,7 @@ class TransportSupervisor:
                 _LOGGER.warning("Poll fallback failed: %s", err)
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001 — task must never die silently
+            except Exception:  # the poll loop must never die silently
                 _LOGGER.exception("Unexpected poll fallback error")
             await asyncio.sleep(self._poll_interval)
 
@@ -180,5 +180,5 @@ class TransportSupervisor:
             self._last_snapshot = time.monotonic()
             try:
                 await self._ws.close()
-            except Exception:  # noqa: BLE001 — watchdog must never die
+            except Exception:  # the watchdog must never die
                 _LOGGER.exception("Failed to restart the WS transport")

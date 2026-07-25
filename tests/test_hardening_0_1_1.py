@@ -163,7 +163,9 @@ def test_threat_state_translations_cover_all_levels(fname):
 
 
 async def test_config_flow_aborts_second_instance(monkeypatch):
-    from custom_components.ukraine_alarm_pro.config_flow import UkraineAlarmProConfigFlow
+    from custom_components.ukraine_alarm_pro.config_flow import (
+        UkraineAlarmProConfigFlow,
+    )
 
     flow = UkraineAlarmProConfigFlow()
     monkeypatch.setattr(flow, "_async_current_entries", lambda: [MagicMock()])
