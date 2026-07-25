@@ -26,6 +26,14 @@ DEFAULT_WS_RETRY_DELAY = 5.0
 DEFAULT_WS_PROBE_INTERVAL = 300.0
 DEFAULT_STALE_AFTER = 900.0
 DEFAULT_WATCHDOG_INTERVAL = 60.0
+# The WS channel serves an empty history, so a fresh connection stays blind
+# until the map changes somewhere in the country (measured: minutes). Seed from
+# the polling endpoint instead — after a short grace period, so a WS that does
+# deliver straight away spares the volunteer-run proxy the request.
+DEFAULT_SEED_DELAY = 2.0
+# A session that streamed for this long was healthy; the drop that ended it is
+# the server recycling an idle socket (2 h token TTL), not a broken transport.
+DEFAULT_HEALTHY_SESSION = 120.0
 
 TaskFactory = Callable[[Coroutine[Any, Any, None], str], "asyncio.Task[None]"]
 
@@ -49,6 +57,8 @@ class TransportSupervisor:
         ws_probe_interval: float = DEFAULT_WS_PROBE_INTERVAL,
         stale_after: float = DEFAULT_STALE_AFTER,
         watchdog_interval: float = DEFAULT_WATCHDOG_INTERVAL,
+        seed_delay: float = DEFAULT_SEED_DELAY,
+        healthy_session: float = DEFAULT_HEALTHY_SESSION,
     ) -> None:
         self._ws = ws
         self._poll = poll
@@ -58,13 +68,17 @@ class TransportSupervisor:
         self._ws_probe_interval = ws_probe_interval
         self._stale_after = stale_after
         self._watchdog_interval = watchdog_interval
+        self._seed_delay = seed_delay
+        self._healthy_session = healthy_session
         self._listener: Callable[[Snapshot], None] | None = None
         self._mode_listener: Callable[[str], None] | None = None
         self._task: asyncio.Task | None = None
         self._poll_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
+        self._seed_task: asyncio.Task | None = None
         self._task_factory: TaskFactory = _default_task_factory
         self._last_snapshot: float | None = None
+        self._last_snap: Snapshot | None = None
         self.mode = MODE_WS
 
     def set_listener(self, listener: Callable[[Snapshot], None]) -> None:
@@ -75,6 +89,7 @@ class TransportSupervisor:
 
     def _emit(self, snap: Snapshot) -> None:
         self._last_snapshot = time.monotonic()
+        self._last_snap = snap
         if self._listener is not None:
             self._listener(snap)
 
@@ -86,11 +101,41 @@ class TransportSupervisor:
         self._watchdog_task = self._task_factory(
             self._watchdog(), "transport-watchdog"
         )
+        self._seed_task = self._task_factory(self._seed(), "initial-seed")
+
+    async def _seed(self) -> None:
+        """Fill in a first snapshot the WebSocket cannot provide.
+
+        Subscribing yields an empty history, so the region entities would stay
+        blank from startup until the alert map next changes anywhere in the
+        country — minutes, and precisely when the user needs them most.
+        """
+        await asyncio.sleep(self._seed_delay)
+        if self._last_snapshot is not None:
+            return
+        snap = await self._fetch_poll("Could not seed the initial alert map")
+        # Re-checked: the WS may have delivered while the request was in flight.
+        if snap is not None and self._last_snapshot is None:
+            self._emit(snap)
+
+    async def _fetch_poll(self, context: str) -> Snapshot | None:
+        try:
+            return await self._poll.fetch()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001 - best effort, never fatal
+            _LOGGER.debug("%s: %s", context, err)
+            return None
 
     async def stop(self) -> None:
         tasks = [
             task
-            for task in (self._task, self._poll_task, self._watchdog_task)
+            for task in (
+                self._task,
+                self._poll_task,
+                self._watchdog_task,
+                self._seed_task,
+            )
             if task is not None
         ]
         for task in tasks:
@@ -100,23 +145,25 @@ class TransportSupervisor:
             # a caller shutting us down expects, while swallowing the children's.
             await asyncio.gather(*tasks, return_exceptions=True)
         self._task = self._poll_task = self._watchdog_task = None
+        self._seed_task = None
         await self._ws.close()
 
     async def _run(self) -> None:
         failures = 0
         while True:
+            started = time.monotonic()
             try:
                 async for snap in self._ws.stream():
                     failures = 0
                     self._set_mode(MODE_WS)
                     self._emit(snap)
             except TransportError as err:
-                failures += 1
+                failures = self._count_failure(failures, started)
                 _LOGGER.debug("WS failure %s/%s: %s", failures, self._max_ws_failures, err)
             except asyncio.CancelledError:
                 raise
             except Exception:  # the transport task must never die silently
-                failures += 1
+                failures = self._count_failure(failures, started)
                 _LOGGER.exception(
                     "Unexpected WS transport error (%s/%s)", failures, self._max_ws_failures
                 )
@@ -126,6 +173,18 @@ class TransportSupervisor:
             else:
                 delay = self._ws_retry_delay * (2 ** max(failures - 1, 0))
             await asyncio.sleep(delay * (1 + _RNG.random() * 0.2))
+
+    def _count_failure(self, failures: int, started: float) -> int:
+        """Count one WS failure, forgiving the end of a long healthy session.
+
+        The feed serves no history and can stay quiet for minutes, so a session
+        that never yielded a snapshot is not evidence of a broken WebSocket —
+        only a *short-lived* one is. Without this, three idle-socket recycles
+        (token TTL is 2 h) would push a perfectly healthy transport to polling.
+        """
+        if time.monotonic() - started >= self._healthy_session:
+            return 1
+        return failures + 1
 
     def _set_mode(self, mode: str) -> None:
         if mode == self.mode:
@@ -160,12 +219,16 @@ class TransportSupervisor:
         return time.monotonic() - self._last_snapshot
 
     async def _watchdog(self) -> None:
-        """Restart a silent transport.
+        """Cross-check a silent transport against the polling endpoint.
 
         A WebSocket can stay open at the TCP level and simply stop publishing;
         nothing else in the loop notices, so the integration would serve a
-        frozen alert map forever. Dropping the socket makes `stream()` raise,
-        which sends `_run` through its normal reconnect/degrade path.
+        frozen alert map forever. But silence is ambiguous — the feed only
+        publishes on change, so a calm country looks exactly like a dead
+        socket. The poll endpoint settles it: if it agrees with the last push
+        the stream is fine, and if it does not (or fails outright) the socket
+        is dropped, which makes `stream()` raise and sends `_run` through its
+        normal reconnect/degrade path.
         """
         while True:
             await asyncio.sleep(self._watchdog_interval)
@@ -184,7 +247,27 @@ class TransportSupervisor:
                     age,
                 )
                 continue
-            _LOGGER.warning("No alert data for %.0fs — reconnecting the WebSocket", age)
+            previous = self._last_snap
+            snap = await self._fetch_poll("Watchdog cross-check failed")
+            if snap is not None:
+                self._emit(snap)
+                if snap == previous:
+                    _LOGGER.debug(
+                        "No alert data for %.0fs, but the feed agrees with the "
+                        "last push — the alert map simply did not change",
+                        age,
+                    )
+                    continue
+                _LOGGER.warning(
+                    "The WebSocket missed alert updates for %.0fs — reconnecting",
+                    age,
+                )
+            else:
+                _LOGGER.warning(
+                    "No alert data for %.0fs and the fallback is unreachable — "
+                    "reconnecting the WebSocket",
+                    age,
+                )
             try:
                 await self._ws.close()
             except Exception:  # the watchdog must never die

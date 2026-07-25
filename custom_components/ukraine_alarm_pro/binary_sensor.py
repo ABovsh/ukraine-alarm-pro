@@ -75,8 +75,10 @@ class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self):
+        # A seconds-since counter would change on every staleness tick, writing
+        # a recorder row per minute forever; the timestamp only moves on a push.
         return {
-            "seconds_since_update": self.coordinator.seconds_since_push,
+            "last_update": self.coordinator.last_push,
             "stale_after_seconds": STALE_AFTER_SECONDS,
             "transport": self.coordinator.supervisor.mode,
         }

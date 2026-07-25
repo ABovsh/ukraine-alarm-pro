@@ -60,12 +60,19 @@ Two notes on the data itself:
 
 ## Reliability
 
-- **Watchdog.** A WebSocket that stays connected but stops publishing is detected after
-  15 minutes: the socket is dropped, which sends the supervisor through its normal
-  reconnect-and-degrade path.
-- **Degrade and recover.** Three consecutive WebSocket failures switch the integration to
-  polling and raise a repair issue; it keeps probing the WebSocket and clears the issue on
-  recovery.
+- **Instant state after a restart.** The WebSocket serves no history, so the first snapshot
+  is fetched from the polling endpoint instead of waiting for the map to change somewhere
+  in the country — which can take several minutes.
+- **Watchdog.** After 15 minutes without a push the alert map is re-checked against the
+  polling endpoint. If it agrees, the country simply stayed calm and the connection is left
+  alone; if it disagrees or cannot be reached, the socket is dropped, which sends the
+  supervisor through its normal reconnect-and-degrade path.
+- **Degrade and recover.** Three consecutive *short-lived* WebSocket failures switch the
+  integration to polling and raise a repair issue; a long healthy session that ends when the
+  server recycles the connection does not count against it. It keeps probing the WebSocket
+  and clears the issue on recovery.
+- **No silent all-clear.** A feed response the integration cannot make sense of is treated
+  as a transport failure, never as "no alerts anywhere".
 - **No false all-clear.** Entities keep their last known state while transports are down;
   `binary_sensor.uap_data_stale` tells you when that state is no longer trustworthy.
 

@@ -20,6 +20,14 @@ _METHOD_SUBSCRIBE = 1
 _METHOD_HISTORY = 6
 
 
+def _parse(payload) -> Snapshot:
+    """Parse a publication, reporting a shape change as a transport failure."""
+    try:
+        return parse_alert_payload(payload)
+    except ValueError as err:
+        raise TransportError(f"unusable publication: {err}") from err
+
+
 class WsTransport:
     """Streams alert snapshots pushed by ws.ukrainealarm.com."""
 
@@ -75,9 +83,11 @@ class WsTransport:
                 raise
             raise TransportError(f"ws connect failed: {err}") from err
 
+        # The live channel serves an empty history in practice; the supervisor
+        # seeds the first snapshot from the polling endpoint instead.
         publications = history.get("result", {}).get("publications") or []
         if publications and isinstance(publications[-1], dict):
-            yield parse_alert_payload(publications[-1].get("data", {}))
+            yield _parse(publications[-1].get("data", {}))
 
         try:
             while True:
@@ -94,8 +104,8 @@ class WsTransport:
                 result = frame.get("result", {})
                 if result.get("channel") == CHANNEL:
                     data = result.get("data")
-                    payload = data.get("data", {}) if isinstance(data, dict) else {}
-                    yield parse_alert_payload(payload)
+                    payload = data.get("data") if isinstance(data, dict) else None
+                    yield _parse(payload)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise TransportError(f"ws stream failed: {err}") from err
         finally:

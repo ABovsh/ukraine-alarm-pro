@@ -191,7 +191,8 @@ async def test_start_uses_the_injected_task_factory():
     sup = TransportSupervisor(ws=_StubWs(), poll=AsyncMock())
     await sup.start(factory)
     await asyncio.sleep(0)
-    assert len(created) == 2  # transport loop + watchdog
+    # transport loop + watchdog + initial poll seed (0.3.0)
+    assert created == ["websocket-supervisor", "transport-watchdog", "initial-seed"]
     await sup.stop()
 
 

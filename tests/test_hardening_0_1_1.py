@@ -35,8 +35,13 @@ def test_parse_payload_skips_non_dict_alerts():
     assert [a.type for a in snap.regions["7"]] == ["AIR"]
 
 
-def test_parse_payload_non_list_items_gives_empty_snapshot():
-    assert parse_alert_payload({"alerts": "garbage"}).regions == {}
+def test_parse_payload_non_list_items_is_rejected():
+    # An unusable payload must surface as a transport failure, never as an
+    # empty snapshot — that would read as "all clear" everywhere (0.3.0).
+    import pytest
+
+    with pytest.raises(ValueError):
+        parse_alert_payload({"alerts": "garbage"})
 
 
 class _FakeMsg:

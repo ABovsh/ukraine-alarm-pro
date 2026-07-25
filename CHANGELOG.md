@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-25
+
+### 🐛 Fixed
+
+- **Alert state was blank for minutes after every restart.** The alert feed sends no
+  history when it connects — it only publishes when something changes somewhere in the
+  country, which was measured at over two minutes on a quiet day. The current alert map is
+  now fetched right away, so the entities are populated a couple of seconds after startup.
+- **A calm country could be mistaken for a broken connection.** The watchdog dropped the
+  connection after 15 quiet minutes even when nothing was wrong. It now cross-checks the
+  alert map first and only reconnects when the connection really did miss updates — and
+  the cross-check itself keeps the data fresh, so `binary_sensor.uap_data_stale` no longer
+  turns on during a quiet night.
+- **A healthy connection could fall back to polling.** The server recycles long-lived
+  connections (its access token lasts two hours); three of those recycles in a row were
+  counted as failures and pushed the integration onto the slower polling fallback.
+- **A feed response the integration cannot make sense of no longer reads as an all-clear.**
+  An unexpected payload is now handled as a transport failure — it reconnects or falls back
+  instead of silently clearing every region.
+
+### 🔧 Changed
+
+- `binary_sensor.uap_data_stale` reports the time of the last update instead of a
+  seconds-since counter, which used to write a database row every minute forever. The age
+  is still available on `sensor.uap_last_update` and in diagnostics.
+
 ## [0.2.0] - 2026-07-25
 
 ### 🐛 Fixed

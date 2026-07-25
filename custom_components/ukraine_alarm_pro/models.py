@@ -80,10 +80,20 @@ class Snapshot:
 
 
 def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
-    """Normalize a WS publication ({"alerts": [...]}) or poll response ([...])."""
-    items = raw.get("alerts", []) if isinstance(raw, dict) else raw
+    """Normalize a WS publication ({"alerts": [...]}) or poll response ([...]).
+
+    Raises ValueError on anything else. An unrecognized payload must never be
+    read as "no alerts anywhere": that would silently clear every region — the
+    one failure mode this integration cannot afford. The transports turn this
+    into a TransportError, which reconnects or degrades instead.
+    """
+    items = raw.get("alerts") if isinstance(raw, dict) else raw
     if not isinstance(items, list):
-        items = []
+        # ValueError, not TypeError: the transports already map it onto a
+        # TransportError, which is the behavior every caller relies on.
+        raise ValueError(  # noqa: TRY004
+            f"unrecognized alert payload: {type(raw).__name__}"
+        )
     regions: dict[str, list[Alert]] = {}
     for region in items:
         if not isinstance(region, dict):
