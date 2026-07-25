@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.3.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ABovsh_ukraine-alarm-pro)
@@ -9,6 +9,8 @@
 [![Security](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=security_rating)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=security_rating)
 [![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=sqale_rating)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=sqale_rating)
 [![Coverage](https://img.shields.io/sonar/coverage/ABovsh_ukraine-alarm-pro?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarcloud&label=coverage)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=coverage)
+
+**English** · [Українська](README.uk.md)
 
 Air-raid alert integration for Home Assistant with **push updates** (~1 s latency) over the
 anonymous WebSocket behind the official [alert map](https://map.ukrainealarm.com/) — no API
@@ -21,9 +23,21 @@ The core integration polls the volunteer-run siren.pp.ua proxy every 10 s per re
 
 - **Pushes** alerts over the official map's Centrifugo WebSocket (keyless, ~1 s latency)
 - One connection serves **all** configured regions (core: one poll loop per region)
-- Auto-degrades to proxy polling (60 s interval, 30 s timeout) and auto-recovers
-- Never emits a false "all clear": entities keep their last state on transport loss, and
-  staleness is exposed explicitly instead of being hidden
+- **Sees alerts declared below your region.** Most alerts are declared for a single raion or
+  hromada, not for the whole oblast. Matching only the exact region id leaves an oblast
+  entity silent while its raions are under an air raid — at the time of writing that was 6
+  of 29 oblasts simultaneously. Here every region also inherits alerts from its ancestors
+  **and** its descendants, so no level is a blind spot
+- **Reports the threat type**, not just on/off: air raid, artillery, urban fights, chemical
+  or nuclear, with a per-alert breakdown of which region each alert came from
+- **Populated within seconds of a restart** — the alert map is fetched immediately instead
+  of waiting for the feed to publish something
+- Auto-degrades to proxy polling (60 s interval, 30 s timeout), auto-recovers, and tells you
+  in **Repairs** while it is degraded
+- **Never emits a false "all clear".** Entities keep their last state on transport loss, an
+  unusable feed response is treated as a failure rather than as silence, and staleness is
+  exposed explicitly (`binary_sensor.uap_data_stale`) instead of being hidden
+- Ships **Ukrainian and English** translations, diagnostics, and a country-wide alert counter
 
 ## How a region ends up "in alert"
 
@@ -71,8 +85,8 @@ Two notes on the data itself:
   integration to polling and raise a repair issue; a long healthy session that ends when the
   server recycles the connection does not count against it. It keeps probing the WebSocket
   and clears the issue on recovery.
-- **No silent all-clear.** A feed response the integration cannot make sense of is treated
-  as a transport failure, never as "no alerts anywhere".
+- **Unusable data is a failure, not silence.** A feed response the integration cannot make
+  sense of is treated as a transport error, never as "no alerts anywhere".
 - **No false all-clear.** Entities keep their last known state while transports are down;
   `binary_sensor.uap_data_stale` tells you when that state is no longer trustworthy.
 

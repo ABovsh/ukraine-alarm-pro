@@ -49,7 +49,25 @@
           "urban_fights": "Urban fights",
           "chemical": "Chemical threat",
           "nuclear": "Nuclear threat"
-        }
+        },
+        "name": "{region} threat"
+      },
+      "transport": {
+        "name": "Transport"
+      },
+      "active_regions": {
+        "name": "Active regions"
+      },
+      "last_update": {
+        "name": "Last update"
+      }
+    },
+    "binary_sensor": {
+      "alert": {
+        "name": "{region} alert"
+      },
+      "data_stale": {
+        "name": "Data stale"
       }
     }
   }

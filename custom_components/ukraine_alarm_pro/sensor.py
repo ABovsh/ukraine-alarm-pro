@@ -50,7 +50,8 @@ class RegionThreatSensor(UapEntity, SensorEntity):
         self._region_id = region_id
         self._ancestors = info["ancestors"]
         self._descendants = info.get("descendants", [])
-        self._attr_name = f"{info['name']} threat"
+        # The region name comes from the feed; only the suffix is translated.
+        self._attr_translation_placeholders = {"region": info["name"]}
         self._attr_unique_id = f"{entry_id}_{region_id}_threat"
         self.entity_id = f"sensor.uap_{region_id}_threat"
 
@@ -91,7 +92,7 @@ class RegionThreatSensor(UapEntity, SensorEntity):
 class TransportSensor(UapDiagnosticEntity, SensorEntity):
     """Which transport is feeding data: websocket or polling."""
 
-    _attr_name = "Transport"
+    _attr_translation_key = "transport"
 
     def __init__(self, coordinator, entry_id) -> None:
         super().__init__(coordinator, entry_id)
@@ -107,7 +108,7 @@ class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):
     """Country-wide count of regions with any active alert."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_name = "Active regions"
+    _attr_translation_key = "active_regions"
 
     def __init__(self, coordinator, entry_id) -> None:
         super().__init__(coordinator, entry_id)
@@ -138,7 +139,7 @@ class LastUpdateSensor(UapStalenessEntity, SensorEntity):
     """Timestamp of the last received snapshot — staleness indicator."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_name = "Last update"
+    _attr_translation_key = "last_update"
 
     def __init__(self, coordinator, entry_id) -> None:
         super().__init__(coordinator, entry_id)

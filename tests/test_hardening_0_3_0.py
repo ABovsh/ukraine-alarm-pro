@@ -10,6 +10,7 @@ import asyncio
 import pytest
 from aiohttp import ClientSession
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 # The tests directory is not a package; pytest puts it on sys.path.
 from test_entities import _setup
@@ -210,3 +211,30 @@ async def test_stale_sensor_attributes_do_not_change_between_pushes(
     attrs = hass.states.get("binary_sensor.uap_data_stale").attributes
     assert "seconds_since_update" not in attrs
     assert attrs["last_update"] is not None
+
+
+async def test_entity_names_come_from_translations(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """Hard-coded English names cannot be localized (0.3.0)."""
+    _, push = await _setup(hass)
+    push(parse_alert_payload({"alerts": []}))
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    assert registry.async_get("sensor.uap_transport").translation_key == "transport"
+    assert registry.async_get("binary_sensor.uap_data_stale").translation_key == "data_stale"
+    assert registry.async_get("binary_sensor.uap_703_alert").translation_key == "alert"
+    assert registry.async_get("sensor.uap_703_threat").translation_key == "threat"
+    names = {
+        eid: hass.states.get(eid).attributes["friendly_name"]
+        for eid in (
+            "sensor.uap_transport",
+            "binary_sensor.uap_data_stale",
+            "binary_sensor.uap_703_alert",
+            "sensor.uap_703_threat",
+        )
+    }
+    assert names["sensor.uap_transport"] == "Ukraine Alarm Pro Transport"
+    assert names["binary_sensor.uap_data_stale"] == "Ukraine Alarm Pro Data stale"
+    assert names["binary_sensor.uap_703_alert"] == "Ukraine Alarm Pro Вишнева громада alert"
+    assert names["sensor.uap_703_threat"] == "Ukraine Alarm Pro Вишнева громада threat"

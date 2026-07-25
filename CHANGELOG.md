@@ -23,8 +23,17 @@ This project follows [Semantic Versioning](https://semver.org/).
   An unexpected payload is now handled as a transport failure — it reconnects or falls back
   instead of silently clearing every region.
 
+### ✨ Added
+
+- **Ukrainian interface.** The configuration dialog, the options dialog, the repair message,
+  the threat states and every entity name are now translated — Home Assistant picks the
+  language from your profile. A Ukrainian README is available at
+  [README.uk.md](README.uk.md).
+
 ### 🔧 Changed
 
+- Entity names come from the translation files instead of being fixed English strings.
+  Entity IDs are unchanged; names you set yourself are unaffected.
 - `binary_sensor.uap_data_stale` reports the time of the last update instead of a
   seconds-since counter, which used to write a database row every minute forever. The age
   is still available on `sensor.uap_last_update` and in diagnostics.
