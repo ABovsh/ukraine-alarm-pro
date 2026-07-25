@@ -43,7 +43,7 @@ Pick whichever level suits you — an oblast entity will not miss raion-level al
 
 | Entity | Type | Notes |
 | --- | --- | --- |
-| `sensor.uap_<id>_threat` | enum | `none` / `unrecognized` / `air` / `artillery` / `urban_fights` / `chemical` / `nuclear`, highest active threat; `active_alerts` attribute lists each alert with its source region |
+| `sensor.uap_<id>_threat` | enum | `none` / `unrecognized` / `air` / `artillery` / `urban_fights` / `chemical` / `nuclear`, highest active threat; `active_alerts` attribute lists each alert with its source region (capped at 25; `active_alert_count` holds the true total) |
 | `binary_sensor.uap_<id>_alert` | safety | on while any threat is active |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
 | `sensor.uap_last_update` | diagnostic | timestamp of the last received snapshot |

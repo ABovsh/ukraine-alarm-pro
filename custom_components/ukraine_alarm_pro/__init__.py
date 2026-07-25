@@ -27,8 +27,6 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
 ) -> bool:
     session = async_get_clientsession(hass)
-    await _async_backfill_descendants(hass, entry, session)
-
     supervisor = TransportSupervisor(
         ws=WsTransport(session), poll=PollTransport(session)
     )
@@ -58,6 +56,7 @@ async def async_setup_entry(
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_schedule_descendant_backfill(hass, entry, session)
     return True
 
 
@@ -94,26 +93,44 @@ def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
 
 
-async def _async_backfill_descendants(
+@callback
+def _async_schedule_descendant_backfill(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry, session
 ) -> None:
-    """Add descendant ids to entries created before they were stored.
+    """Upgrade entries created before descendants were stored, off the hot path.
 
-    Without them a raion-level alert never reaches the oblast sensor. Best
-    effort: if the region tree is unreachable the entry keeps working with
-    ancestor-only inheritance until the next reload.
+    Runs in the background: the region endpoint is a volunteer-run proxy with a
+    30 s timeout, and waiting for it would add that delay to every restart for
+    as long as it stays unreachable.
     """
     regions: dict[str, dict[str, Any]] = entry.data.get(CONF_REGIONS, {})
     if not regions or all("descendants" in info for info in regions.values()):
         return
+    entry.async_create_background_task(
+        hass,
+        _async_backfill_descendants(hass, entry, session, regions),
+        name="region-tree-backfill",
+    )
 
+
+async def _async_backfill_descendants(
+    hass: HomeAssistant,
+    entry: UkraineAlarmProConfigEntry,
+    session,
+    regions: dict[str, dict[str, Any]],
+) -> None:
+    """Add descendant ids so a raion-level alert reaches the oblast sensor.
+
+    Writing them back triggers the update listener, which reloads the entry
+    with the completed region data.
+    """
     # Imported late: config_flow pulls in voluptuous/selectors that setup
     # does not otherwise need.
     from .config_flow import _flatten, async_fetch_regions
 
     try:
         flat = _flatten(await async_fetch_regions(session))
-    # Best effort only: a broken region tree must never block setup.
+    # Best effort only: a broken region tree must never break the entry.
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning(
             "Could not refresh the region tree (%s); region alerts declared at "

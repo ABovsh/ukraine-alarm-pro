@@ -17,6 +17,10 @@ from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
 from .models import ThreatLevel, region_alerts, region_threat
 
+# Attributes land in the recorder on every state write, so the per-region
+# breakdown is capped; the full picture stays available in diagnostics.
+MAX_LISTED_ALERTS = 25
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -72,10 +76,14 @@ class RegionThreatSensor(UapEntity, SensorEntity):
             self._descendants,
         )
         return {
+            # An oblast can have a hundred subdivisions in alert at once; the
+            # full list would be written to the recorder on every push during
+            # exactly the events this integration exists for.
             "active_alerts": [
                 {"region_id": rid, "type": alert.type, "since": alert.last_update}
-                for rid, alert in found
+                for rid, alert in found[:MAX_LISTED_ALERTS]
             ],
+            "active_alert_count": len(found),
             "region_id": self._region_id,
         }
 

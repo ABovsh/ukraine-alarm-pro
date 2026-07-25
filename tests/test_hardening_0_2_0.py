@@ -462,3 +462,101 @@ async def test_staleness_entities_tick_without_new_data(
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.uap_data_stale").state == "on"
+
+
+# --- adversarial pass over the 0.2.0 diff ------------------------------------
+
+
+async def test_backfill_does_not_block_setup(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """A slow region endpoint must not add its timeout to every restart."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"regions": {"14": {"name": "Сумська область", "ancestors": []}}},
+        entry_id="slowtree",
+    )
+    entry.add_to_hass(hass)
+    released = asyncio.Event()
+
+    async def _slow_fetch(_session):
+        await released.wait()
+        return TREE
+
+    with patch(
+        "custom_components.ukraine_alarm_pro.TransportSupervisor",
+        return_value=_mock_supervisor(),
+    ), patch(
+        "custom_components.ukraine_alarm_pro.config_flow.async_fetch_regions",
+        _slow_fetch,
+    ):
+        # a blocking backfill would hang here until the fetch returns
+        assert await asyncio.wait_for(
+            hass.config_entries.async_setup(entry.entry_id), timeout=5
+        )
+        assert hass.states.get("sensor.uap_14_threat") is not None
+        released.set()
+        await hass.async_block_till_done()
+
+    assert entry.data["regions"]["14"]["descendants"] == ["114", "703"]
+
+
+async def test_watchdog_leaves_the_socket_alone_in_poll_mode():
+    ws = _StubWs()
+    sup = TransportSupervisor(
+        ws=ws, poll=AsyncMock(), stale_after=0.01, watchdog_interval=0.01
+    )
+    sup._emit(Snapshot())
+    sup._set_mode(MODE_POLL)
+    await sup.start()
+    await asyncio.sleep(0.05)
+    closes_during_run = ws.closed
+    await sup.stop()
+    assert closes_during_run == 0, "closing the WS does not restart polling"
+
+
+async def test_region_attributes_are_capped(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    from custom_components.ukraine_alarm_pro.sensor import MAX_LISTED_ALERTS
+
+    total = MAX_LISTED_ALERTS + 5
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "regions": {
+                "14": {
+                    "name": "Сумська область",
+                    "ancestors": [],
+                    "descendants": [str(i) for i in range(total)],
+                }
+            }
+        },
+        entry_id="bigoblast",
+    )
+    entry.add_to_hass(hass)
+    sup = _mock_supervisor()
+    with patch(
+        "custom_components.ukraine_alarm_pro.TransportSupervisor", return_value=sup
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    sup.set_listener.call_args[0][0](
+        parse_alert_payload(
+            {
+                "alerts": [
+                    {
+                        "regionId": str(i),
+                        "activeAlerts": [{"type": "AIR", "lastUpdate": "t"}],
+                    }
+                    for i in range(total)
+                ]
+            }
+        )
+    )
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.uap_14_threat")
+    assert state.state == "air"
+    assert state.attributes["active_alert_count"] == total
+    assert len(state.attributes["active_alerts"]) == MAX_LISTED_ALERTS

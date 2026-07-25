@@ -172,12 +172,19 @@ class TransportSupervisor:
             age = self.seconds_since_snapshot
             if age is None or age < self._stale_after:
                 continue
-            _LOGGER.warning(
-                "No alert data for %.0fs — restarting the %s transport", age, self.mode
-            )
             # Reset the clock so a permanently dead feed warns once per window
             # instead of on every watchdog tick.
             self._last_snapshot = time.monotonic()
+            if self.mode != MODE_WS:
+                # The poll loop retries on its own schedule and owns no socket
+                # to drop — closing the WS here would fix nothing.
+                _LOGGER.warning(
+                    "No alert data for %.0fs while polling — the feed itself "
+                    "looks unavailable",
+                    age,
+                )
+                continue
+            _LOGGER.warning("No alert data for %.0fs — reconnecting the WebSocket", age)
             try:
                 await self._ws.close()
             except Exception:  # the watchdog must never die

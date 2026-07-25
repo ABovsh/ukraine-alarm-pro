@@ -17,6 +17,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 - The WebSocket read loop now reports a clean transport error instead of an unexpected
   internal error when the connection is closed underneath it.
 - A malformed or self-referential region tree can no longer crash the configuration flow.
+- Upgrading an older configuration no longer waits for the region endpoint during startup —
+  it runs in the background, so an unreachable endpoint cannot slow down every restart.
+- The watchdog no longer claims to restart the polling transport (it only ever restarted the
+  WebSocket); while polling, it now reports that the feed itself is unavailable.
 
 ### ✨ Added
 
@@ -30,6 +34,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Diagnostics download** with transport state, configured regions and active alerts.
 - Unknown alert types are logged once with a warning so they can be mapped later.
 - `sensor.uap_active_regions` now lists the counted regions in a `region_ids` attribute.
+- Region sensors expose `active_alert_count`; the `active_alerts` list is capped at 25
+  entries so a country-wide attack does not flood the recorder.
 
 ### 🔧 Changed
 
