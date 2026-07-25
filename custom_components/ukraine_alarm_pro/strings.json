@@ -5,12 +5,37 @@
         "title": "Ukraine Alarm Pro",
         "data": {
           "regions": "Regions to monitor"
+        },
+        "data_description": {
+          "regions": "Pick any level: an oblast also reports alerts declared for its raions and hromadas."
         }
       }
     },
     "abort": {
       "cannot_connect": "Could not fetch the region list",
       "single_instance_allowed": "Already configured. Only a single instance is possible."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Monitored regions",
+        "data": {
+          "regions": "Regions to monitor"
+        },
+        "data_description": {
+          "regions": "Entities are rebuilt on save; entities of removed regions have to be deleted manually."
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Could not fetch the region list"
+    }
+  },
+  "issues": {
+    "websocket_unavailable": {
+      "title": "Alert WebSocket unavailable",
+      "description": "The push connection to the official alert map failed, so alerts are being polled every 60 seconds instead of arriving in about a second. The integration keeps probing the WebSocket and clears this issue once it is back."
     }
   },
   "entity": {

@@ -7,21 +7,21 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_REGIONS, DOMAIN
-from .coordinator import AlarmCoordinator
-from .entity import UapEntity
-from .models import ThreatLevel, region_threat
+from . import UkraineAlarmProConfigEntry
+from .const import CONF_REGIONS
+from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
+from .models import ThreatLevel, region_alerts, region_threat
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: UkraineAlarmProConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: AlarmCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     entities: list[SensorEntity] = [
         RegionThreatSensor(coordinator, entry.entry_id, rid, info)
         for rid, info in entry.data[CONF_REGIONS].items()
@@ -33,7 +33,7 @@ async def async_setup_entry(
 
 
 class RegionThreatSensor(UapEntity, SensorEntity):
-    """Highest active threat in a region (inheriting from ancestors)."""
+    """Highest active threat in a region (any administrative level)."""
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = [level.value for level in ThreatLevel]
@@ -43,6 +43,7 @@ class RegionThreatSensor(UapEntity, SensorEntity):
         super().__init__(coordinator, entry_id)
         self._region_id = region_id
         self._ancestors = info["ancestors"]
+        self._descendants = info.get("descendants", [])
         self._attr_name = f"{info['name']} threat"
         self._attr_unique_id = f"{entry_id}_{region_id}_threat"
         self.entity_id = f"sensor.uap_{region_id}_threat"
@@ -52,26 +53,34 @@ class RegionThreatSensor(UapEntity, SensorEntity):
         if self.coordinator.data is None:
             return None
         return region_threat(
-            self.coordinator.data, self._region_id, self._ancestors
+            self.coordinator.data,
+            self._region_id,
+            self._ancestors,
+            self._descendants,
         ).value
 
     @property
     def extra_state_attributes(self):
         if self.coordinator.data is None:
             return {}
-        alerts = []
-        for rid in [self._region_id, *self._ancestors]:
-            alerts.extend(
-                {"region_id": rid, "type": a.type, "since": a.last_update}
-                for a in self.coordinator.data.regions.get(rid, [])
-            )
-        return {"active_alerts": alerts, "region_id": self._region_id}
+        found = region_alerts(
+            self.coordinator.data,
+            self._region_id,
+            self._ancestors,
+            self._descendants,
+        )
+        return {
+            "active_alerts": [
+                {"region_id": rid, "type": alert.type, "since": alert.last_update}
+                for rid, alert in found
+            ],
+            "region_id": self._region_id,
+        }
 
 
-class TransportSensor(UapEntity, SensorEntity):
+class TransportSensor(UapDiagnosticEntity, SensorEntity):
     """Which transport is feeding data: websocket or polling."""
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_name = "Transport"
 
     def __init__(self, coordinator, entry_id) -> None:
@@ -84,10 +93,9 @@ class TransportSensor(UapEntity, SensorEntity):
         return self.coordinator.supervisor.mode
 
 
-class ActiveRegionsSensor(UapEntity, SensorEntity):
+class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):
     """Country-wide count of regions with any active alert."""
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_name = "Active regions"
 
@@ -102,11 +110,23 @@ class ActiveRegionsSensor(UapEntity, SensorEntity):
             return None
         return self.coordinator.data.active_region_count
 
+    @property
+    def extra_state_attributes(self):
+        if self.coordinator.data is None:
+            return {}
+        # Occupied regions carry permanent alerts (Luhansk oblast since 2022,
+        # Crimea since 2022), so this count never returns to zero — listing the
+        # ids makes that visible instead of looking like a stuck sensor.
+        return {
+            "region_ids": sorted(
+                rid for rid, alerts in self.coordinator.data.regions.items() if alerts
+            )
+        }
 
-class LastUpdateSensor(UapEntity, SensorEntity):
+
+class LastUpdateSensor(UapStalenessEntity, SensorEntity):
     """Timestamp of the last received snapshot — staleness indicator."""
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_name = "Last update"
 

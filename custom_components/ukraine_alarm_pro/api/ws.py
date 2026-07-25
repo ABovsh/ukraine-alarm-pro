@@ -81,7 +81,10 @@ class WsTransport:
 
         try:
             while True:
-                msg = await self._ws.receive()
+                # `ws`, not `self._ws`: close() (watchdog, unload) clears the
+                # attribute, and the loop must raise TransportError, not
+                # AttributeError, when the socket is pulled from under it.
+                msg = await ws.receive()
                 if msg.type != aiohttp.WSMsgType.TEXT:
                     raise TransportError(f"ws closed: {msg.type}")
                 try:

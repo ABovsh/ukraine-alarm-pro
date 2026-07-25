@@ -54,6 +54,8 @@ async def test_flow_creates_multi_region_entry(
     assert regions["703"]["name"] == "Вишнева громада"
     assert regions["703"]["ancestors"] == ["75", "14"]
     assert regions["31"]["ancestors"] == []
+    # descendants travel with the entry so an oblast sees its raions' alerts
+    assert regions["703"]["descendants"] == []
 
 
 async def test_flow_aborts_on_regions_fetch_failure(

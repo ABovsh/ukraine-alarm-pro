@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ThreatLevel(Enum):
@@ -31,6 +35,22 @@ _TYPE_MAP = {
     "NUCLEAR": ThreatLevel.NUCLEAR,
 }
 
+# An unrecognized type ranks below AIR, so on the enum sensor a concurrent
+# air-raid alert masks it (the binary sensor and the attributes still show it).
+# Warn once per new type so it gets mapped instead of sitting there unnoticed.
+_WARNED_TYPES: set[str] = set()
+
+
+def _warn_unrecognized(alert_type: str) -> None:
+    if alert_type in _WARNED_TYPES:
+        return
+    _WARNED_TYPES.add(alert_type)
+    _LOGGER.warning(
+        "Unrecognized alert type %r from the alert feed — reported as "
+        "'unrecognized'. Please report it so it can be mapped",
+        alert_type,
+    )
+
 
 @dataclass(frozen=True)
 class Alert:
@@ -41,7 +61,11 @@ class Alert:
 
     @property
     def threat(self) -> ThreatLevel:
-        return _TYPE_MAP.get(self.type, ThreatLevel.UNKNOWN)
+        level = _TYPE_MAP.get(self.type)
+        if level is None:
+            _warn_unrecognized(self.type)
+            return ThreatLevel.UNKNOWN
+        return level
 
 
 @dataclass
@@ -76,11 +100,39 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     return Snapshot(regions=regions)
 
 
-def region_threat(snap: Snapshot, region_id: str, ancestors: list[str]) -> ThreatLevel:
-    """Highest active threat for a region, inheriting from its ancestors."""
-    alerts: list[Alert] = []
-    for rid in [region_id, *ancestors]:
-        alerts.extend(snap.regions.get(rid, []))
-    if not alerts:
+def region_alerts(
+    snap: Snapshot,
+    region_id: str,
+    ancestors: Iterable[str] = (),
+    descendants: Iterable[str] = (),
+) -> list[tuple[str, Alert]]:
+    """Alerts affecting a region, as (source_region_id, alert), deduplicated.
+
+    Alerts are published at whichever administrative level they were declared
+    at, so a region is affected by its own alerts, by an ancestor's (an
+    oblast-wide raid) *and* by a descendant's (one raion of the oblast under
+    fire). The feed also repeats identical alerts sometimes — dedupe them.
+    """
+    seen: set[tuple[str, str, str]] = set()
+    found: list[tuple[str, Alert]] = []
+    for rid in [region_id, *ancestors, *descendants]:
+        for alert in snap.regions.get(rid, []):
+            key = (rid, alert.type, alert.last_update)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append((rid, alert))
+    return found
+
+
+def region_threat(
+    snap: Snapshot,
+    region_id: str,
+    ancestors: Iterable[str] = (),
+    descendants: Iterable[str] = (),
+) -> ThreatLevel:
+    """Highest active threat for a region, from any administrative level."""
+    found = region_alerts(snap, region_id, ancestors, descendants)
+    if not found:
         return ThreatLevel.NONE
-    return max((a.threat for a in alerts), key=_SEVERITY.__getitem__)
+    return max((alert.threat for _, alert in found), key=_SEVERITY.__getitem__)
