@@ -8,6 +8,19 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ukraine_alarm_pro.const import DOMAIN
 from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 
+SNAP_MULTI_THREAT = {
+    "alerts": [
+        {
+            "regionId": "14",
+            "regionType": "State",
+            "activeAlerts": [
+                {"type": "AIR", "lastUpdate": "2026-07-17T06:00:00Z"},
+                {"type": "ARTILLERY", "lastUpdate": "2026-07-17T06:05:00Z"},
+            ],
+        }
+    ]
+}
+
 ENTRY_DATA = {
     "regions": {
         "703": {"name": "Вишнева громада", "ancestors": ["75", "14"], "descendants": []},
@@ -67,3 +80,19 @@ async def test_all_clear_and_diagnostics(
     assert hass.states.get("sensor.uap_703_threat").state == "none"
     assert hass.states.get("sensor.uap_transport").state == "websocket"
     assert hass.states.get("sensor.uap_active_regions").state == "0"
+
+
+async def test_threat_sensor_lists_active_threat_types(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """Attribute lists every distinct active threat, most severe first."""
+    _, push = await _setup(hass)
+    push(parse_alert_payload(SNAP_MULTI_THREAT))
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.uap_703_threat")
+    assert state.state == "artillery"  # highest of the two
+    assert state.attributes["active_threat_types"] == "artillery,air"
+
+    quiet = hass.states.get("sensor.uap_31_threat")
+    assert quiet.attributes["active_threat_types"] == ""

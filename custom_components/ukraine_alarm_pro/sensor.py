@@ -15,7 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
-from .models import ThreatLevel, region_alerts, region_threat
+from .models import ThreatLevel, region_alerts, region_threat, threat_types
 
 # Attributes land in the recorder on every state write, so the per-region
 # breakdown is capped; the full picture stays available in diagnostics.
@@ -85,6 +85,7 @@ class RegionThreatSensor(UapEntity, SensorEntity):
                 for rid, alert in found[:MAX_LISTED_ALERTS]
             ],
             "active_alert_count": len(found),
+            "active_threat_types": ",".join(threat_types(found)),
             "region_id": self._region_id,
         }
 

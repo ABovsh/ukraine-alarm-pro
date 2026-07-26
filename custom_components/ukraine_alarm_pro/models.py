@@ -158,3 +158,13 @@ def region_threat(
     if not found:
         return ThreatLevel.NONE
     return max((alert.threat for _, alert in found), key=_SEVERITY.__getitem__)
+
+
+def threat_types(found: list[tuple[str, Alert]]) -> list[str]:
+    """Distinct threat types among alerts, most severe first."""
+    uniq = {alert.threat for _, alert in found}
+    return [
+        level.value
+        for level in sorted(uniq, key=_SEVERITY.__getitem__, reverse=True)
+        if level is not ThreatLevel.NONE
+    ]

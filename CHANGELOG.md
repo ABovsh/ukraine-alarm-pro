@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-07-26
+
+### ✨ Added
+
+- **`active_threat_types` attribute on the threat sensor.** Comma-separated
+  list of every distinct active threat type for the region, most severe
+  first (e.g. `artillery,air`). Empty string when no alert is active.
+
 ## [0.3.0] - 2026-07-25
 
 ### 🐛 Fixed
