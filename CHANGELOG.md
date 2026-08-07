@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-08-08
+
+### 🐛 Fixed
+
+- **Entities wrote state on every feed republish.** The alert feed resends the
+  same alert map every ~2.6 s; each resend updated all entities, which put
+  ~65,000 rows/day into the recorder database (measured 2026-08-07) —
+  `sensor.uap_last_update` and `binary_sensor.uap_data_stale` alone accounted
+  for it. The coordinator now compares the incoming alert map against the
+  current one and only notifies entities when it actually changed. The
+  liveness clock still advances on every push, so staleness detection is
+  unchanged.
+
 ## [0.4.0] - 2026-07-26
 
 ### ✨ Added

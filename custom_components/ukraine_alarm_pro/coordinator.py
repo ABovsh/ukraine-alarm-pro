@@ -44,7 +44,14 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         return self.data
 
     def handle_snapshot(self, snap: Snapshot) -> None:
+        # The feed republishes the same alert map every few seconds. Only the
+        # liveness clock moves then — pushing the identical snapshot at the
+        # entities wrote a recorder row per repeat (65k rows/day, measured
+        # 2026-08-07) without carrying any new information. Staleness has its
+        # own tick in entity.py, so it keeps working without these writes.
         self.last_push = dt_util.utcnow()
+        if self.data is not None and snap.active == self.data.active:
+            return
         self.async_set_updated_data(snap)
 
     def handle_mode_change(self, mode: str) -> None:
