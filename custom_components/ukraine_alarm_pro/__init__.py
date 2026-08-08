@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -55,6 +56,7 @@ async def async_setup_entry(
 
     entry.runtime_data = coordinator
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
+    _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_schedule_descendant_backfill(hass, entry, session)
     return True
@@ -75,6 +77,33 @@ async def _async_reload_entry(
 ) -> None:
     """Rebuild the entities after the region selection changed."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+@callback
+def _async_purge_deselected_regions(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Delete the entities of regions the user removed from the selection.
+
+    HA keeps registry entries for entities a platform stopped creating, so
+    without this a deselected region stayed behind as a permanently
+    unavailable sensor that had to be deleted by hand.
+    """
+    regions = entry.data.get(CONF_REGIONS, {})
+    registry = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        # Region unique ids are "<entry_id>_<region_id>_<threat|alert>"; the hub
+        # diagnostics never match, so new ones can be added without a whitelist.
+        region_id, _, kind = reg_entry.unique_id.removeprefix(
+            f"{entry.entry_id}_"
+        ).rpartition("_")
+        if region_id and kind in ("threat", "alert") and region_id not in regions:
+            _LOGGER.info(
+                "Removing %s: region %s is no longer monitored",
+                reg_entry.entity_id,
+                region_id,
+            )
+            registry.async_remove(reg_entry.entity_id)
 
 
 @callback

@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-08-08
+
+### ✨ Added
+
+- **Deselecting a region now deletes its entities.** The region list has always
+  been editable from **Settings → Devices & services → Ukraine Alarm Pro →
+  Configure**, but Home Assistant keeps registry entries for entities a platform
+  stopped creating: a removed region left `sensor.uap_<id>_threat` and
+  `binary_sensor.uap_<id>_alert` behind as permanently unavailable entities that
+  had to be hunted down in the entity registry by hand. Setup now purges the
+  entities of regions that are no longer selected.
+
 ## [0.5.1] - 2026-08-08
 
 ### 🐛 Fixed

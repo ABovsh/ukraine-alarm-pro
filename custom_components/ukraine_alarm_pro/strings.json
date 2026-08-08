@@ -24,7 +24,7 @@
           "regions": "Regions to monitor"
         },
         "data_description": {
-          "regions": "Entities are rebuilt on save; entities of removed regions have to be deleted manually."
+          "regions": "Entities are rebuilt on save; entities of removed regions are deleted automatically."
         }
       }
     },

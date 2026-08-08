@@ -102,8 +102,9 @@ condition:
 HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add integration →
 pick regions (full hromada-level list).
 
-To change the monitored regions later: integration → **Configure**. Entities are rebuilt on
-save; entities of regions you removed have to be deleted manually from the entity registry.
+To change the monitored regions later — add or remove any of them — open **Settings →
+Devices & services → Ukraine Alarm Pro → Configure** and edit the same region list. Entities
+are rebuilt on save, and entities of regions you removed are deleted automatically.
 
 ## Troubleshooting
 
