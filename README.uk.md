@@ -61,7 +61,7 @@
 | `sensor.uap_<id>_threat` | enum | `none` / `unrecognized` / `air` / `artillery` / `urban_fights` / `chemical` / `nuclear` — найвища активна загроза; атрибут `active_alerts` перелічує кожну тривогу разом із регіоном-джерелом (максимум 25 записів; справжню кількість містить `active_alert_count`) |
 | `binary_sensor.uap_<id>_alert` | safety | увімкнений, поки активна будь-яка загроза |
 | `sensor.uap_transport` | діагностична | `websocket` або `polling` |
-| `sensor.uap_last_update` | діагностична | час останнього отриманого знімка |
+| `sensor.uap_last_update` | діагностична | час останнього отриманого знімка, оновлюється не частіше разу на хвилину |
 | `sensor.uap_active_regions` | діагностична | кількість регіонів з активною тривогою по всій країні |
 | `binary_sensor.uap_data_stale` | діагностична, problem | увімкнений, якщо знімків не було 15 хвилин |
 

@@ -52,7 +52,17 @@ class UapStalenessEntity(UapDiagnosticEntity):
 
     def __init__(self, coordinator: AlarmCoordinator, entry_id: str) -> None:
         super().__init__(coordinator, entry_id)
-        self._last_stale = coordinator.is_stale
+        self._published = self._publish_key()
+
+    @callback
+    def _publish_key(self) -> object:
+        """What has to change before a tick is worth a recorder row.
+
+        The staleness verdict by default: the feed republishes the same alert
+        map every couple of seconds, and writing state on every tick stored
+        ~34k rows/day per entity without carrying any new information.
+        """
+        return self.coordinator.is_stale
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -65,18 +75,13 @@ class UapStalenessEntity(UapDiagnosticEntity):
         # A push writes state through this path, so the tick's baseline has to
         # follow it — otherwise a recovery leaves the tick comparing against a
         # verdict two transitions old and it never publishes going stale again.
-        self._last_stale = self.coordinator.is_stale
+        self._published = self._publish_key()
         super()._handle_coordinator_update()
 
     @callback
     def _async_tick(self, _now) -> None:
-        # The tick exists only to age the staleness verdict. Writing on every
-        # tick republished an unchanged state — and because `last_update` moves
-        # on each push, the recorder stored a fresh row every minute forever
-        # (~1.7k rows/day per entity on a perfectly healthy feed). Pushes still
-        # reach the entity through the coordinator listener.
-        stale = self.coordinator.is_stale
-        if stale == self._last_stale:
+        key = self._publish_key()
+        if key == self._published:
             return
-        self._last_stale = stale
+        self._published = key
         self.async_write_ha_state()

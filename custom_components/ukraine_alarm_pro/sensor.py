@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import UkraineAlarmProConfigEntry
@@ -146,6 +146,20 @@ class LastUpdateSensor(UapStalenessEntity, SensorEntity):
         super().__init__(coordinator, entry_id)
         self._attr_unique_id = f"{entry_id}_last_update"
         self.entity_id = "sensor.uap_last_update"
+
+    @callback
+    def _publish_key(self):
+        # This sensor's state *is* the push clock, so it cannot sit on the
+        # verdict alone: the feed goes hours without an alert-map change and
+        # the state froze at the last one, showing a healthy feed as long dead.
+        # Truncating to the minute caps it at ~1.4k rows/day instead of the
+        # ~34k of publishing every push; the frontend renders a live
+        # "x minutes ago" from the static state in between.
+        push = self.coordinator.last_push
+        return (
+            self.coordinator.is_stale,
+            push and push.replace(second=0, microsecond=0),
+        )
 
     @property
     def native_value(self):

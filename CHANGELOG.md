@@ -3,6 +3,23 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-08-08
+
+### 🐛 Fixed
+
+- **`sensor.uap_last_update` stopped moving on a healthy feed.** 0.5.0 stopped
+  the coordinator from notifying on an unchanged alert map and 0.5.1 stopped
+  the staleness tick from republishing an unchanged verdict — together they
+  took this sensor from ~34,000 recorder rows/day to zero, but
+  `coordinator.last_push` keeps moving every couple of seconds, so the
+  published state froze at the last alert-map change and a feed that was up
+  the whole time was displayed as hours old (measured on the live recorder
+  2026-08-08: 0 rows/h after 08:00). The staleness tick now republishes this
+  sensor when the push clock enters a new minute — ~1,400 rows/day at worst,
+  and the frontend renders a live "x minutes ago" from the static state in
+  between. `binary_sensor.uap_data_stale` is unaffected: its state is the
+  verdict, so it still publishes only on a transition.
+
 ## [0.6.0] - 2026-08-08
 
 ### ✨ Added
