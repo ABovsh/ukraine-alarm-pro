@@ -50,6 +50,10 @@ class UapDiagnosticEntity(UapEntity):
 class UapStalenessEntity(UapDiagnosticEntity):
     """Diagnostic entity whose value ages on its own."""
 
+    def __init__(self, coordinator: AlarmCoordinator, entry_id: str) -> None:
+        super().__init__(coordinator, entry_id)
+        self._last_stale = coordinator.is_stale
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(
@@ -57,5 +61,22 @@ class UapStalenessEntity(UapDiagnosticEntity):
         )
 
     @callback
+    def _handle_coordinator_update(self) -> None:
+        # A push writes state through this path, so the tick's baseline has to
+        # follow it — otherwise a recovery leaves the tick comparing against a
+        # verdict two transitions old and it never publishes going stale again.
+        self._last_stale = self.coordinator.is_stale
+        super()._handle_coordinator_update()
+
+    @callback
     def _async_tick(self, _now) -> None:
+        # The tick exists only to age the staleness verdict. Writing on every
+        # tick republished an unchanged state — and because `last_update` moves
+        # on each push, the recorder stored a fresh row every minute forever
+        # (~1.7k rows/day per entity on a perfectly healthy feed). Pushes still
+        # reach the entity through the coordinator listener.
+        stale = self.coordinator.is_stale
+        if stale == self._last_stale:
+            return
+        self._last_stale = stale
         self.async_write_ha_state()

@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-08-08
+
+### 🐛 Fixed
+
+- **The staleness tick republished unchanged state every minute.** 0.5.0 stopped
+  the coordinator from notifying entities on an unchanged alert map, but the
+  60 s tick that ages the staleness verdict still called
+  `async_write_ha_state()` unconditionally. Because `last_update` moves on every
+  push, each tick landed a fresh recorder row — `binary_sensor.uap_data_stale`
+  and `sensor.uap_last_update` were still writing ~1,700 rows/day each on a
+  perfectly healthy feed (measured 2026-08-08). The tick now publishes only when
+  the stale/healthy verdict actually changes.
+
 ## [0.5.0] - 2026-08-08
 
 ### 🐛 Fixed
