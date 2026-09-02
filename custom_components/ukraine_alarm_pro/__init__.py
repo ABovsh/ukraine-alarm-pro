@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .api.poll import PollTransport
@@ -21,6 +23,7 @@ from .const import (
     DOMAIN,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
+    SAVE_DELAY_SECONDS,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
@@ -70,6 +73,13 @@ async def async_setup_entry(
     await supervisor.start(_create_task)
 
     entry.runtime_data = coordinator
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            coordinator.async_save_now,
+            timedelta(seconds=SAVE_DELAY_SECONDS),
+        )
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -19,7 +19,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   power returning before the uplink. A stored map older than 6 hours is
   discarded rather than resurrected, and `binary_sensor.uap_data_stale` stays
   on until a transport really delivers, so a restored state is never reported
-  as confirmed.
+  as confirmed. The write is driven by a 5-minute interval rather than by the
+  pushes themselves: `Store.async_delay_save` is a trailing debounce, and a map
+  that keeps changing — which is what a mass raid looks like — would postpone
+  the write forever (verified on the live feed: 12 consecutive changes, none
+  more than ~2 minutes apart, and nothing on disk after 7 minutes).
 - **An automation blueprint**, `blueprints/automation/ukraine_alarm_pro/alert_notify.yaml`,
   with an import link in the README. It triggers only on a real `off` → `on`
   transition, so a restart mid-raid does not re-announce it, and it is guarded

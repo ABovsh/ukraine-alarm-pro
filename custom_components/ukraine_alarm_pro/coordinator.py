@@ -13,12 +13,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import (
-    DOMAIN,
-    RESTORE_MAX_AGE_SECONDS,
-    SAVE_DELAY_SECONDS,
-    STALE_AFTER_SECONDS,
-)
+from .const import DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
 from .models import Alert, Snapshot
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,6 +39,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.supervisor = supervisor
         self.last_push: datetime | None = None
         self._store = store
+        self._saved_active: dict[str, frozenset] | None = None
 
     async def async_restore(self) -> None:
         """Publish the alert map the last run ended with, if it is recent.
@@ -71,10 +67,6 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.async_set_updated_data(snap)
 
     @callback
-    def _schedule_save(self) -> None:
-        self._store.async_delay_save(self._store_data, SAVE_DELAY_SECONDS)
-
-    @callback
     def _store_data(self) -> dict[str, Any]:
         snap = self.data
         return {
@@ -89,8 +81,23 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             "names": dict(snap.names) if snap is not None else {},
         }
 
-    async def async_save_now(self) -> None:
-        """Flush the pending snapshot write (unload, and tests)."""
+    async def async_save_now(self, _now: datetime | None = None) -> None:
+        """Persist the alert map if it changed since the last write.
+
+        Driven by a fixed interval and by unload — deliberately NOT by the push
+        path. `Store.async_delay_save` is a trailing debounce: every call moves
+        the pending write further out, and the country-wide map changes every
+        couple of minutes during a mass raid, so saving on change postponed the
+        write indefinitely and nothing ever reached the disk — precisely during
+        the event this exists for.
+        """
+        snap = self.data
+        if snap is None:
+            return
+        active = snap.active
+        if active == self._saved_active:
+            return
+        self._saved_active = active
         await self._store.async_save(self._store_data())
 
     async def _async_update_data(self) -> Snapshot:
@@ -114,7 +121,6 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if self.data is not None and snap.active == self.data.active:
             return
         self.async_set_updated_data(snap)
-        self._schedule_save()
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""

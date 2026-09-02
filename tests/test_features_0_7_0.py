@@ -17,6 +17,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.ukraine_alarm_pro.const import (
     DOMAIN,
     RESTORE_MAX_AGE_SECONDS,
+    SAVE_DELAY_SECONDS,
     STALE_AFTER_SECONDS,
     STORAGE_KEY,
     STORAGE_VERSION,
@@ -206,10 +207,15 @@ async def test_ignores_a_stale_stored_snapshot(
 async def test_stores_the_snapshot_for_the_next_start(
     hass: HomeAssistant, enable_custom_integrations, hass_storage
 ):
-    entry, push = await _setup(hass)
+    _, push = await _setup(hass)
     push(parse_alert_payload(RAW))
     await hass.async_block_till_done()
-    await entry.runtime_data.async_save_now()
+
+    # Through the scheduler the integration actually uses, not a direct call.
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_SECONDS + 1)
+    )
+    await hass.async_block_till_done()
 
     stored = hass_storage[STORAGE_KEY]["data"]
     assert stored["regions"]["122"][0]["region_id"] == "122"
@@ -338,3 +344,56 @@ async def test_blueprint_does_not_fire_on_a_restored_alert(
     await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.uap_20_alert").state == "on"
     assert events == []
+
+
+async def test_a_constantly_changing_map_still_reaches_the_disk(
+    hass: HomeAssistant, enable_custom_integrations, hass_storage
+):
+    """The regression that shipped in the first cut of 0.7.0.
+
+    `Store.async_delay_save` is a trailing debounce: every call pushes the
+    pending write further out. The country-wide alert map changes every couple
+    of minutes during a mass raid — measured on the live feed 2026-09-02 — so
+    saving from the push path meant the write was postponed indefinitely and
+    the file never appeared, precisely during the event it exists for.
+    """
+    _, push = await _setup(hass)
+    now = dt_util.utcnow()
+    for minute in range(12):
+        # A different alert map every minute, well inside the save interval.
+        push(
+            parse_alert_payload(
+                {
+                    "alerts": [
+                        {
+                            "regionId": str(100 + minute),
+                            "regionName": f"Регіон {minute}",
+                            "activeAlerts": [
+                                {"type": "AIR", "lastUpdate": "2026-09-02T16:00:00Z"}
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
+        now += timedelta(seconds=60)
+        async_fire_time_changed(hass, now)
+        await hass.async_block_till_done()
+
+    assert STORAGE_KEY in hass_storage, "12 minutes of alerts and nothing saved"
+    assert hass_storage[STORAGE_KEY]["data"]["regions"]
+
+
+async def test_an_unchanged_map_is_not_rewritten(
+    hass: HomeAssistant, enable_custom_integrations, hass_storage
+):
+    _, push = await _setup(hass)
+    push(parse_alert_payload(RAW))
+    now = dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_SECONDS + 1)
+    async_fire_time_changed(hass, now)
+    await hass.async_block_till_done()
+    first = hass_storage[STORAGE_KEY]["data"]["saved_at"]
+
+    async_fire_time_changed(hass, now + timedelta(seconds=SAVE_DELAY_SECONDS + 1))
+    await hass.async_block_till_done()
+    assert hass_storage[STORAGE_KEY]["data"]["saved_at"] == first
