@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
@@ -28,22 +29,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    entities: list[SensorEntity] = [
-        RegionThreatSensor(coordinator, entry.entry_id, rid, info)
-        for rid, info in entry.data[CONF_REGIONS].items()
-    ]
+    entities: list[SensorEntity] = []
+    for rid, info in entry.data[CONF_REGIONS].items():
+        entities.append(RegionThreatSensor(coordinator, entry.entry_id, rid, info))
+        entities.append(AlertStartedSensor(coordinator, entry.entry_id, rid, info))
     entities.append(TransportSensor(coordinator, entry.entry_id))
     entities.append(ActiveRegionsSensor(coordinator, entry.entry_id))
     entities.append(LastUpdateSensor(coordinator, entry.entry_id))
     async_add_entities(entities)
 
 
-class RegionThreatSensor(UapEntity, SensorEntity):
-    """Highest active threat in a region (any administrative level)."""
-
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options: ClassVar[list[str]] = [level.value for level in ThreatLevel]
-    _attr_translation_key = "threat"
+class RegionSensor(UapEntity, SensorEntity):
+    """Sensor bound to one configured region."""
 
     def __init__(self, coordinator, entry_id, region_id, info) -> None:
         super().__init__(coordinator, entry_id)
@@ -51,7 +48,29 @@ class RegionThreatSensor(UapEntity, SensorEntity):
         self._ancestors = info["ancestors"]
         self._descendants = info.get("descendants", [])
         # The region name comes from the feed; only the suffix is translated.
+        self._region_name = info["name"]
         self._attr_translation_placeholders = {"region": info["name"]}
+
+    def _found(self):
+        if self.coordinator.data is None:
+            return None
+        return region_alerts(
+            self.coordinator.data,
+            self._region_id,
+            self._ancestors,
+            self._descendants,
+        )
+
+
+class RegionThreatSensor(RegionSensor):
+    """Highest active threat in a region (any administrative level)."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options: ClassVar[list[str]] = [level.value for level in ThreatLevel]
+    _attr_translation_key = "threat"
+
+    def __init__(self, coordinator, entry_id, region_id, info) -> None:
+        super().__init__(coordinator, entry_id, region_id, info)
         self._attr_unique_id = f"{entry_id}_{region_id}_threat"
         self.entity_id = f"sensor.uap_{region_id}_threat"
 
@@ -68,26 +87,62 @@ class RegionThreatSensor(UapEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        if self.coordinator.data is None:
+        found = self._found()
+        if found is None:
             return {}
-        found = region_alerts(
-            self.coordinator.data,
-            self._region_id,
-            self._ancestors,
-            self._descendants,
-        )
+        names = self.coordinator.data.names
         return {
             # An oblast can have a hundred subdivisions in alert at once; the
             # full list would be written to the recorder on every push during
-            # exactly the events this integration exists for.
+            # exactly the events this integration exists for. Newest first, so
+            # the cap drops the oldest declarations rather than the newest.
             "active_alerts": [
-                {"region_id": rid, "type": alert.type, "since": alert.last_update}
-                for rid, alert in found[:MAX_LISTED_ALERTS]
+                {
+                    "region_id": alert.region_id,
+                    "region_name": names.get(alert.region_id, ""),
+                    "type": alert.type,
+                    "since": alert.last_update,
+                }
+                for alert in found[:MAX_LISTED_ALERTS]
             ],
             "active_alert_count": len(found),
             "active_threat_types": ",".join(threat_types(found)),
             "region_id": self._region_id,
+            # Constant, so it costs bytes on a recorder row but never a row of
+            # its own — and it spares templates from parsing the friendly name.
+            "region_name": self._region_name,
         }
+
+
+class AlertStartedSensor(RegionSensor):
+    """When the oldest alert now affecting the region was declared.
+
+    The feed stamps every alert with its declaration time, so this survives a
+    restart and is right from the first state — unlike a duration counted from
+    when Home Assistant happened to notice.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "alert_started"
+
+    def __init__(self, coordinator, entry_id, region_id, info) -> None:
+        super().__init__(coordinator, entry_id, region_id, info)
+        self._attr_unique_id = f"{entry_id}_{region_id}_started"
+        self.entity_id = f"sensor.uap_{region_id}_alert_started"
+
+    @property
+    def native_value(self):
+        found = self._found()
+        if not found:
+            return None
+        # Parsed, not compared as text: the feed mixes whole-second and
+        # microsecond stamps, and an unparsable one must not become "now".
+        stamps = [
+            parsed
+            for alert in found
+            if (parsed := dt_util.parse_datetime(alert.last_update)) is not None
+        ]
+        return min(stamps, default=None)
 
 
 class TransportSensor(UapDiagnosticEntity, SensorEntity):

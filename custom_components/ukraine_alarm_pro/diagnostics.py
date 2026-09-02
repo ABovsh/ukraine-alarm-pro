@@ -31,7 +31,15 @@ async def async_get_config_entry_diagnostics(
         },
         "active_alerts": (
             {
-                rid: [alert.type for alert in alerts]
+                rid: [
+                    {
+                        "type": alert.type,
+                        "declared_by": alert.region_id,
+                        "declared_by_name": snapshot.names.get(alert.region_id, ""),
+                        "since": alert.last_update,
+                    }
+                    for alert in alerts
+                ]
                 for rid, alerts in snapshot.regions.items()
                 if alerts
             }

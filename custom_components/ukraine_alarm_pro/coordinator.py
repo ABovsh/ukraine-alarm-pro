@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from datetime import datetime
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STALE_AFTER_SECONDS
-from .models import Snapshot
+from .const import (
+    DOMAIN,
+    RESTORE_MAX_AGE_SECONDS,
+    SAVE_DELAY_SECONDS,
+    STALE_AFTER_SECONDS,
+)
+from .models import Alert, Snapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,7 +28,11 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
     """Holds the latest snapshot; updates are pushed, never polled."""
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, supervisor
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        supervisor,
+        store: Store,
     ) -> None:
         super().__init__(
             hass,
@@ -31,6 +43,55 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         )
         self.supervisor = supervisor
         self.last_push: datetime | None = None
+        self._store = store
+
+    async def async_restore(self) -> None:
+        """Publish the alert map the last run ended with, if it is recent.
+
+        `last_push` deliberately stays unset: the map was restored, not
+        received, so `binary_sensor.uap_data_stale` reports it as untrustworthy
+        until a transport actually delivers. Entities still come up with the
+        last known state instead of `unavailable`, which is what an automation
+        reading them during a post-blackout restart needs.
+        """
+        stored = await self._store.async_load()
+        if not isinstance(stored, dict):
+            return
+        saved_at = dt_util.parse_datetime(str(stored.get("saved_at", "")))
+        if saved_at is None:
+            return
+        age = (dt_util.utcnow() - saved_at).total_seconds()
+        if not 0 <= age <= RESTORE_MAX_AGE_SECONDS:
+            _LOGGER.debug("Stored alert map is %.0fs old — starting blank", age)
+            return
+        snap = _snapshot_from_store(stored)
+        if snap is None:
+            return
+        _LOGGER.debug("Restored the alert map saved %.0fs ago", age)
+        self.async_set_updated_data(snap)
+
+    @callback
+    def _schedule_save(self) -> None:
+        self._store.async_delay_save(self._store_data, SAVE_DELAY_SECONDS)
+
+    @callback
+    def _store_data(self) -> dict[str, Any]:
+        snap = self.data
+        return {
+            "saved_at": dt_util.utcnow().isoformat(),
+            "regions": {
+                rid: [asdict(alert) for alert in alerts]
+                for rid, alerts in snap.regions.items()
+                if alerts
+            }
+            if snap is not None
+            else {},
+            "names": dict(snap.names) if snap is not None else {},
+        }
+
+    async def async_save_now(self) -> None:
+        """Flush the pending snapshot write (unload, and tests)."""
+        await self._store.async_save(self._store_data())
 
     async def _async_update_data(self) -> Snapshot:
         """Serve the pushed snapshot back.
@@ -53,6 +114,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if self.data is not None and snap.active == self.data.active:
             return
         self.async_set_updated_data(snap)
+        self._schedule_save()
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""
@@ -70,3 +132,31 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         """True when the feed went quiet — displayed state can't be trusted."""
         age = self.seconds_since_push
         return age is None or age > STALE_AFTER_SECONDS
+
+
+def _snapshot_from_store(stored: dict[str, Any]) -> Snapshot | None:
+    """Rebuild a snapshot from disk, ignoring anything malformed."""
+    raw = stored.get("regions")
+    if not isinstance(raw, dict):
+        return None
+    regions: dict[str, list[Alert]] = {}
+    for rid, alerts in raw.items():
+        if not isinstance(alerts, list):
+            continue
+        regions[str(rid)] = [
+            Alert(
+                type=str(a.get("type", "")),
+                last_update=str(a.get("last_update", "")),
+                region_id=str(a.get("region_id", "")),
+                region_type=str(a.get("region_type", "")),
+            )
+            for a in alerts
+            if isinstance(a, dict)
+        ]
+    names = stored.get("names")
+    return Snapshot(
+        regions=regions,
+        names={str(k): str(v) for k, v in names.items()}
+        if isinstance(names, dict)
+        else {},
+    )

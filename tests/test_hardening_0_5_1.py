@@ -15,11 +15,17 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ukraine_alarm_pro.binary_sensor import DataStaleBinarySensor
-from custom_components.ukraine_alarm_pro.const import DOMAIN, STALE_AFTER_SECONDS
+from custom_components.ukraine_alarm_pro.const import (
+    DOMAIN,
+    STALE_AFTER_SECONDS,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+)
 from custom_components.ukraine_alarm_pro.coordinator import AlarmCoordinator
 from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 from custom_components.ukraine_alarm_pro.sensor import LastUpdateSensor
@@ -30,10 +36,15 @@ SNAP = parse_alert_payload(
 )
 
 
+def _store(hass):
+    """Real Store: the coordinator persists the alert map for restarts."""
+    return Store(hass, STORAGE_VERSION, STORAGE_KEY)
+
+
 def _coordinator(hass: HomeAssistant) -> AlarmCoordinator:
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
-    return AlarmCoordinator(hass, entry, MagicMock())
+    return AlarmCoordinator(hass, entry, MagicMock(), _store(hass))
 
 
 def _entities(coordinator):

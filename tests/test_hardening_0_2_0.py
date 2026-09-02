@@ -9,6 +9,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -23,6 +24,8 @@ from custom_components.ukraine_alarm_pro.const import (
     DOMAIN,
     ISSUE_WS_UNAVAILABLE,
     STALE_AFTER_SECONDS,
+    STORAGE_KEY,
+    STORAGE_VERSION,
 )
 from custom_components.ukraine_alarm_pro.coordinator import AlarmCoordinator
 from custom_components.ukraine_alarm_pro.models import (
@@ -61,6 +64,11 @@ RAION_AIR = parse_alert_payload(
         ]
     }
 )
+
+
+def _store(hass):
+    """Real Store: the coordinator persists the alert map for restarts."""
+    return Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
 ENTRY_DATA = {
     "regions": {
@@ -142,7 +150,7 @@ def test_flatten_survives_a_self_referential_tree():
 async def test_manual_refresh_returns_the_pushed_snapshot(hass: HomeAssistant):
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
-    coordinator = AlarmCoordinator(hass, entry, MagicMock())
+    coordinator = AlarmCoordinator(hass, entry, MagicMock(), _store(hass))
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
@@ -154,7 +162,7 @@ async def test_manual_refresh_returns_the_pushed_snapshot(hass: HomeAssistant):
 async def test_coordinator_reports_staleness(hass: HomeAssistant):
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
-    coordinator = AlarmCoordinator(hass, entry, MagicMock())
+    coordinator = AlarmCoordinator(hass, entry, MagicMock(), _store(hass))
 
     assert coordinator.is_stale is True  # nothing received yet
     coordinator.handle_snapshot(Snapshot())
@@ -349,7 +357,18 @@ async def test_diagnostics_dump_has_no_secrets(
     dump = await async_get_config_entry_diagnostics(hass, entry)
     assert dump["transport"]["mode"] == "websocket"
     assert dump["configured_regions"]["14"]["descendant_count"] == 2
-    assert dump["active_alerts"] == {"114": ["AIR"]}
+    # The dump is the uncapped picture behind the capped sensor attribute, so
+    # it has to name who declared each alert and when.
+    assert dump["active_alerts"] == {
+        "114": [
+            {
+                "type": "AIR",
+                "declared_by": "114",
+                "declared_by_name": "",
+                "since": "2026-07-25T06:00:00Z",
+            }
+        ]
+    }
 
 
 # --- options flow ------------------------------------------------------------

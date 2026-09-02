@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.3.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.7.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ABovsh_ukraine-alarm-pro)
@@ -58,20 +58,34 @@
 
 | Сутність | Тип | Примітки |
 | --- | --- | --- |
-| `sensor.uap_<id>_threat` | enum | `none` / `unrecognized` / `air` / `artillery` / `urban_fights` / `chemical` / `nuclear` — найвища активна загроза; атрибут `active_alerts` перелічує кожну тривогу разом із регіоном-джерелом (максимум 25 записів; справжню кількість містить `active_alert_count`) |
+| `sensor.uap_<id>_threat` | enum | `none` / `unrecognized` / `air` / `artillery` / `urban_fights` / `chemical` / `nuclear` — найвища активна загроза; атрибут `active_alerts` перелічує тривоги від найновішої, кожну — з регіоном, який її **оголосив**, за id та назвою (максимум 25 записів; справжню кількість містить `active_alert_count`) |
 | `binary_sensor.uap_<id>_alert` | safety | увімкнений, поки активна будь-яка загроза |
+| `sensor.uap_<id>_alert_started` | timestamp | час оголошення найдавнішої з тривог, що зараз діють на регіон; `unknown`, поки в регіоні тихо |
 | `sensor.uap_transport` | діагностична | `websocket` або `polling` |
 | `sensor.uap_last_update` | діагностична | час останнього отриманого знімка, оновлюється не частіше разу на хвилину |
 | `sensor.uap_active_regions` | діагностична | кількість регіонів з активною тривогою по всій країні |
 | `binary_sensor.uap_data_stale` | діагностична, problem | увімкнений, якщо знімків не було 15 хвилин |
 
+### Скільки вже триває тривога
+
+`sensor.uap_<id>_alert_started` містить момент, коли тривогу **оголосили** за даними
+джерела, а не коли її помітив Home Assistant. Саме в цьому суть: значення правильне вже в
+першому стані після перезапуску і лишається правильним для тривоги, оголошеної для вашого
+району за годину до того, як ви його обрали. Інтерфейс сам малює з нього живе «годину
+тому», а шаблон отримує тривалість як
+`now() - states('sensor.uap_31_alert_started') | as_datetime`.
+
 Два зауваження щодо самих даних:
 
 - `sensor.uap_active_regions` ніколи не дорівнює 0 — окуповані території (Луганська область,
-  Автономна Республіка Крим) у джерелі мають постійно активні тривоги. Атрибут `region_ids`
-  показує, які саме регіони враховано.
+  Автономна Республіка Крим) у джерелі мають постійно активні тривоги. Які саме регіони
+  враховано, показує діагностика запису конфігурації.
 - Невідомий інтеграції тип тривоги показується як `unrecognized` і один раз потрапляє в лог
   із попередженням, щоб його додали в наступному релізі.
+- З тієї ж причини `sensor.uap_<id>_alert_started` для області, що містить постійно
+  «тривожний» регіон, назавжди прив'язаний до старої дати — найдавніша тривога, яка діє на
+  Харківську область, і справді оголошена у 2024 році. Обирайте свій район чи громаду
+  замість такої області, і сенсор показуватиме справжню тривогу.
 
 ## Надійність
 
@@ -90,6 +104,12 @@
   розібрати, вважається помилкою транспорту, а не «тривог ніде немає».
 - **Без хибного «відбою».** Сутності зберігають останній відомий стан, поки транспорт
   недоступний; `binary_sensor.uap_data_stale` показує, коли цьому стану вже не можна довіряти.
+- **Переживає перезапуск разом зі світлом.** Карта тривог зберігається на диск і
+  публікується на старті, тож регіональні сутності піднімаються з останнім відомим станом,
+  а не `unavailable` — саме той випадок, який в Україні і трапляється: світло вже є, а
+  зв'язку ще немає. Карта, старша за 6 годин, відкидається, а поки транспорт справді не
+  віддасть дані, `binary_sensor.uap_data_stale` лишається увімкненим: відновлений стан ще
+  не підтверджений.
 
 Рекомендована умова для автоматизацій:
 
@@ -99,6 +119,25 @@ condition:
     entity_id: binary_sensor.uap_data_stale
     state: "off"
 ```
+
+## Blueprint для автоматизацій
+
+У репозиторії є готовий blueprint, який виконує одну дію на початку тривоги і другу на
+відбій —
+[**імпортувати**](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml)
+або вставте це посилання у **Налаштування → Автоматизації та сцени → Blueprints → Імпорт**.
+В обидві дії підходить будь-що: сповіщення на телефон, Telegram, оголошення через TTS,
+сирена.
+
+Він потрібен насамперед заради двох речей, які легко зробити неправильно вручну:
+
+- спрацьовує лише на справжньому переході `off` → `on`, тож перезапуск Home Assistant
+  посеред тривоги не оголошує її вдруге, і повернення сутності з `unavailable` — теж
+- захищений умовою по `binary_sensor.uap_data_stale`, тож карта тривог, що з'явилася без
+  свіжого push, ніколи не буде оголошена як нова тривога
+
+Обидві дії можуть використовувати `region`, `threat`, `threat_types`, `started`,
+`started_local`, `duration` і готовий `message`.
 
 ## Встановлення
 

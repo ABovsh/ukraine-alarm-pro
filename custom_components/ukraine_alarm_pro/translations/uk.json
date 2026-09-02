@@ -52,6 +52,9 @@
         },
         "name": "{region}: загроза"
       },
+      "alert_started": {
+        "name": "{region}: початок тривоги"
+      },
       "transport": {
         "name": "Канал даних"
       },

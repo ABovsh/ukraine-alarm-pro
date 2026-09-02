@@ -3,6 +3,55 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-09-02
+
+### ✨ Added
+
+- **`sensor.uap_<id>_alert_started` — when the alert was declared.** Both feeds
+  stamp every alert with its declaration time and the integration was dropping
+  it into an attribute string. As a timestamp entity it is correct on the first
+  state after a restart and correct for an alert declared before the region was
+  selected, which a duration counted from when Home Assistant noticed the alert
+  is not. `unknown` while the region is quiet.
+- **The alert map survives a restart.** It is written to `.storage` and
+  republished at startup, so the region entities come up with the last known
+  state instead of `unavailable` — the case that actually happens here is the
+  power returning before the uplink. A stored map older than 6 hours is
+  discarded rather than resurrected, and `binary_sensor.uap_data_stale` stays
+  on until a transport really delivers, so a restored state is never reported
+  as confirmed.
+- **An automation blueprint**, `blueprints/automation/ukraine_alarm_pro/alert_notify.yaml`,
+  with an import link in the README. It triggers only on a real `off` → `on`
+  transition, so a restart mid-raid does not re-announce it, and it is guarded
+  by `binary_sensor.uap_data_stale`. Both actions get `region`, `threat`,
+  `threat_types`, `started`, `started_local`, `duration` and a ready `message`.
+
+### 🐛 Fixed
+
+- **One declared alert was counted once per region it reached.** Alerts are
+  deduplicated by the region they were found under, but an affected region
+  repeats its ancestor's alert verbatim, so a raion-wide raid was counted again
+  for every hromada below it that echoed it. Measured against the live feed on
+  2026-09-02, Харківська область reported `active_alert_count: 12` for 10
+  distinct alerts. The key is now the region that *declared* the alert.
+- **`region_id` in `active_alerts` named the wrong region** — where the alert
+  was found, not who declared it.
+- **README.uk.md documented `region_ids`** on `sensor.uap_active_regions`, an
+  attribute 0.6.2 removed.
+
+### ⚠️ Breaking
+
+- `active_alerts` entries changed shape: `region_id` is now the region that
+  declared the alert (it used to be the region it was found under), and each
+  entry gains `region_name`. The list is ordered newest declaration first, so
+  the 25-entry cap drops the oldest rather than an arbitrary slice.
+- `sensor.uap_<id>_threat` gains a constant `region_name` attribute. It costs
+  bytes on a recorder row but never a row of its own, and it saves templates
+  from parsing the friendly name.
+- The config entry's diagnostics dump lists each active alert as an object
+  (`type`, `declared_by`, `declared_by_name`, `since`) instead of a bare type
+  string.
+
 ## [0.6.2] - 2026-09-02
 
 ### 🏗️ Packaging

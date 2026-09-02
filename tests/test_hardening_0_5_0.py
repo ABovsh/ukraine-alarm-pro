@@ -10,10 +10,15 @@ from datetime import timedelta
 from unittest.mock import MagicMock
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ukraine_alarm_pro.const import DOMAIN
+from custom_components.ukraine_alarm_pro.const import (
+    DOMAIN,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+)
 from custom_components.ukraine_alarm_pro.coordinator import AlarmCoordinator
 from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 
@@ -32,13 +37,18 @@ SNAP_SAME = parse_alert_payload(
         ]
     }
 )
+
+
+def _store(hass):
+    """Real Store: the coordinator persists the alert map for restarts."""
+    return Store(hass, STORAGE_VERSION, STORAGE_KEY)
 SNAP_OTHER = parse_alert_payload({"alerts": [{"regionId": "31", "activeAlerts": []}]})
 
 
 def _coordinator(hass: HomeAssistant) -> AlarmCoordinator:
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
-    return AlarmCoordinator(hass, entry, MagicMock())
+    return AlarmCoordinator(hass, entry, MagicMock(), _store(hass))
 
 
 async def test_repeated_snapshot_does_not_notify_listeners(hass: HomeAssistant):

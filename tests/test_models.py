@@ -37,8 +37,13 @@ def test_parse_alert_payload_builds_snapshot():
     snap = parse_alert_payload(RAW)
     assert isinstance(snap, Snapshot)
     assert set(snap.regions) == {"31", "703"}
-    assert snap.regions["31"][0] == Alert(type="AIR", last_update="2026-07-17T06:00:00Z")
+    assert snap.regions["31"][0] == Alert(
+        type="AIR",
+        last_update="2026-07-17T06:00:00Z",
+        region_id="31",
+    )
     assert len(snap.regions["31"]) == 2
+    assert snap.names["31"] == "м. Київ"
 
 
 def test_parse_unknown_alert_type_maps_to_unknown():

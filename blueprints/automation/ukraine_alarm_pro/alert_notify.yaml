@@ -1,0 +1,136 @@
+blueprint:
+  name: Ukraine Alarm Pro — air-raid alert notification
+  description: >-
+    Runs one action when an air-raid alert starts in your region and another
+    when it ends, with the declared start time and the duration ready to use.
+
+
+    Two mistakes this avoids by construction. It never fires on a Home
+    Assistant restart, because it triggers only on a real `off` → `on`
+    transition — not on the entity coming back with a restored state. And it
+    stays silent while `binary_sensor.uap_data_stale` is on, so a dead feed
+    is never reported as an all-clear.
+
+
+    Both actions can use these variables: `region`, `threat`, `threat_types`,
+    `started` (declared start, ISO), `started_local` (HH:MM), `duration`
+    (`1 h 12 min`, clear action only) and the ready-made `message`.
+  domain: automation
+  source_url: https://github.com/ABovsh/ukraine-alarm-pro/blob/main/blueprints/automation/ukraine_alarm_pro/alert_notify.yaml
+  input:
+    entities:
+      name: Region
+      icon: mdi:map-marker-alert
+      collapsed: false
+      input:
+        alert_sensor:
+          name: Alert sensor
+          description: The region's `binary_sensor.uap_<id>_alert`.
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: binary_sensor
+        threat_sensor:
+          name: Threat sensor
+          description: The same region's `sensor.uap_<id>_threat`.
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: sensor
+        started_sensor:
+          name: Alert start sensor
+          description: The same region's `sensor.uap_<id>_alert_started`.
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: sensor
+        stale_sensor:
+          name: Feed health sensor
+          description: >-
+            Leave the default unless you renamed it. While this is on, the
+            alert state is not trustworthy and nothing is sent.
+          default: binary_sensor.uap_data_stale
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: binary_sensor
+    actions:
+      name: What to do
+      icon: mdi:bell-ring
+      collapsed: false
+      input:
+        on_alert:
+          name: When the alert starts
+          description: >-
+            For example a notification with `message: "{{ message }}"`.
+          selector:
+            action:
+        on_clear:
+          name: When the alert ends
+          selector:
+            action:
+
+mode: queued
+max: 5
+
+triggers:
+  # Explicit from/to: a restart that brings the entity back with its restored
+  # state is not a transition, so this cannot fire on startup.
+  - trigger: state
+    entity_id: !input alert_sensor
+    from: "off"
+    to: "on"
+    id: started
+  - trigger: state
+    entity_id: !input alert_sensor
+    from: "on"
+    to: "off"
+    id: cleared
+
+conditions:
+  - condition: state
+    entity_id: !input stale_sensor
+    state: "off"
+
+variables:
+  threat_entity: !input threat_sensor
+  started_entity: !input started_sensor
+  region: >-
+    {{ state_attr(threat_entity, 'region_name')
+       | default(state_attr(threat_entity, 'friendly_name'), true) }}
+  threat: "{{ states(threat_entity) }}"
+  threat_types: "{{ state_attr(threat_entity, 'active_threat_types') | default('', true) }}"
+  started: "{{ states(started_entity) }}"
+  started_local: >-
+    {% set d = states(started_entity) | as_datetime %}
+    {{ (d | as_local).strftime('%H:%M') if d else '' }}
+  # On the clear trigger the alert sensors have already gone quiet, so the
+  # length of the alert comes from how long the sensor itself stood at "on".
+  duration: >-
+    {% set secs = (now() - trigger.from_state.last_changed).total_seconds()
+       if trigger is defined and trigger.from_state else 0 %}
+    {% set h = (secs // 3600) | int %}
+    {% set m = ((secs % 3600) // 60) | int %}
+    {{ (h ~ ' h ' ~ m ~ ' min') if h else (m ~ ' min') }}
+  message: >-
+    {% if trigger.id == 'started' %}
+    {{ region }}: {{ threat_types if threat_types else threat }}
+    {{- (' (declared ' ~ started_local ~ ')') if started_local else '' }}
+    {% else %}
+    {{ region }}: all clear, {{ duration }}
+    {% endif %}
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: started
+        sequence: !input on_alert
+      - conditions:
+          - condition: trigger
+            id: cleared
+        sequence: !input on_clear

@@ -52,6 +52,9 @@
         },
         "name": "{region} threat"
       },
+      "alert_started": {
+        "name": "{region} alert started"
+      },
       "transport": {
         "name": "Transport"
       },

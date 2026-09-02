@@ -54,10 +54,16 @@ def _warn_unrecognized(alert_type: str) -> None:
 
 @dataclass(frozen=True)
 class Alert:
-    """One active alert in a region."""
+    """One active alert, as declared by `region_id`.
+
+    An affected region repeats its ancestor's alert verbatim, so the declaring
+    region — not the region the alert was found under — is what identifies it.
+    """
 
     type: str
     last_update: str
+    region_id: str = ""
+    region_type: str = ""
 
     @property
     def threat(self) -> ThreatLevel:
@@ -73,6 +79,9 @@ class Snapshot:
     """Active alerts across all regions at one point in time."""
 
     regions: dict[str, list[Alert]] = field(default_factory=dict)
+    # Region names as the feed spells them, for display in attributes. Both
+    # transports carry them, so no separate region-tree request is needed.
+    names: dict[str, str] = field(default_factory=dict)
 
     @property
     def active_region_count(self) -> int:
@@ -107,19 +116,29 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
             f"unrecognized alert payload: {type(raw).__name__}"
         )
     regions: dict[str, list[Alert]] = {}
+    names: dict[str, str] = {}
     for region in items:
         if not isinstance(region, dict):
             continue
         region_id = str(region.get("regionId", ""))
         if not region_id:
             continue
+        name = region.get("regionName")
+        if name:
+            names[region_id] = str(name)
         active = region.get("activeAlerts")
         regions[region_id] = [
-            Alert(type=a.get("type", ""), last_update=a.get("lastUpdate", ""))
+            Alert(
+                type=a.get("type", ""),
+                last_update=a.get("lastUpdate", ""),
+                # An alert with no region of its own was declared by its container.
+                region_id=str(a.get("regionId") or region_id),
+                region_type=str(a.get("regionType") or ""),
+            )
             for a in (active if isinstance(active, list) else [])
             if isinstance(a, dict)
         ]
-    return Snapshot(regions=regions)
+    return Snapshot(regions=regions, names=names)
 
 
 def region_alerts(
@@ -127,23 +146,28 @@ def region_alerts(
     region_id: str,
     ancestors: Iterable[str] = (),
     descendants: Iterable[str] = (),
-) -> list[tuple[str, Alert]]:
-    """Alerts affecting a region, as (source_region_id, alert), deduplicated.
+) -> list[Alert]:
+    """Alerts affecting a region, deduplicated, newest declaration first.
 
     Alerts are published at whichever administrative level they were declared
     at, so a region is affected by its own alerts, by an ancestor's (an
     oblast-wide raid) *and* by a descendant's (one raion of the oblast under
-    fire). The feed also repeats identical alerts sometimes — dedupe them.
+    fire). One declared alert reaches a region through every descendant that
+    repeats it, so the key is the *declaring* region: keying on the region it
+    was found under counted a single raion-wide raid once per hromada below it.
     """
     seen: set[tuple[str, str, str]] = set()
-    found: list[tuple[str, Alert]] = []
+    found: list[Alert] = []
     for rid in [region_id, *ancestors, *descendants]:
         for alert in snap.regions.get(rid, []):
-            key = (rid, alert.type, alert.last_update)
+            key = (alert.region_id, alert.type, alert.last_update)
             if key in seen:
                 continue
             seen.add(key)
-            found.append((rid, alert))
+            found.append(alert)
+    # Newest first: the attribute list is capped, and a raid that just started
+    # is what the cap must never drop.
+    found.sort(key=lambda a: a.last_update, reverse=True)
     return found
 
 
@@ -157,12 +181,12 @@ def region_threat(
     found = region_alerts(snap, region_id, ancestors, descendants)
     if not found:
         return ThreatLevel.NONE
-    return max((alert.threat for _, alert in found), key=_SEVERITY.__getitem__)
+    return max((alert.threat for alert in found), key=_SEVERITY.__getitem__)
 
 
-def threat_types(found: list[tuple[str, Alert]]) -> list[str]:
+def threat_types(found: list[Alert]) -> list[str]:
     """Distinct threat types among alerts, most severe first."""
-    uniq = {alert.threat for _, alert in found}
+    uniq = {alert.threat for alert in found}
     return [
         level.value
         for level in sorted(uniq, key=_SEVERITY.__getitem__, reverse=True)
