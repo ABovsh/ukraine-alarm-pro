@@ -122,18 +122,6 @@ class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):
             return None
         return self.coordinator.data.active_region_count
 
-    @property
-    def extra_state_attributes(self):
-        if self.coordinator.data is None:
-            return {}
-        # Occupied regions carry permanent alerts (Luhansk oblast since 2022,
-        # Crimea since 2022), so this count never returns to zero — listing the
-        # ids makes that visible instead of looking like a stuck sensor.
-        return {
-            "region_ids": sorted(
-                rid for rid, alerts in self.coordinator.data.regions.items() if alerts
-            )
-        }
 
 
 class LastUpdateSensor(UapStalenessEntity, SensorEntity):

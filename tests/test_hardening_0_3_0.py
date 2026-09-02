@@ -210,7 +210,10 @@ async def test_stale_sensor_attributes_do_not_change_between_pushes(
     await hass.async_block_till_done()
     attrs = hass.states.get("binary_sensor.uap_data_stale").attributes
     assert "seconds_since_update" not in attrs
-    assert attrs["last_update"] is not None
+    # 0.6.2: the push clock went the same way — it moved on every feed update
+    # and cost a recorder row each time. It is sensor.uap_last_update's job.
+    assert "last_update" not in attrs
+    assert hass.states.get("sensor.uap_last_update").state not in (None, "unknown")
 
 
 async def test_entity_names_come_from_translations(

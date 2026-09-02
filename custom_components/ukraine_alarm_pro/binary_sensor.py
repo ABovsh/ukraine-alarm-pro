@@ -77,10 +77,11 @@ class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self):
-        # A seconds-since counter would change on every staleness tick, writing
-        # a recorder row per minute forever; the timestamp only moves on a push.
+        # Nothing here may move on its own: Home Assistant writes a recorder row
+        # whenever the attributes differ, so a push clock or a seconds-since
+        # counter here would cost a row per feed update even though the verdict
+        # below is unchanged. The clock is its own entity, sensor.uap_last_update.
         return {
-            "last_update": self.coordinator.last_push,
             "stale_after_seconds": STALE_AFTER_SECONDS,
             "transport": self.coordinator.supervisor.mode,
         }

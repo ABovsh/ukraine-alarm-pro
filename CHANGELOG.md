@@ -3,6 +3,36 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-09-02
+
+### 🐛 Fixed
+
+- **Two entities wrote a recorder row on every country-wide map change.**
+  Measured on a live recorder over 24 h with the WebSocket up the whole time:
+  `binary_sensor.uap_data_stale` 744 rows and `sensor.uap_active_regions` 739,
+  neither of which had anything new to say. Home Assistant stores a row when the
+  state *or the attributes* differ, and both entities published a value that
+  moves whenever any of Ukraine's regions goes on or off alert.
+
+### ⚠️ Breaking
+
+- `binary_sensor.uap_data_stale` no longer publishes a `last_update` attribute.
+  It was the push clock, which moves every few seconds; the same value has its
+  own entity, `sensor.uap_last_update`. Templates reading the attribute must
+  point at that sensor instead.
+- `sensor.uap_active_regions` no longer publishes a `region_ids` attribute. It
+  was a ~66-entry list rewritten (state row and all) on every map change, even
+  while the count itself sat still. The same breakdown is in the config entry's
+  diagnostics download.
+
+### 📝 Docs
+
+- README: how to get "percentage of the day under alert" (today and rolling 7
+  days) out of core's `history_stats`, and why the integration does not ship
+  those sensors itself — `history_stats` reads the recorder history that already
+  exists, so it is correct immediately, while an in-integration counter would
+  have to start from zero.
+
 ## [0.6.1] - 2026-08-08
 
 ### 🐛 Fixed

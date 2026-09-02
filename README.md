@@ -65,10 +65,43 @@ Pick whichever level suits you — an oblast entity will not miss raion-level al
 Two notes on the data itself:
 
 - `sensor.uap_active_regions` never reaches 0 — occupied regions (Луганська область,
-  Автономна Республіка Крим) carry permanently active alerts in the official feed. The
-  `region_ids` attribute shows exactly which regions are counted.
+  Автономна Республіка Крим) carry permanently active alerts in the official feed.
+  Download the config entry's diagnostics to see exactly which regions are counted.
 - An alert type the integration does not know yet is reported as `unrecognized` and logged
   once with a warning, so it can be mapped in a later release.
+
+### How much of the day was under alert
+
+Core's [`history_stats`](https://www.home-assistant.io/integrations/history_stats/)
+already answers this, so the integration does not ship its own statistics entities: it
+reads the recorder history these entities have been writing all along, which means the
+numbers are correct the minute you add it — no waiting for a counter to fill up. Per
+region you care about, in `configuration.yaml`:
+
+```yaml
+sensor:
+  - platform: history_stats
+    name: Alarm ratio today
+    entity_id: binary_sensor.uap_31_alert   # your region id
+    state: "on"
+    type: ratio
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+
+  - platform: history_stats
+    name: Alarm ratio 7d
+    entity_id: binary_sensor.uap_31_alert
+    state: "on"
+    type: ratio
+    end: "{{ now() }}"
+    duration:
+      days: 7
+```
+
+Both come out as a percentage with `state_class: measurement`, so the 7-day one feeds
+long-term statistics and a **Statistics graph** card (period: day) plots the trend for
+several regions on one chart, well past `purge_keep_days`. `type: time` gives hours
+instead, `type: count` the number of alerts.
 
 ## Reliability
 
