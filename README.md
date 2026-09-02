@@ -133,7 +133,9 @@ condition:
 ## Install
 
 HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add integration →
-pick regions (full hromada-level list).
+pick regions (full hromada-level list). HACS installs the `ukraine_alarm_pro.zip`
+asset attached to each release, so it offers tagged versions rather than whatever
+sits on the default branch.
 
 To change the monitored regions later — add or remove any of them — open **Settings →
 Devices & services → Ukraine Alarm Pro → Configure** and edit the same region list. Entities

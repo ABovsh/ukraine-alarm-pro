@@ -1,0 +1,58 @@
+name: Release asset
+
+# HACS installs this integration from the release asset (hacs.json sets
+# zip_release + filename), so every published release MUST carry ukraine_alarm_pro.zip.
+# A release without it is not installable at all, hence this job fails loudly.
+# The zip holds the CONTENTS of custom_components/ukraine_alarm_pro at its root — HACS
+# extracts it *into* custom_components/ukraine_alarm_pro, so a nested folder would produce
+# custom_components/ukraine_alarm_pro/ukraine_alarm_pro/manifest.json and the integration would not load.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)attach ukraine_alarm_pro.zip to"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-asset-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    name: Attach ukraine_alarm_pro.zip
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+
+      - name: Build ukraine_alarm_pro.zip
+        run: |
+          set -euo pipefail
+          git archive --format=zip -o ukraine_alarm_pro.zip HEAD:custom_components/ukraine_alarm_pro
+          python3 - <<'PY'
+          import json, os, zipfile
+          z = zipfile.ZipFile("ukraine_alarm_pro.zip")
+          names = z.namelist()
+          assert "manifest.json" in names, f"manifest.json must be at the zip root, got {names[:5]}"
+          version = json.loads(z.read("manifest.json"))["version"]
+          tag = os.environ["TAG"].lstrip("v")
+          assert version == tag, f"manifest version {version} does not match tag {tag}"
+          print(f"ukraine_alarm_pro.zip: {len(names)} files, version {version}")
+          PY
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" ukraine_alarm_pro.zip --clobber --repo "$GITHUB_REPOSITORY"

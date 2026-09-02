@@ -5,6 +5,15 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [0.6.2] - 2026-09-02
 
+### 🏗️ Packaging
+
+- **Distributed as a release asset.** `hacs.json` now sets `zip_release` with
+  `ukraine_alarm_pro.zip`, and a workflow builds that zip from the tag and
+  attaches it to every published release (it fails if the manifest version and
+  the tag disagree). HACS installs tagged versions instead of tracking the
+  default branch, and the asset's download counter shows how many installs the
+  integration actually has.
+
 ### 🐛 Fixed
 
 - **Two entities wrote a recorder row on every country-wide map change.**
