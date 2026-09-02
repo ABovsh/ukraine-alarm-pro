@@ -12,30 +12,49 @@
 
 **English** · [Українська](README.uk.md)
 
-Air-raid alert integration for Home Assistant with **push updates** — delivered as soon as
-the source publishes them, not on a poll cycle — over the
-anonymous WebSocket behind the official [alert map](https://map.ukrainealarm.com/) — no API
-key required — with automatic fallback to siren.pp.ua polling when the WebSocket is down.
+> Air-raid alerts for Home Assistant, pushed the moment the official map publishes them —
+> no API key, no polling, and no silent oblast while its raions are under fire.
 
-## Why not core `ukraine_alarm`?
+---
 
-The core integration creates one config entry per region, each polling the volunteer-run
-siren.pp.ua proxy every 10 s (30 s request timeout), which fails intermittently when the
-proxy is under load. This integration:
+## Why this exists
 
-- **Pushes** alerts over the official map's Centrifugo WebSocket instead of polling
-- One connection serves **all** configured regions (core: one poll loop per region)
-- **Sees alerts declared below your region.** Most alerts are declared for a single raion or
-  hromada, not for the whole oblast. Matching only the exact region id leaves an oblast
-  entity silent while its raions are under an air raid — at the time of writing that was 6
-  of 29 oblasts simultaneously. Here every region also inherits alerts from its ancestors
-  **and** its descendants, so no level is a blind spot
-- Auto-degrades to that same proxy polling (60 s interval, 30 s timeout), auto-recovers to
-  the WebSocket, and tells you in **Repairs** while it is degraded
-- **Keeps the last known state when the source fails.** Core entities become `unavailable`,
-  so a template or automation reading them mid-outage sees nothing at all; here the last
-  state stays put and `binary_sensor.uap_data_stale` says explicitly when to distrust it
-- Adds **diagnostics** and a country-wide alert counter (core has neither)
+Home Assistant already ships `ukraine_alarm`. This integration was written because that one
+has three properties that matter a great deal during an air raid, and the differences below
+are all read off core's own source and the live feed rather than claimed.
+
+**It does not see the alerts that are actually declared.** Alerts are published at whichever
+administrative level they were declared at, and most are declared for a single raion or
+hromada — not for the whole oblast. Core matches the region id you picked and its ancestors,
+so an oblast entity stays `off` while the raions inside it are under an air raid. Measured
+against the live feed on 2026-09-02: **16 of 29 oblasts were in alert, and for 12 of them
+the alert existed only below oblast level.** Here every region inherits alerts from its
+ancestors *and* its descendants, so no level is a blind spot.
+
+**It goes `unavailable` when the source fails.** Core polls the volunteer-run siren.pp.ua
+proxy every 10 seconds, once per configured region, and the entity has no `available`
+override — so a failed poll makes it `unavailable` and a template or automation reading it
+mid-outage sees nothing at all. Here the last known state stays put and a separate
+`binary_sensor.uap_data_stale` says explicitly when to stop trusting it. An air-raid sensor
+that reports "no data" and one that reports "no alert" must never be the same state.
+
+**It has no way to tell you it is broken.** No diagnostics, no transport state, no staleness
+signal. Here all three are entities you can put on a dashboard.
+
+| | core `ukraine_alarm` | Ukraine Alarm Pro |
+| --- | --- | --- |
+| Delivery | polls every 10 s (`cloud_polling`) | pushed over the official map's WebSocket (`cloud_push`) |
+| Connections | one poll loop **per region** | one connection serves **every** region |
+| Regions | max 5, one config entry each | one entry, any number, the full 1606-region tree |
+| Alerts declared below your region | not seen | inherited, so an oblast sees its raions |
+| Source unreachable | entities go `unavailable` | last state kept + explicit staleness sensor |
+| Restart | blank until the first poll returns | last alert map restored from disk |
+| When the alert started | — | `sensor.uap_<id>_alert_started` |
+| Per region | 6 binary sensors, one per alert type | alert flag + enum threat + start time |
+| Country-wide | — | `sensor.uap_active_regions` |
+| Self-diagnosis | — | diagnostics download, transport sensor, Repairs issue |
+| Dependencies | `uasiren==0.0.1` | none |
+| API key | not needed | not needed |
 
 ## How a region ends up "in alert"
 
