@@ -16,7 +16,7 @@ without an API key.
 ## How it differs from `ukraine_alarm`
 
 `ukraine_alarm` ships with Home Assistant and takes its data from the same source.
-The differences:
+What this integration does differently:
 
 - **Sees alerts declared at a lower administrative level than the selected region.**
   Most alerts are declared for a single raion or hromada rather than for a whole oblast.
