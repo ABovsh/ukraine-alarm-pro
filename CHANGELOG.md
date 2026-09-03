@@ -3,6 +3,24 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-09-03
+
+### 🐛 Fixed
+
+- **A restored alert map renewed its own age.** `async_restore` deliberately
+  leaves the push clock unset, because a restored map was not received — but
+  the periodic save wrote it straight back with a fresh `saved_at`. An uplink
+  that stayed down therefore kept re-stamping the same pre-outage map every
+  five minutes, and the six-hour limit that is supposed to discard it never
+  expired: the map outlived by days the restart it was only meant to bridge.
+  Nothing is written back until a transport has actually confirmed it.
+- **`active_alerts` was ordered by comparing timestamps as text.** The feed
+  mixes whole-second and microsecond stamps inside the same second, and `Z`
+  sorts after `.`, so an alert declared at the top of the second ranked as the
+  newer one. The list is capped at 25 entries, so on a region carrying more
+  than that the cap could drop the newest alert instead of the oldest.
+  Declaration times are parsed before they are compared.
+
 ## [0.7.0] - 2026-09-02
 
 ### ✨ Added

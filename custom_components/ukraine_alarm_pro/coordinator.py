@@ -90,9 +90,14 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         couple of minutes during a mass raid, so saving on change postponed the
         write indefinitely and nothing ever reached the disk — precisely during
         the event this exists for.
+
+        A map that no transport has confirmed is never written back. It can only
+        be one we restored, and re-saving it would renew its `saved_at`: an
+        uplink that stays down would keep re-stamping the same pre-outage map
+        every interval, and `RESTORE_MAX_AGE_SECONDS` would never expire it.
         """
         snap = self.data
-        if snap is None:
+        if snap is None or self.last_push is None:
             return
         active = snap.active
         if active == self._saved_active:
