@@ -397,3 +397,82 @@ async def test_an_unchanged_map_is_not_rewritten(
     async_fire_time_changed(hass, now + timedelta(seconds=SAVE_DELAY_SECONDS + 1))
     await hass.async_block_till_done()
     assert hass_storage[STORAGE_KEY]["data"]["saved_at"] == first
+
+
+def test_alerts_are_ordered_by_parsed_declaration_time():
+    """The feed mixes whole-second and microsecond stamps in the same second.
+
+    Sorting them as text puts 'Z' (0x5A) after '.' (0x2E), so the alert declared
+    at the top of the second sorts as if it were the newer one. The attribute
+    list is capped at 25, so on a region carrying more than that the cap would
+    drop the genuinely newest alert.
+    """
+    snap = parse_alert_payload(
+        {
+            "alerts": [
+                {
+                    "regionId": "50",
+                    "regionName": "Тестовий район",
+                    "activeAlerts": [
+                        {
+                            "regionId": "50",
+                            "type": "AIR",
+                            "lastUpdate": "2026-09-02T16:36:34Z",
+                        },
+                        {
+                            "regionId": "51",
+                            "type": "ARTILLERY",
+                            "lastUpdate": "2026-09-02T16:36:34.500000Z",
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+    found = region_alerts(snap, "50")
+    assert [a.region_id for a in found] == ["51", "50"], "newest declaration first"
+
+
+async def test_a_restored_map_is_not_restamped_as_fresh(
+    hass: HomeAssistant, enable_custom_integrations, hass_storage
+):
+    """Restoring must not renew the stored map's age.
+
+    `async_restore` leaves `last_push` unset because the map was restored, not
+    received. If the periodic save then writes it back with a new `saved_at`,
+    an uplink that stays down keeps re-stamping the same pre-outage map every
+    interval and `RESTORE_MAX_AGE_SECONDS` never bites — the map outlives by
+    days the restart it was only meant to bridge.
+    """
+    saved_at = (dt_util.utcnow() - timedelta(hours=1)).isoformat()
+    hass_storage[STORAGE_KEY] = _stored(saved_at)
+    await _setup(hass)
+    assert hass.states.get("sensor.uap_20_threat").state == "air"
+
+    # No transport ever delivers; only the save interval fires.
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_SECONDS + 1)
+    )
+    await hass.async_block_till_done()
+    assert hass_storage[STORAGE_KEY]["data"]["saved_at"] == saved_at
+
+
+async def test_a_restored_map_is_saved_once_a_transport_confirms_it(
+    hass: HomeAssistant, enable_custom_integrations, hass_storage
+):
+    """The counterpart of the guard: confirmation must re-enable saving.
+
+    A push carrying the same map the restore produced returns early without
+    republishing, so this is the one path where the data on disk is confirmed
+    without ever having been set as new data.
+    """
+    saved_at = (dt_util.utcnow() - timedelta(hours=1)).isoformat()
+    hass_storage[STORAGE_KEY] = _stored(saved_at)
+    _, push = await _setup(hass)
+
+    push(parse_alert_payload(RAW))
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=SAVE_DELAY_SECONDS + 1)
+    )
+    await hass.async_block_till_done()
+    assert hass_storage[STORAGE_KEY]["data"]["saved_at"] != saved_at

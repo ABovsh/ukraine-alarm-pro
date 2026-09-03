@@ -11,12 +11,17 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import dt as dt_util
 
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
-from .models import ThreatLevel, region_alerts, region_threat, threat_types
+from .models import (
+    ThreatLevel,
+    declared_at,
+    region_alerts,
+    region_threat,
+    threat_types,
+)
 
 # Attributes land in the recorder on every state write, so the per-region
 # breakdown is capped; the full picture stays available in diagnostics.
@@ -135,13 +140,8 @@ class AlertStartedSensor(RegionSensor):
         found = self._found()
         if not found:
             return None
-        # Parsed, not compared as text: the feed mixes whole-second and
-        # microsecond stamps, and an unparsable one must not become "now".
-        stamps = [
-            parsed
-            for alert in found
-            if (parsed := dt_util.parse_datetime(alert.last_update)) is not None
-        ]
+        # An unparsable stamp is skipped, never turned into "now".
+        stamps = [d for alert in found if (d := declared_at(alert)) is not None]
         return min(stamps, default=None)
 
 

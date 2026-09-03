@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -141,6 +142,24 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     return Snapshot(regions=regions, names=names)
 
 
+# Sorts an unparsable stamp oldest rather than dropping the alert.
+_UNDATED = datetime.min.replace(tzinfo=UTC)
+
+
+def declared_at(alert: Alert) -> datetime | None:
+    """When the alert was declared, or None if the feed's stamp is unusable.
+
+    Never compare these stamps as text: the feed mixes whole-second and
+    microsecond precision within the same second, and "Z" sorts after ".", so
+    the alert declared at the top of the second would rank as the newer one.
+    """
+    try:
+        parsed = datetime.fromisoformat(alert.last_update)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
 def region_alerts(
     snap: Snapshot,
     region_id: str,
@@ -167,7 +186,7 @@ def region_alerts(
             found.append(alert)
     # Newest first: the attribute list is capped, and a raid that just started
     # is what the cap must never drop.
-    found.sort(key=lambda a: a.last_update, reverse=True)
+    found.sort(key=lambda a: declared_at(a) or _UNDATED, reverse=True)
     return found
 
 
