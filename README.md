@@ -7,6 +7,8 @@
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ABovsh_ukraine-alarm-pro)
 [![Coverage](https://img.shields.io/sonar/coverage/ABovsh_ukraine-alarm-pro?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarcloud&label=coverage)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=coverage)
 
+🇺🇦 **Українська** · [English](README.en.md)
+
 Повітряні тривоги для Home Assistant. Дані надходять з офіційної
 [мапи тривог](https://map.ukrainealarm.com/) через WebSocket — одразу після публікації,
 без API-ключа.
