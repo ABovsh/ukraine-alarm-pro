@@ -16,7 +16,9 @@ from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
 from .models import (
+    AIR_LEVEL_OPTIONS,
     ThreatLevel,
+    air_alert_levels,
     declared_at,
     region_alerts,
     region_threat,
@@ -38,6 +40,7 @@ async def async_setup_entry(
     for rid, info in entry.data[CONF_REGIONS].items():
         entities.append(RegionThreatSensor(coordinator, entry.entry_id, rid, info))
         entities.append(AlertStartedSensor(coordinator, entry.entry_id, rid, info))
+        entities.append(AirAlertLevelSensor(coordinator, entry.entry_id, rid, info))
     entities.append(TransportSensor(coordinator, entry.entry_id))
     entities.append(ActiveRegionsSensor(coordinator, entry.entry_id))
     entities.append(LastUpdateSensor(coordinator, entry.entry_id))
@@ -116,6 +119,47 @@ class RegionThreatSensor(RegionSensor):
             # Constant, so it costs bytes on a recorder row but never a row of
             # its own — and it spares templates from parsing the friendly name.
             "region_name": self._region_name,
+        }
+
+
+class AirAlertLevelSensor(RegionSensor):
+    """Air-alert colour and reasons, only changing with local threat information.
+
+    No state_class, timer, force_update or receipt timestamps: HA suppresses
+    identical state/attributes even when another region updates the coordinator.
+    Full level timestamps and untruncated reasons remain in diagnostics/storage.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options: ClassVar[list[str]] = list(AIR_LEVEL_OPTIONS)
+    _attr_translation_key = "air_alert_level"
+
+    def __init__(self, coordinator, entry_id, region_id, info) -> None:
+        super().__init__(coordinator, entry_id, region_id, info)
+        self._attr_unique_id = f"{entry_id}_{region_id}_level"
+        self.entity_id = f"sensor.uap_{region_id}_air_alert_level"
+
+    @property
+    def native_value(self) -> str | None:
+        found = self._found()
+        if found is None:
+            return None
+        levels = air_alert_levels(found)
+        return levels[0] if levels else "none"
+
+    @property
+    def extra_state_attributes(self):
+        found = self._found()
+        if found is None:
+            return {}
+        reasons = sorted({
+            level.reason for alert in found if alert.type == "AIR"
+            for level in alert.levels if level.reason
+        })
+        return {
+            "active_levels": air_alert_levels(found),
+            "reasons": [reason[:256] for reason in reasons[:MAX_LISTED_ALERTS]],
+            "reason_count": len(reasons),
         }
 
 

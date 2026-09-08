@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
-from .models import Alert, Snapshot
+from .models import Alert, Snapshot, parse_alert_levels
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,6 +160,7 @@ def _snapshot_from_store(stored: dict[str, Any]) -> Snapshot | None:
                 last_update=str(a.get("last_update", "")),
                 region_id=str(a.get("region_id", "")),
                 region_type=str(a.get("region_type", "")),
+                levels=parse_alert_levels(a.get("levels"), stored=True),
             )
             for a in alerts
             if isinstance(a, dict)

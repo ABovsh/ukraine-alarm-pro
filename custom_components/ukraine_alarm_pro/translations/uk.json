@@ -63,6 +63,15 @@
       },
       "last_update": {
         "name": "Останнє оновлення"
+      },
+      "air_alert_level": {
+        "name": "{region} рівень повітряної тривоги",
+        "state": {
+          "none": "Повітряної тривоги немає",
+          "yellow": "Жовтий",
+          "red": "Червоний",
+          "unrecognized": "Рівень невідомий"
+        }
       }
     },
     "binary_sensor": {

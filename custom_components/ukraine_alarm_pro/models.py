@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
@@ -53,6 +53,36 @@ def _warn_unrecognized(alert_type: str) -> None:
     )
 
 
+@dataclass(frozen=True, order=True)
+class AlertLevel:
+    """One active level; timestamps are kept off recorded entity attributes."""
+
+    level: str
+    reason: str = ""
+    created_at: str = ""
+
+
+def parse_alert_levels(raw: Any, *, stored: bool = False) -> tuple[AlertLevel, ...]:
+    """Normalize the additive feed field, including old snapshots without it."""
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    levels = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        level = item.get("level" if stored else "alertLevel")
+        if not isinstance(level, str) or not level.strip():
+            continue
+        reason = item.get("reason")
+        stamp = item.get("created_at" if stored else "createdAt")
+        levels.add(AlertLevel(
+            level=level.strip().lower(),
+            reason=reason.strip() if isinstance(reason, str) else "",
+            created_at=stamp if isinstance(stamp, str) else "",
+        ))
+    return tuple(sorted(levels))
+
+
 @dataclass(frozen=True)
 class Alert:
     """One active alert, as declared by `region_id`.
@@ -65,6 +95,7 @@ class Alert:
     last_update: str
     region_id: str = ""
     region_type: str = ""
+    levels: tuple[AlertLevel, ...] = ()
 
     @property
     def threat(self) -> ThreatLevel:
@@ -135,6 +166,7 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
                 # An alert with no region of its own was declared by its container.
                 region_id=str(a.get("regionId") or region_id),
                 region_type=str(a.get("regionType") or ""),
+                levels=parse_alert_levels(a.get("activeAlertLevels")),
             )
             for a in (active if isinstance(active, list) else [])
             if isinstance(a, dict)
@@ -175,18 +207,27 @@ def region_alerts(
     repeats it, so the key is the *declaring* region: keying on the region it
     was found under counted a single raion-wide raid once per hromada below it.
     """
-    seen: set[tuple[str, str, str]] = set()
-    found: list[Alert] = []
+    merged: dict[tuple[str, str, str], Alert] = {}
     for rid in [region_id, *ancestors, *descendants]:
         for alert in snap.regions.get(rid, []):
             key = (alert.region_id, alert.type, alert.last_update)
-            if key in seen:
-                continue
-            seen.add(key)
-            found.append(alert)
+            if previous := merged.get(key):
+                # An inherited copy can carry additional active levels. Keep
+                # the union until the next full snapshot removes them, so an
+                # iteration-order accident cannot hide a red alert.
+                alert = replace(
+                    alert,
+                    levels=tuple(sorted(set(previous.levels) | set(alert.levels))),
+                    region_type=max(previous.region_type, alert.region_type),
+                )
+            merged[key] = alert
+    found = list(merged.values())
     # Newest first: the attribute list is capped, and a raid that just started
     # is what the cap must never drop.
-    found.sort(key=lambda a: declared_at(a) or _UNDATED, reverse=True)
+    found.sort(
+        key=lambda a: (declared_at(a) or _UNDATED, a.region_id, a.type, a.last_update),
+        reverse=True,
+    )
     return found
 
 
@@ -211,3 +252,19 @@ def threat_types(found: list[Alert]) -> list[str]:
         for level in sorted(uniq, key=_SEVERITY.__getitem__, reverse=True)
         if level is not ThreatLevel.NONE
     ]
+
+
+AIR_LEVEL_OPTIONS = ("none", "yellow", "red", "unrecognized")
+
+
+def air_alert_levels(found: list[Alert]) -> list[str]:
+    """Distinct air levels, highest known first; other threat types stay separate."""
+    levels = set()
+    for alert in found:
+        if alert.type != "AIR":
+            continue
+        if not alert.levels:
+            levels.add("unrecognized")
+        for level in alert.levels:
+            levels.add(level.level if level.level in ("red", "yellow") else "unrecognized")
+    return [level for level in ("red", "yellow", "unrecognized") if level in levels]

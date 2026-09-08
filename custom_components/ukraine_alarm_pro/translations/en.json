@@ -63,6 +63,15 @@
       },
       "last_update": {
         "name": "Last update"
+      },
+      "air_alert_level": {
+        "name": "{region} air alert level",
+        "state": {
+          "none": "No air alert",
+          "yellow": "Yellow",
+          "red": "Red",
+          "unrecognized": "Level unspecified"
+        }
       }
     },
     "binary_sensor": {

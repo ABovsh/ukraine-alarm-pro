@@ -12,8 +12,8 @@ blueprint:
     is never reported as an all-clear.
 
 
-    Both actions can use these variables: `region`, `threat`, `threat_types`,
-    `started` (declared start, ISO), `started_local` (HH:MM), `duration`
+    All actions can use these variables: `region`, `threat`, `threat_types`,
+    `level`, `reason`, `started` (declared start, ISO), `started_local` (HH:MM), `duration`
     (`1 h 12 min`, clear action only) and the ready-made `message`.
   domain: automation
   source_url: https://github.com/ABovsh/ukraine-alarm-pro/blob/main/blueprints/automation/ukraine_alarm_pro/alert_notify.yaml
@@ -47,6 +47,17 @@ blueprint:
               filter:
                 - integration: ukraine_alarm_pro
                   domain: sensor
+        level_sensor:
+          name: Air alert level sensor (optional)
+          description: >-
+            Select the same region's `sensor.uap_<id>_air_alert_level` to
+            include the level and reasons and enable escalation notifications.
+          default: []
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: sensor
         stale_sensor:
           name: Feed health sensor
           description: >-
@@ -74,6 +85,12 @@ blueprint:
           selector:
             action:
 
+        on_escalation:
+          name: When the air alert rises from yellow to red
+          default: []
+          selector:
+            action:
+
 mode: queued
 max: 5
 
@@ -90,6 +107,11 @@ triggers:
     from: "on"
     to: "off"
     id: cleared
+  - trigger: state
+    entity_id: !input level_sensor
+    from: "yellow"
+    to: "red"
+    id: escalated
 
 conditions:
   - condition: state
@@ -99,6 +121,11 @@ conditions:
 variables:
   threat_entity: !input threat_sensor
   started_entity: !input started_sensor
+  level_entity: !input level_sensor
+  level: "{{ states(level_entity) if level_entity is string else 'unrecognized' }}"
+  reason: >-
+    {{ (state_attr(level_entity, 'reasons') or []) | join('; ')
+       if level_entity is string else '' }}
   region: >-
     {{ state_attr(threat_entity, 'region_name')
        | default(state_attr(threat_entity, 'friendly_name'), true) }}
@@ -117,8 +144,12 @@ variables:
     {% set m = ((secs % 3600) // 60) | int %}
     {{ (h ~ ' h ' ~ m ~ ' min') if h else (m ~ ' min') }}
   message: >-
-    {% if trigger.id == 'started' %}
+    {% if trigger.id == 'escalated' %}
+    {{ region }}: air alert escalated to red{{ ': ' ~ reason if reason else '' }}
+    {% elif trigger.id == 'started' %}
     {{ region }}: {{ threat_types if threat_types else threat }}
+    {{- (' (' ~ level ~ ')') if level in ['yellow', 'red'] else '' }}
+    {{- (': ' ~ reason) if reason else '' }}
     {{- (' (declared ' ~ started_local ~ ')') if started_local else '' }}
     {% else %}
     {{ region }}: all clear, {{ duration }}
@@ -134,3 +165,7 @@ actions:
           - condition: trigger
             id: cleared
         sequence: !input on_clear
+      - conditions:
+          - condition: trigger
+            id: escalated
+        sequence: !input on_escalation

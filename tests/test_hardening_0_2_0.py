@@ -365,6 +365,7 @@ async def test_diagnostics_dump_has_no_secrets(
                 "type": "AIR",
                 "declared_by": "114",
                 "declared_by_name": "",
+                "levels": [],
                 "since": "2026-07-25T06:00:00Z",
             }
         ]

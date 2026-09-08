@@ -47,6 +47,7 @@ If the WebSocket is unreachable, the integration switches to polling siren.pp.ua
 | --- | --- | --- |
 | `binary_sensor.uap_<id>_alert` | safety | on while any alert is active in the region |
 | `sensor.uap_<id>_threat` | enum | highest active threat: `none`, `air`, `artillery`, `urban_fights`, `chemical`, `nuclear`, `unrecognized` |
+| `sensor.uap_<id>_air_alert_level` | enum | air alert level: `none`, `yellow`, `red`, `unrecognized` |
 | `sensor.uap_<id>_alert_started` | timestamp | when the oldest active alert was declared; `unknown` while the region is quiet |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
 | `sensor.uap_last_update` | diagnostic | time of the last data received |
@@ -56,6 +57,19 @@ If the WebSocket is unreachable, the integration switches to polling siren.pp.ua
 `sensor.uap_<id>_threat` carries an `active_alerts` attribute — the active alerts with the
 name of the region that declared each one (at most 25 entries, the full number is in
 `active_alert_count`). The complete list is in the diagnostics.
+
+
+The air alert level covers the same region and its ancestors and descendants.
+If yellow and red are active together, the sensor reports `red`; `active_levels`
+contains both. `unrecognized` means an air alert exists but the source supplied no
+recognized level. `none` means no air alert; other threat types remain on `threat`.
+
+The `reasons` attribute contains up to 25 source reasons, each limited to 256 characters;
+`reason_count` is the full count of distinct nonempty reasons. An empty reason does
+not imply a weapon type. Full reasons and each level's declaration time are available
+in diagnostics. The sensor has no long-term statistics: history is written only when
+its state or attributes change. Repeated publications and changes in unrelated regions
+produce no additional history rows for this sensor.
 
 ## Installation
 
@@ -84,6 +98,13 @@ condition:
     entity_id: binary_sensor.uap_data_stale
     state: "off"
 ```
+
+
+For escalation notifications, select `sensor.uap_<id>_air_alert_level` in the blueprint
+and configure the optional yellow-to-red action. Actions can use `level` and `reason`;
+the ready-made `message` includes them. Existing automations continue working without
+selecting this sensor. Update the imported blueprint separately: HACS installs only
+the integration.
 
 ## Duration and statistics
 

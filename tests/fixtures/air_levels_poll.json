@@ -1,0 +1,73 @@
+[
+  {
+    "regionId": "16",
+    "regionType": "State",
+    "regionName": "Луганська область",
+    "regionEngName": "Luhanska region",
+    "lastUpdate": "2022-04-04T16:45:00Z",
+    "activeAlerts": [
+      {
+        "regionId": "16",
+        "regionType": "State",
+        "type": "AIR",
+        "lastUpdate": "2022-04-04T16:45:00Z",
+        "activeAlertLevels": [
+          {
+            "alertLevel": "Red",
+            "reason": "",
+            "createdAt": "2022-04-04T16:45:00Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "regionId": "56",
+    "regionType": "District",
+    "regionName": "Покровський район",
+    "regionEngName": "Pokrovskyi district",
+    "lastUpdate": "2026-09-08T04:42:56.550068Z",
+    "activeAlerts": [
+      {
+        "regionId": "56",
+        "regionType": "District",
+        "type": "AIR",
+        "lastUpdate": "2026-09-07T23:41:00.827495Z",
+        "activeAlertLevels": [
+          {
+            "alertLevel": "Yellow",
+            "reason": "Дронова загроза (жовтий рівень)",
+            "createdAt": "2026-09-07T14:57:51.26383Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "regionId": "1293",
+    "regionType": "State",
+    "regionName": "м. Харків та Харківська територіальна громада",
+    "regionEngName": "Kharkiv and Kharkivska community",
+    "lastUpdate": "2026-09-08T05:52:22.142695Z",
+    "activeAlerts": [
+      {
+        "regionId": "1293",
+        "regionType": "State",
+        "type": "AIR",
+        "lastUpdate": "2026-09-08T05:51:57.826702Z",
+        "activeAlertLevels": [
+          {
+            "alertLevel": "Yellow",
+            "reason": "",
+            "createdAt": "2026-09-08T05:51:37.453397Z"
+          },
+          {
+            "alertLevel": "Red",
+            "reason": "",
+            "createdAt": "2026-09-08T05:51:58.096356Z"
+          }
+        ]
+      }
+    ]
+  }
+]

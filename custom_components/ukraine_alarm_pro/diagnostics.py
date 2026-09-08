@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -37,6 +38,7 @@ async def async_get_config_entry_diagnostics(
                         "declared_by": alert.region_id,
                         "declared_by_name": snapshot.names.get(alert.region_id, ""),
                         "since": alert.last_update,
+                        "levels": [asdict(level) for level in alert.levels],
                     }
                     for alert in alerts
                 ]

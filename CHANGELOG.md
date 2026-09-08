@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ✨ Added
+
+- Per-region air alert level sensor with yellow/red levels and source reasons.
+  Simultaneous levels are preserved, with red displayed first; other threat
+  sensors keep their existing states. Level changes survive restarts.
+- Optional yellow-to-red escalation action in the notification blueprint, with
+  `level` and `reason` template variables. Update the imported blueprint separately.
+
+### 🔧 Changed
+
+- Air-level history records only changed local states or attributes, with bounded
+  reasons and no periodic timestamps or long-term statistics.
+
 ## [0.7.1] - 2026-09-03
 
 ### 🐛 Fixed
