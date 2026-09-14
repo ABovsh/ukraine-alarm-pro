@@ -15,31 +15,36 @@ without an API key.
 
 ## How it differs from `ukraine_alarm`
 
-`ukraine_alarm` ships with Home Assistant and takes its data from the same source.
+[`ukraine_alarm`](https://www.home-assistant.io/integrations/ukraine_alarm/) ships with
+Home Assistant and uses the same source through siren.pp.ua.
+This comparison was checked against [Home Assistant 2026.9.2 source](https://github.com/home-assistant/core/tree/2026.9.2/homeassistant/components/ukraine_alarm).
 What this integration does differently:
 
-- **Sees alerts declared at a lower administrative level than the selected region.**
-  Most alerts are declared for a single raion or hromada rather than for a whole oblast.
-  Here a region counts as in alert when the alert was declared for the region itself, for
-  a level above it or for a level below it; `ukraine_alarm` matches only the selected
-  region and the levels above it.
-- **Serves every selected region over one WebSocket connection**, however many there are;
-  `ukraine_alarm` polls the proxy every 10 seconds in a separate loop per region, and for
-  no more than five regions.
-- **Tells "no alert" apart from "no data".** While the source is unreachable the last
-  known state stays in place and `binary_sensor.uap_data_stale` turns on; in
-  `ukraine_alarm` a failed poll makes the entity `unavailable`.
-- **Does not lose its state on a restart.** The alert map is written to disk and restored
-  at startup — which shows when Home Assistant comes back after a power cut and the uplink
-  is not up yet; in `ukraine_alarm` the entities stay empty until the first successful poll.
-- **Reports the time the alert was declared** as a separate sensor, rather than the time
-  Home Assistant received it.
+- **Accounts for alerts at every administrative level.** For a selected oblast, raion
+  or hromada, it checks the region itself, its ancestors and its descendants;
+  `ukraine_alarm` reads the API response for one region without aggregating descendant
+  alerts itself, and does not offer oblasts with districts as a final selection.
+- **Serves every selected region over one WebSocket connection** without a region-count
+  limit in its settings; `ukraine_alarm` polls the proxy every 10 seconds in a separate
+  loop per region and allows up to five regions.
+- **Reports the highest active threat, the list of types and the air alert level.**
+  A separate sensor exposes yellow or red and the reasons when supplied by the source;
+  `ukraine_alarm` creates six binary sensors by threat type, without levels or reasons.
+- **Keeps the last received state on connection loss.** After more than 15 minutes
+  without new data, `binary_sensor.uap_data_stale` marks it as stale; in `ukraine_alarm`
+  a failed poll makes the entities `unavailable`.
+- **Restores the saved alert map after a restart.** A changed map is saved every five
+  minutes and on integration unload, and restored at startup if the saved copy is no
+  more than six hours old; it is marked stale until new data arrives.
+- **Reports when the oldest active alert was declared** as a separate sensor — using
+  the source timestamp, not the time Home Assistant received it.
 - **Reports its own state:** the data channel, the time of the last data received, a
   staleness flag, an entry under Repairs while it runs on the fallback, and a diagnostics
   download.
 
-If the WebSocket is unreachable, the integration switches to polling siren.pp.ua every
-60 seconds and returns to the WebSocket as soon as it works again.
+After repeated WebSocket failures, the integration switches to polling siren.pp.ua
+with a 60-second pause between requests. It periodically retries the WebSocket and
+switches back after receiving data.
 
 ## Entities
 
