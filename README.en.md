@@ -151,6 +151,10 @@ One card shows everything the integration knows about a region:
 
 Tapping the card opens the alert sensor with its history.
 
+The compact layout (`layout: compact`) takes one row: region name, state and time since the last all clear.
+
+![Ukraine Alarm Pro card, compact layout](docs/images/status-card-compact.jpg)
+
 ### Adding the card
 
 1. Install the integration and restart Home Assistant. The card adds itself to
