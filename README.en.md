@@ -28,7 +28,7 @@ and the `dev` branch as of 2026-09-15. What this integration has:
   the all clear, and statistics for 24 hours and 7 days, in three layouts.
   `ukraine_alarm` has no card.
 - **A 90-day alert journal.** For each region it keeps start, all clear, threat types and
-  the highest level; the `get_history` and `get_summary` actions return the list of
+  the highest level, filled with the official history right after installation; the `get_history` and `get_summary` actions return the list of
   alerts and totals for a day or a week. `ukraine_alarm` has no journal.
 - **Change events and ready-made notifications.** `event.uap_<id>_event` reports an alert
   start, a level rise, a new threat, the all clear, stale data and a restored connection;
@@ -181,8 +181,8 @@ layout: full                        # full, status (status only) or compact
 language: auto                      # auto (Home Assistant language), uk or en
 ```
 
-Statistics come from the alert journal (see "Alert history"): the journal starts when this
-version is installed, so for the first days the card shows the date its data starts from.
+Statistics come from the alert journal (see "Alert history"). A few minutes after
+installation the journal is filled with 90 days of official history.
 The card creates no entities and no database rows. Entities may be renamed: the card finds
 them by region.
 
@@ -205,18 +205,14 @@ connection-restored message is sent, not an all clear. Actions can use `message`
 To check the actions without an alert, import the [test script](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fukraine_alarm_pro%2Ftest_notification.yaml). It sends a
 message marked "TEST" and changes no alert entity, event or history.
 
-### Sensor-based blueprint
+### Earlier sensor-based blueprint
 
-The repository ships a blueprint —
-[import it](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml).
-One action for the start of an alert, another for the all-clear; anything fits — a phone
-notification, Telegram, TTS, a siren.
+Use notifications from events for new automations. The [sensor-based blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml)
+stays for existing automations: an action for the start of an alert, one for the
+all clear and an optional yellow-to-red action. It does not fire when Home Assistant
+restarts during an alert, and sends nothing while the data is stale.
 
-The automation does not fire when Home Assistant restarts during an alert, and sends
-nothing while the data is stale. The actions can use `region`, `threat`, `threat_types`,
-`started`, `started_local`, `duration` and a ready-made `message`.
-
-If you write the automation by hand, add the same condition:
+If you write a sensor-based automation by hand, add the same condition:
 
 ```yaml
 condition:
@@ -225,38 +221,7 @@ condition:
     state: "off"
 ```
 
-For escalation notifications, select `sensor.uap_<id>_air_alert_level` in the blueprint
-and configure the optional yellow-to-red action. Actions can use `level` and `reason`;
-the ready-made `message` includes them. Existing automations continue working without
-selecting this sensor. Update the imported blueprint separately: HACS installs only
-the integration.
-
-## Duration and statistics
-
-The length of the current alert comes from `sensor.uap_<id>_alert_started`:
-
-```jinja
-{{ now() - states('sensor.uap_31_alert_started') | as_datetime }}
-```
-
-How much of the day was under alert — Home Assistant's own
-[`history_stats`](https://www.home-assistant.io/integrations/history_stats/) over
-`binary_sensor.uap_<id>_alert`. It reads the recorder history that already exists, so the
-numbers are right immediately:
-
-```yaml
-sensor:
-  - platform: history_stats
-    name: Alarm ratio 7d
-    entity_id: binary_sensor.uap_31_alert
-    state: "on"
-    type: ratio
-    end: "{{ now() }}"
-    duration:
-      days: 7
-```
-
-The same for the current day — replace `duration` with `start: "{{ today_at() }}"`.
+Imported blueprints are updated separately: HACS installs only the integration.
 
 ## Alert history
 
@@ -279,11 +244,18 @@ response_variable: history
 `observed_duration_seconds`, `longest_duration_seconds`, `has_gaps` and `daily` — count and
 duration per day — over Home Assistant's local days.
 
-Episode times are when the integration received the data, not official times:
-`observed_started_at`, `observed_cleared_at` and `declared_started_at` from the source.
-If data was interrupted or an alert was already active at startup, `had_gap` is `true`
-and `source_start_known` is `false`; missed episodes are not reconstructed.
-`coverage_start` shows when the journal started: it has no earlier data.
+`observed_started_at` and `observed_cleared_at` are when the integration received the
+data; `declared_started_at` is the declaration time from the source. If data was
+interrupted or an alert was already active at startup, `had_gap` is `true` and
+`source_start_known` is `false`.
+
+Five minutes after startup and then once a day, the integration adds the official alert
+history from the map to the journal: 90 days on the first run, the last few days after
+that. This also fills the periods when Home Assistant was off. Such episodes have
+`start_origin: history`, the official start and all-clear times and the type `air`: the
+history has no levels. It holds alerts of oblasts, raions and cities; alerts declared
+for a single hromada are not in it. Episodes the integration received itself are never
+replaced. `coverage_start` shows the date the journal has data from.
 
 Completed episodes are kept for up to 90 days and at most 1000 in total; current
 episodes are never removed. Recorder history is not affected.
@@ -306,3 +278,4 @@ redact: the integration is fully anonymous.
 
 [ukrainealarm.com](https://map.ukrainealarm.com/) — primary, push.
 [siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, fallback.
+Alert history for the journal — from the [alert map](https://map.ukrainealarm.com/).

@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ✨ Added
+
+- **Card statistics and alert history are complete from the first day.** A few minutes
+  after start-up the alert journal is filled with the official alert history from the
+  alert map for the last 90 days, and a daily run fills any period Home Assistant was
+  off. These episodes carry the official start and all-clear times and
+  `start_origin: history`.
+
 ## [0.9.0] - 2026-09-15
 
 ### ✨ Added
