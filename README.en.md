@@ -188,8 +188,6 @@ version is installed, so for the first days the card shows the date its data sta
 The card creates no entities and no database rows. Entities may be renamed: the card finds
 them by region.
 
-An example full dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
-
 ## Notifications
 
 ### Notifications from events

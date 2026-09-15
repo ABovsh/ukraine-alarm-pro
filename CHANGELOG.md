@@ -7,79 +7,60 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### ✨ Added
 
-- Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
-  integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
-  duration, coverage, reason and data freshness, time since the last all
-  clear, alert count, total duration and share of time under alert for 24 hours
-  (with an alert strip) and 7 days, the week's longest and average alert.
-  Ukrainian or English (automatic
-  or fixed), layout `full`, `status` or `compact`. It finds a
-  single region on its own and adds no entities or database rows.
-- Per-region `event.uap_<id>_event` with event types `started`, `escalated`,
-  `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
-  change produces at most one event per region with the previous and current
-  state. The first data after startup or a gap is `resynced`, not `started`.
-- `alert_notify_events` automation blueprint: Ukrainian or English messages from
-  the region event, separate actions for start, escalation or added threat,
-  clear, stale data and resync; silent on the first data after startup by
-  default. The existing `alert_notify` blueprint is unchanged.
-- `test_notification` script blueprint that runs notification actions with a
-  «ТЕСТ» / "TEST" message without changing alert entities, events or history.
-- Event attributes `observed_active_since` and `active_since_known`.
-- Constant `region_id` attribute on the region alert, level, start and event
-  entities, so the card finds a region's entities after renaming.
-- Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
-- Integration icon in `custom_components/ukraine_alarm_pro/brand/`, shown by
-  Home Assistant 2026.3 and later; source in `docs/images/icon.svg`.
-- Alert episode journal per region with the response-only actions
-  `ukraine_alarm_pro.get_history` (up to 100 episodes) and
-  `ukraine_alarm_pro.get_summary` (today or 7 local days, with the longest
-  episode and a per-day count and duration). Episodes carry
-  observed start/clear times, the declared start, types seen, the highest air
-  level and gap marks. Completed episodes are kept for 90 days, at most 1000.
-- `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
-  `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
-  declaring regions) and `affected_region_count`. Coverage does not change the
-  alert state.
-- Region list is cached after validation and refreshed daily in the background.
-  Changing regions works from the cached copy while the proxy is down, and a
-  selected region missing from the list is kept instead of dropped.
+- **An alert card for your dashboard, with nothing extra to install.** The
+  integration adds `custom:ukraine-alarm-pro-card` to the card picker. It shows
+  the alert state, threat, air alert level and reason, how long the alert has
+  lasted or how long since the last all clear, and whether the data is fresh.
+  It also shows the alert count, total duration and share of time under alert
+  for 24 hours and 7 days. Three layouts (`full`, `status`, `compact`),
+  Ukrainian or English, and it keeps working after you rename entities.
+- **Automations can react to what changed, not only to a state.**
+  `event.uap_<id>_event` fires once per change with its type (`started`,
+  `escalated`, `threat_added`, `updated`, `cleared`, `data_stale`, `resynced`)
+  and the state before and after. The first data after a restart or a lost
+  connection is `resynced`, never a false `started` or `cleared`.
+- **Alert notifications from those events, ready to import.** The
+  `alert_notify_events` blueprint sends a Ukrainian or English message when an
+  alert starts, the level rises or a threat is added, the alert ends, data goes
+  stale or the connection returns. It sends nothing for the first data after a
+  restart. The `test_notification` script runs the same actions with a «ТЕСТ»
+  message, so you can check delivery without an alert.
+- **Alert history for each region.** `ukraine_alarm_pro.get_history` returns
+  past alerts with start, end, threat types and the highest air alert level.
+  `ukraine_alarm_pro.get_summary` returns the count, total and longest duration
+  for today or the last 7 days, day by day. History is kept for 90 days.
+- **You can see whether an alert covers your whole region or only part of it.**
+  The threat sensor gains `coverage` (`whole`, `partial`, `unrecognized`,
+  `none`), `coverage_by_type` and `affected_regions`, the districts or hromadas
+  that declared the alert.
+- **Regions can be changed while the region list is unavailable.** The list is
+  saved after every successful download and refreshed daily. A selected region
+  missing from a new list is kept instead of being removed.
+- **Integration icon** on the Integrations page (Home Assistant 2026.3 and later).
 
 ### 🐛 Fixed
 
-- **A damaged feed record could clear active alerts.** A record without a usable
-  `activeAlerts` list, a non-object record or alert, or an unusable region id
-  was skipped or read as "no alerts", which cleared the regions it covered. The
-  whole snapshot is now rejected and the last accepted state is kept. An alert
-  with a missing type or an unusable declaration time stays active.
-- **A failed startup poll left the integration without data.** The WebSocket
-  sends no history, so when the one startup poll failed nothing arrived until
-  the alert map changed. The startup poll is now retried with backoff (60 s,
-  doubling up to 5 minutes) until the first snapshot is accepted.
-- **A slow poll could roll back a newer WebSocket update.** An HTTP answer that
-  was still in flight when the WebSocket delivered newer data replaced it, so an
-  active alert could briefly read as clear. Superseded answers are discarded,
-  and the watchdog no longer drops a WebSocket that just delivered.
-- **Recovery with an unchanged map waited up to a minute.** When fresh data
-  matched the stale map, `binary_sensor.uap_data_stale` cleared only on its next
-  tick. It now clears on the first accepted snapshot.
-- **A quiet but healthy feed could briefly read as stale.** The watchdog
-  re-checked a silent WebSocket only once the data was already 15 minutes old,
-  so `binary_sensor.uap_data_stale` could turn on for up to a minute. The check
-  now runs after 12 minutes of silence, before the data counts as stale.
-- **A restart could lose the last minutes of the saved alert map.** The map was
-  written every 5 minutes and on unload, but a Home Assistant restart does not
-  unload entries. It is now also written when Home Assistant stops.
+- **One damaged record in the feed no longer clears active alerts.** The record
+  was skipped or read as "no alerts". Now the whole update is rejected and the
+  last known state is kept.
+- **Alerts appear after startup even when the first request fails.** The startup
+  request is retried every 60 s, backing off to 5 minutes. Before, nothing
+  arrived until the alert map next changed.
+- **An active alert no longer reads as clear for a moment when the server is
+  slow.** A late reply could overwrite newer WebSocket data. Late replies are
+  now discarded.
+- **`binary_sensor.uap_data_stale` reflects the connection more accurately.** It
+  no longer turns on for up to a minute while a healthy feed is quiet, and it
+  turns off as soon as fresh data arrives.
+- **A restart no longer loses the last few minutes of alert state.** The alert
+  map is now also saved when Home Assistant stops.
 
 ### 🔧 Changed
 
-- The first-install form shows a retryable error instead of aborting when the
-  region list cannot be fetched.
-- Region entities share one aggregation per region per alert-map change instead
-  of recomputing it in each entity. Entity states and existing attributes are
-  unchanged.
-- Diagnostics show the time since the last accepted snapshot, the last watchdog
-  cross-check and a local snapshot counter as separate fields.
+- **Setup no longer aborts when the region list cannot be downloaded.** The form
+  shows an error and you can try again.
+- **Diagnostics show when data was last accepted and when the connection was
+  last checked** as separate fields.
 
 ## [0.8.0] - 2026-09-08
 
