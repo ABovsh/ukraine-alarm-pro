@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **A damaged feed record could clear active alerts.** A record without a usable
+  `activeAlerts` list, a non-object record or alert, or an unusable region id
+  was skipped or read as "no alerts", which cleared the regions it covered. The
+  whole snapshot is now rejected and the last accepted state is kept. An alert
+  with a missing type or an unusable declaration time stays active.
+
 ## [0.8.0] - 2026-09-08
 
 ### ✨ Added
