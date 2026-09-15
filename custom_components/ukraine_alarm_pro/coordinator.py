@@ -122,8 +122,14 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         # entities wrote a recorder row per repeat (65k rows/day, measured
         # 2026-08-07) without carrying any new information. Staleness has its
         # own tick in entity.py, so it keeps working without these writes.
+        was_stale = self.is_stale
         self.last_push = dt_util.utcnow()
         if self.data is not None and snap.active == self.data.active:
+            # Regaining freshness is news even when the map is unchanged: the
+            # health entities must not wait for their minute tick. HA drops
+            # the identical region states, so this costs no region rows.
+            if was_stale:
+                self.async_update_listeners()
             return
         self.async_set_updated_data(snap)
 

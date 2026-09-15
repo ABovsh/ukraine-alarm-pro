@@ -31,6 +31,10 @@ DEFAULT_WATCHDOG_INTERVAL = 60.0
 # the polling endpoint instead — after a short grace period, so a WS that does
 # deliver straight away spares the volunteer-run proxy the request.
 DEFAULT_SEED_DELAY = 2.0
+# A failed seed is retried until the first snapshot is accepted — the WS may
+# stay silent for hours — no more often than the polling fallback would ask,
+# doubling up to the WS probe interval.
+DEFAULT_SEED_RETRY_MAX = 300.0
 # A session that streamed for this long was healthy; the drop that ended it is
 # the server recycling an idle socket (2 h token TTL), not a broken transport.
 DEFAULT_HEALTHY_SESSION = 120.0
@@ -59,6 +63,8 @@ class TransportSupervisor:
         watchdog_interval: float = DEFAULT_WATCHDOG_INTERVAL,
         seed_delay: float = DEFAULT_SEED_DELAY,
         healthy_session: float = DEFAULT_HEALTHY_SESSION,
+        seed_retry_interval: float | None = None,
+        seed_retry_max: float = DEFAULT_SEED_RETRY_MAX,
     ) -> None:
         self._ws = ws
         self._poll = poll
@@ -70,6 +76,10 @@ class TransportSupervisor:
         self._watchdog_interval = watchdog_interval
         self._seed_delay = seed_delay
         self._healthy_session = healthy_session
+        self._seed_retry_interval = (
+            poll_interval if seed_retry_interval is None else seed_retry_interval
+        )
+        self._seed_retry_max = max(seed_retry_max, self._seed_retry_interval)
         self._listener: Callable[[Snapshot], None] | None = None
         self._mode_listener: Callable[[str], None] | None = None
         self._task: asyncio.Task | None = None
@@ -77,8 +87,16 @@ class TransportSupervisor:
         self._watchdog_task: asyncio.Task | None = None
         self._seed_task: asyncio.Task | None = None
         self._task_factory: TaskFactory = _default_task_factory
-        self._last_snapshot: float | None = None
+        # Monotonic clocks, kept apart on purpose: only accepted data counts as
+        # a success; a cross-check attempt merely rate-limits the next one.
+        self._last_success: float | None = None
+        self._last_check: float | None = None
+        self._started_at: float | None = None
         self._last_snap: Snapshot | None = None
+        # Local receipt order, bumped for every accepted snapshot — identical
+        # ones included. It orders our own awaits, not the provider's data.
+        self.snapshot_revision = 0
+        self._running = False
         self.mode = MODE_WS
 
     def set_listener(self, listener: Callable[[Snapshot], None]) -> None:
@@ -88,15 +106,31 @@ class TransportSupervisor:
         self._mode_listener = listener
 
     def _emit(self, snap: Snapshot) -> None:
-        self._last_snapshot = time.monotonic()
+        self.snapshot_revision += 1
+        self._last_success = time.monotonic()
         self._last_snap = snap
         if self._listener is not None:
             self._listener(snap)
+
+    def _emit_if_current(self, snap: Snapshot, revision: int) -> bool:
+        """Accept an HTTP answer only if nothing newer arrived while it was out.
+
+        The request can take up to its 30 s timeout, and the WS may publish in
+        the meantime: publishing the older answer afterwards would roll the
+        map back — an active alert could flip to clear until the next change.
+        """
+        if not self._running or revision != self.snapshot_revision:
+            _LOGGER.debug("Discarded an HTTP snapshot superseded while in flight")
+            return False
+        self._emit(snap)
+        return True
 
     async def start(self, task_factory: TaskFactory | None = None) -> None:
         """Start the transport tasks, optionally through HA's task tracker."""
         if task_factory is not None:
             self._task_factory = task_factory
+        self._running = True
+        self._started_at = time.monotonic()
         self._task = self._task_factory(self._run(), f"{MODE_WS}-supervisor")
         self._watchdog_task = self._task_factory(
             self._watchdog(), "transport-watchdog"
@@ -111,12 +145,22 @@ class TransportSupervisor:
         country — minutes, and precisely when the user needs them most.
         """
         await asyncio.sleep(self._seed_delay)
-        if self._last_snapshot is not None:
-            return
-        snap = await self._fetch_poll("Could not seed the initial alert map")
-        # Re-checked: the WS may have delivered while the request was in flight.
-        if snap is not None and self._last_snapshot is None:
-            self._emit(snap)
+        attempt = 0
+        while self._last_success is None:
+            revision = self.snapshot_revision
+            snap = await self._fetch_poll("Could not seed the initial alert map")
+            # The WS may have delivered while the request was in flight.
+            if snap is not None and self._emit_if_current(snap, revision):
+                return
+            if self._last_success is not None:
+                return
+            await asyncio.sleep(
+                self._next_seed_delay(attempt) * (1 + _RNG.random() * 0.2)
+            )
+            attempt += 1
+
+    def _next_seed_delay(self, attempt: int) -> float:
+        return min(self._seed_retry_interval * 2**attempt, self._seed_retry_max)
 
     async def _fetch_poll(self, context: str) -> Snapshot | None:
         try:
@@ -129,6 +173,8 @@ class TransportSupervisor:
             return None
 
     async def stop(self) -> None:
+        # First: an answer already on its way back must not reach the listener.
+        self._running = False
         tasks = [
             task
             for task in (
@@ -202,22 +248,32 @@ class TransportSupervisor:
 
     async def _poll_loop(self) -> None:
         while True:
+            revision = self.snapshot_revision
             try:
-                self._emit(await self._poll.fetch())
+                snap = await self._poll.fetch()
             except TransportError as err:
                 _LOGGER.warning("Poll fallback failed: %s", err)
             except asyncio.CancelledError:
                 raise
             except Exception:  # the poll loop must never die silently
                 _LOGGER.exception("Unexpected poll fallback error")
+            else:
+                self._emit_if_current(snap, revision)
             await asyncio.sleep(self._poll_interval)
 
     @property
     def seconds_since_snapshot(self) -> float | None:
-        """Age of the last snapshot in seconds, or None if none arrived yet."""
-        if self._last_snapshot is None:
+        """Age of the last accepted snapshot, or None if none arrived yet."""
+        if self._last_success is None:
             return None
-        return time.monotonic() - self._last_snapshot
+        return time.monotonic() - self._last_success
+
+    @property
+    def seconds_since_check(self) -> float | None:
+        """Age of the last watchdog cross-check attempt, successful or not."""
+        if self._last_check is None:
+            return None
+        return time.monotonic() - self._last_check
 
     async def _watchdog(self) -> None:
         """Cross-check a silent transport against the polling endpoint.
@@ -233,12 +289,26 @@ class TransportSupervisor:
         """
         while True:
             await asyncio.sleep(self._watchdog_interval)
-            age = self.seconds_since_snapshot
-            if age is None or age < self._stale_after:
+            now = time.monotonic()
+            reference = self._last_success or self._started_at or now
+            age = now - reference
+            if age < self._stale_after:
                 continue
-            # Reset the clock so a permanently dead feed warns once per window
-            # instead of on every watchdog tick.
-            self._last_snapshot = time.monotonic()
+            # One check (and one warning) per window for a permanently dead
+            # feed — without pretending that the attempt delivered data.
+            if (
+                self._last_check is not None
+                and now - self._last_check < self._stale_after
+            ):
+                continue
+            self._last_check = now
+            if self._last_success is None:
+                # The seed task retries on its own; with no data at all there
+                # is nothing a cross-check could prove the WS missed.
+                _LOGGER.warning(
+                    "No alert data for %.0fs since the integration started", age
+                )
+                continue
             if self.mode != MODE_WS:
                 # The poll loop retries on its own schedule and owns no socket
                 # to drop — closing the WS here would fix nothing.
@@ -249,9 +319,15 @@ class TransportSupervisor:
                 )
                 continue
             previous = self._last_snap
+            revision = self.snapshot_revision
             snap = await self._fetch_poll("Watchdog cross-check failed")
+            if revision != self.snapshot_revision:
+                # The WS delivered while we waited: it is demonstrably alive,
+                # and the older answer must not replace what it sent.
+                _LOGGER.debug("Watchdog cross-check superseded by a newer push")
+                continue
             if snap is not None:
-                self._emit(snap)
+                self._emit_if_current(snap, revision)
                 if previous is not None and snap.active == previous.active:
                     _LOGGER.debug(
                         "No alert data for %.0fs, but the feed agrees with the "

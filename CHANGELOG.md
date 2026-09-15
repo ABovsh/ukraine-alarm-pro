@@ -12,6 +12,22 @@ This project follows [Semantic Versioning](https://semver.org/).
   was skipped or read as "no alerts", which cleared the regions it covered. The
   whole snapshot is now rejected and the last accepted state is kept. An alert
   with a missing type or an unusable declaration time stays active.
+- **A failed startup poll left the integration without data.** The WebSocket
+  sends no history, so when the one startup poll failed nothing arrived until
+  the alert map changed. The startup poll is now retried with backoff (60 s,
+  doubling up to 5 minutes) until the first snapshot is accepted.
+- **A slow poll could roll back a newer WebSocket update.** An HTTP answer that
+  was still in flight when the WebSocket delivered newer data replaced it, so an
+  active alert could briefly read as clear. Superseded answers are discarded,
+  and the watchdog no longer drops a WebSocket that just delivered.
+- **Recovery with an unchanged map waited up to a minute.** When fresh data
+  matched the stale map, `binary_sensor.uap_data_stale` cleared only on its next
+  tick. It now clears on the first accepted snapshot.
+
+### 🔧 Changed
+
+- Diagnostics show the time since the last accepted snapshot, the last watchdog
+  cross-check and a local snapshot counter as separate fields.
 
 ## [0.8.0] - 2026-09-08
 
