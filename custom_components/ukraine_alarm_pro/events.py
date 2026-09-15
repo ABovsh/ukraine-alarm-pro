@@ -83,12 +83,17 @@ class RegionState:
         }
 
 
-def classify(previous: RegionState, current: RegionState) -> str | None:
+def classify(
+    previous: RegionState, current: RegionState, known_level: str | None = None
+) -> str | None:
     """The one event type of a live change, or None when nothing changed.
 
     Priority: start/clear, then a higher known air level, then a new threat
     type, then anything else. A change that adds a type and raises the level
     together is one `escalated` event; the new type is in its payload.
+
+    `known_level` is the last yellow/red of the ongoing air alert: a level that
+    was briefly unspecified and comes back unchanged is not a rise.
     """
     if previous == current:
         return None
@@ -97,7 +102,8 @@ def classify(previous: RegionState, current: RegionState) -> str | None:
     if (
         previous.air_level != "none"
         and current.air_level in ("yellow", "red")
-        and _AIR_RANK[current.air_level] > _AIR_RANK.get(previous.air_level, 0)
+        and _AIR_RANK[current.air_level]
+        > _AIR_RANK.get(known_level or previous.air_level, 0)
     ):
         return EVENT_ESCALATED
     if set(current.threat_types) - set(previous.threat_types):
@@ -117,6 +123,8 @@ class AlertEventHub:
         # When each region's current active period was first seen, and whether
         # that was its real start (a live clear→active) or just our first look.
         self._since: dict[str, tuple[str, bool]] = {}
+        # The last yellow/red of each region's ongoing air alert.
+        self._known_level: dict[str, str] = {}
         # The newest event nobody was listening for, per region: at startup the
         # first snapshot can arrive before the event entities are added.
         self._undelivered: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -154,8 +162,13 @@ class AlertEventHub:
         for region_id, (name, current) in states.items():
             previous = self._states.get(region_id)
             self._states[region_id] = current
+            known = self._known_level.get(region_id)
+            if current.air_level in ("yellow", "red"):
+                self._known_level[region_id] = current.air_level
+            elif current.air_level == "none":
+                self._known_level.pop(region_id, None)
             if origin == ORIGIN_LIVE and previous is not None:
-                event_type = classify(previous, current)
+                event_type = classify(previous, current, known)
                 if event_type is None:
                     continue
             else:

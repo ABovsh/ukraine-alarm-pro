@@ -163,6 +163,8 @@ const dayMonth = (date, hass) =>
 const LAYOUTS = ["full", "status", "compact"];
 const STATS_FRESH_ACTIVE = 60000;
 const STATS_FRESH_QUIET = 600000;
+// A failed call (a reconnect, a restart, an older integration) is retried, not final.
+const STATS_RETRY = 120000;
 
 const hhmm = (date, hass) =>
   date.toLocaleTimeString(hass?.locale?.language || undefined, {
@@ -271,7 +273,8 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!this._hass || !this._config || this._loading || !this.isConnected) return;
     const ids = this._entities();
     const rid = ids && regionIdOf(this._hass, ids.alert);
-    if (!rid || this._statsFailed === rid) return;
+    if (!rid) return;
+    if (this._statsFailed?.rid === rid && Date.now() - this._statsFailed.at < STATS_RETRY) return;
     const event = ids.event ? this._hass.states[ids.event] : undefined;
     const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}`;
     const age = this._stats ? Date.now() - this._stats.fetched : Infinity;
@@ -285,10 +288,11 @@ class UkraineAlarmProCard extends HTMLElement {
     Promise.all([call("get_summary", { days: 7 }), call("get_history", { limit: 50 })])
       .then(([summary, history]) => {
         this._stats = { rid, trigger, fetched: Date.now(), summary, episodes: history.episodes || [] };
+        this._statsFailed = null;
       })
       .catch(() => {
-        // An older integration without the services: the card works without statistics.
-        this._statsFailed = rid;
+        // The card works without statistics until a later attempt succeeds.
+        this._statsFailed = { rid, at: Date.now() };
       })
       .finally(() => {
         this._loading = false;

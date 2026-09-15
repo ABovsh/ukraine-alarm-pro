@@ -34,6 +34,7 @@ from .api.supervisor import MODE_POLL, TransportSupervisor
 from .api.ws import WsTransport
 from .const import (
     CONF_REGIONS,
+    CROSS_CHECK_AFTER_SECONDS,
     DOMAIN,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
@@ -169,7 +170,9 @@ async def async_setup_entry(
 ) -> bool:
     session = async_get_clientsession(hass)
     supervisor = TransportSupervisor(
-        ws=WsTransport(session), poll=PollTransport(session)
+        ws=WsTransport(session),
+        poll=PollTransport(session),
+        stale_after=CROSS_CHECK_AFTER_SECONDS,
     )
     store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     coordinator = AlarmCoordinator(hass, entry, supervisor, store)

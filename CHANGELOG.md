@@ -23,6 +23,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Recovery with an unchanged map waited up to a minute.** When fresh data
   matched the stale map, `binary_sensor.uap_data_stale` cleared only on its next
   tick. It now clears on the first accepted snapshot.
+- **A quiet but healthy feed could briefly read as stale.** The watchdog
+  re-checked a silent WebSocket only once the data was already 15 minutes old,
+  so `binary_sensor.uap_data_stale` could turn on for up to a minute. The check
+  now runs after 12 minutes of silence, before the data counts as stale.
 - **A restart could lose the last minutes of the saved alert map.** The map was
   written every 5 minutes and on unload, but a Home Assistant restart does not
   unload entries. It is now also written when Home Assistant stops.
