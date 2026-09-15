@@ -92,7 +92,8 @@ async def test_malformed_response_does_not_replace_a_good_cache(hass: HomeAssist
         await async_get_region_tree(hass)
     with patch(FETCH, return_value={"states": []}):
         flat, cached_at = await async_get_region_tree(hass)
-    assert "703" in flat and cached_at is not None
+    assert "703" in flat
+    assert cached_at is not None
     with patch(FETCH, side_effect=TransportError("down")):
         flat, _ = await async_get_region_tree(hass)
     assert "703" in flat
@@ -147,7 +148,8 @@ async def test_options_use_the_cache_and_keep_a_region_missing_from_the_tree(
         assert result["description_placeholders"]["tree_note"] != ""
         options = result["data_schema"].schema["regions"].config["options"]
         labels = {o["value"]: o["label"] for o in options}
-        assert "999" in labels and "Зникла громада" in labels["999"]
+        assert "999" in labels
+        assert "Зникла громада" in labels["999"]
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"regions": ["703", "999", "31"]}
         )

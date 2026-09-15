@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
@@ -220,7 +221,7 @@ async def test_services_return_history_and_validate_input(
         await hass.services.async_call(
             DOMAIN, "get_history", {"region_id": "999"}, blocking=True, return_response=True
         )
-    with pytest.raises(Exception):  # noqa: B017 - schema rejects limit > 100
+    with pytest.raises(vol.MultipleInvalid):  # the schema rejects limit > 100
         await hass.services.async_call(
             DOMAIN, "get_history", {"region_id": "31", "limit": 101}, blocking=True, return_response=True
         )

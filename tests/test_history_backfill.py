@@ -98,7 +98,8 @@ async def test_merge_adds_only_periods_the_journal_did_not_observe():
     old = episodes[-1]
     assert old["start_origin"] == "history"
     assert old["observed_duration_seconds"] == 1800
-    assert old["had_gap"] is False and old["source_start_known"] is True
+    assert old["had_gap"] is False
+    assert old["source_start_known"] is True
     assert history.summary("31", 7)["coverage_start"] == (T0 - timedelta(days=90)).isoformat()
 
 
@@ -147,8 +148,8 @@ async def test_fetch_uses_the_map_page_token_and_one_request_per_root():
     )
     assert len(records) == 1
     url = session.get.call_args_list[1].args[0]
-    assert "regionId=31" in url and "apiToken=tok123" in url
-    assert "startDate=20260617" in url and "endDate=20260916" in url
+    for part in ("regionId=31", "apiToken=tok123", "startDate=20260617", "endDate=20260916"):
+        assert part in url
 
 
 async def test_fetch_without_a_token_is_a_transport_error():

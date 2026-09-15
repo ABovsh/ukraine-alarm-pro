@@ -64,7 +64,8 @@ async def test_resource_url_is_updated_not_duplicated(hass: HomeAssistant):
     await _async_register_card(hass)
     await _async_register_card(hass)
     ours = [i for i in resources.items if i["url"].startswith(CARD_URL)]
-    assert len(ours) == 1 and ours[0]["id"] == "old"
+    assert len(ours) == 1
+    assert ours[0]["id"] == "old"
     assert not ours[0]["url"].endswith("deadbeef")
 
 
@@ -105,5 +106,6 @@ def test_card_defines_its_element_and_picker_entry():
     assert "window.customCards" in source
     assert "getConfigForm" in source
     # Statistics come from the journal actions, not from new entities.
-    assert '"get_summary"' in source and '"get_history"' in source
+    assert '"get_summary"' in source
+    assert '"get_history"' in source
     assert "return_response: true" in source
