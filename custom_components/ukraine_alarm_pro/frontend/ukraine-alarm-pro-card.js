@@ -267,7 +267,8 @@ class UkraineAlarmProCard extends HTMLElement {
   // Statistics come from the journal services: fetched again after every alert
   // event, and on a timer so ongoing durations and the 24 h window move.
   _maybeRefresh() {
-    if (!this._hass || !this._config || !this._statsOn() || this._loading || !this.isConnected) return;
+    // Every layout needs the journal for the time since the last all clear.
+    if (!this._hass || !this._config || this._loading || !this.isConnected) return;
     const ids = this._entities();
     const rid = ids && regionIdOf(this._hass, ids.alert);
     if (!rid || this._statsFailed === rid) return;
@@ -424,8 +425,9 @@ class UkraineAlarmProCard extends HTMLElement {
     const title = noData ? t.noData : active ? t.types[types[0]] || t.alert : stale ? t.stale : t.quiet;
     const startDate = started && !["unknown", "unavailable"].includes(started.state) ? new Date(started.state) : null;
     const since = active && startDate && !isNaN(startDate) ? startDate : null;
-    const stats = this._statsOn() && this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null;
-    const lastCleared = !active && !noData && !stale && stats ? dateOf(stats.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at) : null;
+    const journal = this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null;
+    const stats = this._statsOn() ? journal : null;
+    const lastCleared = !active && !noData && !stale && journal ? dateOf(journal.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at) : null;
 
     const chips = [];
     if (active) {
