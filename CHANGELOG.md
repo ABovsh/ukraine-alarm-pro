@@ -50,6 +50,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Constant `region_id` attribute on the region alert, level, start and event
   entities, so the card finds a region's entities after renaming.
 - Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
+- Integration icon in `custom_components/ukraine_alarm_pro/brand/`, shown by
+  Home Assistant 2026.3 and later; source in `docs/images/icon.svg`.
 - Alert episode journal per region with the response-only actions
   `ukraine_alarm_pro.get_history` (up to 100 episodes) and
   `ukraine_alarm_pro.get_summary` (today or 7 local days, with the longest
