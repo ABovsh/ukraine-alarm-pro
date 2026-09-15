@@ -139,6 +139,10 @@ reasons, the last event and data freshness. Stale data with a last known quiet s
 shown as "no fresh data", not as a confirmed quiet. Replace `31` with your region ID and
 paste the YAML into the dashboard's raw configuration editor.
 
+For a single card, use [`docs/examples/status-card.yaml`](docs/examples/status-card.yaml): one line per
+region, such as "🚨 **м. Київ** · повітряна 🟡 · з 09:38, 6 хв" or "🟢 **м. Київ** · тихо". Its text is
+Ukrainian.
+
 ## Notifications
 
 ### Notifications from events
