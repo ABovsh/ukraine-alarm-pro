@@ -389,11 +389,12 @@ function register() {
   if (!window.customElements.get(CARD)) window.customElements.define(CARD, UkraineAlarmProCard);
 }
 register();
+// Frequent at first, then sparse: a slow phone can finish booting late.
 let registerChecks = 0;
 const registerTimer = setInterval(() => {
   register();
-  if (++registerChecks >= 150) clearInterval(registerTimer);
-}, 100);
+  if (++registerChecks >= 600) clearInterval(registerTimer);
+}, 200);
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === CARD)) {
