@@ -40,8 +40,8 @@ This project follows [Semantic Versioning](https://semver.org/).
 - `test_notification` script blueprint that runs notification actions with a
   «ТЕСТ» / "TEST" message without changing alert entities, events or history.
 - Event attributes `observed_active_since` and `active_since_known`.
-- Bundled dashboard card `custom:ukraine-alarm-pro-card`, registered by the
-  integration and listed in the card picker: alert state, threat, level,
+- Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
+  integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
   duration, coverage, reason, last event and data freshness, Ukrainian or
   English (automatic or fixed), optional compact layout. It finds a single region on its own.
 - Constant `region_id` attribute on the region alert, level, start and event

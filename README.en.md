@@ -135,7 +135,9 @@ a retry.
 
 ![Ukraine Alarm Pro card](docs/images/status-card.png)
 
-The card ships with the integration; nothing else to install. After installing or
+The card ships with the integration and adds itself to **Settings → Dashboards →
+Resources**; nothing else to install. For YAML-mode resources add
+`/ukraine_alarm_pro/ukraine-alarm-pro-card.js` as a `module` yourself. After installing or
 updating, restart Home Assistant and reload the browser page. Then: dashboard → **Edit** →
 **Add card** → search for **Ukraine Alarm Pro**. With one region the card finds it on its
 own; with several, pick the region's alert sensor.

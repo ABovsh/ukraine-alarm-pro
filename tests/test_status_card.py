@@ -12,18 +12,68 @@ from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 CARD = Path(__file__).parent.parent / "custom_components/ukraine_alarm_pro/frontend/ukraine-alarm-pro-card.js"
 
 
-async def test_card_is_served_and_added_to_the_frontend(hass: HomeAssistant):
-    hass.config.components.add("frontend")
+class FakeResources:
+    """Storage-mode Lovelace resources, as HACS cards are registered."""
+
+    def __init__(self, items=()):
+        self.items = [dict(item) for item in items]
+        self.loaded = False
+
+    async def async_get_info(self):
+        self.loaded = True
+        return {"resources": len(self.items)}
+
+    def async_items(self):
+        return list(self.items)
+
+    async def async_create_item(self, data):
+        self.items.append({"id": f"r{len(self.items)}", **data})
+
+    async def async_update_item(self, item_id, data):
+        for item in self.items:
+            if item["id"] == item_id:
+                item.update(data)
+
+
+def _frontend(hass, resources):
+    hass.config.components.update({"frontend", "lovelace"})
     hass.http = MagicMock()
     hass.http.async_register_static_paths = AsyncMock()
+    hass.data["lovelace"] = MagicMock(resources=resources, resource_mode="storage")
+
+
+async def test_card_is_registered_as_a_lovelace_resource(hass: HomeAssistant):
+    """Loaded after the frontend is ready, like any HACS card — no race."""
+    resources = FakeResources([{"id": "x", "res_type": "module", "url": "/hacsfiles/other.js"}])
+    _frontend(hass, resources)
     with patch("custom_components.ukraine_alarm_pro.add_extra_js_url") as add_js:
         await _async_register_card(hass)
     [[paths], _] = hass.http.async_register_static_paths.call_args
     assert paths[0].url_path == CARD_URL
     assert Path(paths[0].path) == CARD
-    url = add_js.call_args[0][1]
-    assert url.startswith(f"{CARD_URL}?v=")
-    assert len(url.split("?v=")[1]) == 8, "cache-busting content hash"
+    ours = [i for i in resources.items if i["url"].startswith(CARD_URL)]
+    assert len(ours) == 1
+    assert ours[0]["res_type"] == "module"
+    assert len(ours[0]["url"].split("?v=")[1]) == 8, "cache-busting content hash"
+    add_js.assert_not_called()
+
+
+async def test_resource_url_is_updated_not_duplicated(hass: HomeAssistant):
+    resources = FakeResources([{"id": "old", "res_type": "module", "url": f"{CARD_URL}?v=deadbeef"}])
+    _frontend(hass, resources)
+    await _async_register_card(hass)
+    await _async_register_card(hass)
+    ours = [i for i in resources.items if i["url"].startswith(CARD_URL)]
+    assert len(ours) == 1 and ours[0]["id"] == "old"
+    assert not ours[0]["url"].endswith("deadbeef")
+
+
+async def test_yaml_mode_dashboards_fall_back_to_an_extra_module(hass: HomeAssistant):
+    _frontend(hass, MagicMock(spec=["async_items"]))
+    hass.data["lovelace"].resource_mode = "yaml"
+    with patch("custom_components.ukraine_alarm_pro.add_extra_js_url") as add_js:
+        await _async_register_card(hass)
+    assert add_js.call_args[0][1].startswith(f"{CARD_URL}?v=")
 
 
 async def test_card_registration_is_skipped_without_the_frontend(hass: HomeAssistant):

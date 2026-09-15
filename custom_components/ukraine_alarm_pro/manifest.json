@@ -3,7 +3,8 @@
   "name": "Ukraine Alarm Pro",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "lovelace"
   ],
   "codeowners": [
     "@ABovsh"

@@ -13,7 +13,7 @@ import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -77,7 +77,15 @@ REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Register the history actions and the dashboard card once."""
-    await _async_register_card(hass)
+
+    async def _register_card(_event=None) -> None:
+        # Lovelace resources exist only once the frontend has set up.
+        await _async_register_card(hass)
+
+    if hass.is_running:
+        await _register_card()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_card)
 
     def _coordinator(region_id: str) -> AlarmCoordinator:
         for entry in hass.config_entries.async_entries(DOMAIN):
@@ -119,7 +127,14 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 
 async def _async_register_card(hass: HomeAssistant) -> None:
-    """Serve the card and load it on every dashboard, with a cache-busting hash."""
+    """Serve the card and have every dashboard load it, with a cache-busting hash.
+
+    Storage-mode dashboards get it as a Lovelace resource, exactly like a HACS
+    card: resources load after the frontend is ready. An "extra module" loads
+    earlier, and its element definition could be lost to the frontend's own
+    registry setup — users saw "Custom element doesn't exist". YAML-mode
+    resources cannot be written, so those fall back to the extra module.
+    """
     if getattr(hass, "http", None) is None or "frontend" not in hass.config.components:
         return
     digest = await hass.async_add_executor_job(
@@ -128,7 +143,25 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
     )
-    add_extra_js_url(hass, f"{CARD_URL}?v={digest}")
+    url = f"{CARD_URL}?v={digest}"
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if getattr(lovelace, "resource_mode", None) != "storage" or not hasattr(
+        resources, "async_create_item"
+    ):
+        add_extra_js_url(hass, url)
+        return
+    await resources.async_get_info()  # loads the collection on first use
+    ours = [
+        item for item in resources.async_items()
+        if str(item.get("url", "")).split("?")[0] == CARD_URL
+    ]
+    if not ours:
+        await resources.async_create_item({"res_type": "module", "url": url})
+    elif ours[0]["url"] != url:
+        await resources.async_update_item(
+            ours[0]["id"], {"res_type": "module", "url": url}
+        )
 
 
 async def async_setup_entry(
