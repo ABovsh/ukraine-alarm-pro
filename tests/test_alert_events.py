@@ -181,3 +181,17 @@ async def test_unload_removes_the_event_listeners(
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert coordinator.events.listener_count == 0
+
+
+def test_event_published_before_the_entity_exists_is_delivered_on_subscribe():
+    """At startup the seed can beat the event platform by seconds."""
+    from custom_components.ukraine_alarm_pro.events import AlertEventHub
+
+    hub = AlertEventHub()
+    hub.accept({"31": ("м. Київ", _state())}, origin="bootstrap", observed_at="t0")
+    received = []
+    remove = hub.add_listener("31", lambda kind, payload: received.append(kind))
+    assert received == ["resynced"]
+    remove()
+    hub.add_listener("31", lambda kind, payload: received.append(kind))
+    assert received == ["resynced"], "delivered once, not replayed to every listener"

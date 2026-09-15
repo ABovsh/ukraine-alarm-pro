@@ -117,6 +117,9 @@ class AlertEventHub:
         # When each region's current active period was first seen, and whether
         # that was its real start (a live clear→active) or just our first look.
         self._since: dict[str, tuple[str, bool]] = {}
+        # The newest event nobody was listening for, per region: at startup the
+        # first snapshot can arrive before the event entities are added.
+        self._undelivered: dict[str, tuple[str, dict[str, Any]]] = {}
         # Unique within one runtime; no exactly-once promise across restarts.
         self._runtime = uuid.uuid4().hex[:8]
         self._counter = itertools.count(1)
@@ -132,6 +135,8 @@ class AlertEventHub:
     ) -> Callable[[], None]:
         """Listen to one region, or to every region with `None`."""
         self._listeners.setdefault(region_id, []).append(listener)
+        if region_id is not None and (pending := self._undelivered.pop(region_id, None)):
+            listener(*pending)
 
         def _remove() -> None:
             self._listeners[region_id].remove(listener)
@@ -229,8 +234,10 @@ class AlertEventHub:
             "observed_active_since": since[0] if since else None,
             "active_since_known": bool(since and since[1]),
         }
-        for listener in (
-            *self._listeners.get(region_id, ()),
-            *self._listeners.get(None, ()),
-        ):
+        region_listeners = self._listeners.get(region_id)
+        if region_listeners:
+            self._undelivered.pop(region_id, None)
+        else:
+            self._undelivered[region_id] = (event_type, payload)
+        for listener in (*(region_listeners or ()), *self._listeners.get(None, ())):
             listener(event_type, payload)
