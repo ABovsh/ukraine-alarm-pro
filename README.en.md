@@ -142,11 +142,12 @@ One card shows everything the integration knows about a region:
   data is stale the card says "No fresh data", not "All quiet".
 - **Time.** During an alert, how long it has lasted and since when. Without one, how long
   it has been since the last all clear.
-- **Last 24 hours.** A day strip: red and yellow segments are alerts, with their count and
-  total duration. Hovering a segment shows its start, end and duration.
-- **7 days.** One bar per day: height is alert duration, the number above is the count.
-  Below: the week's longest and average alert and the time of the last one.
-- **Data.** Whether data is current, when it was updated, the last event.
+- **24 hours.** Alert count, total duration and share of time under alert. Below that line,
+  a day strip: red and yellow segments mark alerts. Hovering a segment shows its start,
+  end and duration.
+- **7 days.** Alert count, total duration and share of time under alert, plus the longest
+  and average alert.
+- **Data.** Whether data is current and when it was updated.
 
 Tapping the card opens the alert sensor with its history.
 

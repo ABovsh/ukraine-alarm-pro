@@ -42,9 +42,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Event attributes `observed_active_since` and `active_since_known`.
 - Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
   integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
-  duration, coverage, reason, last event and data freshness, time since the
-  last all clear, a 24-hour alert strip, 7 daily bars with count and duration,
-  the week's longest, average and last alert. Ukrainian or English (automatic
+  duration, coverage, reason and data freshness, time since the last all
+  clear, alert count, total duration and share of time under alert for 24 hours
+  (with an alert strip) and 7 days, the week's longest and average alert.
+  Ukrainian or English (automatic
   or fixed), layout `full`, `status` or `compact`. It finds a
   single region on its own and adds no entities or database rows.
 - Constant `region_id` attribute on the region alert, level, start and event

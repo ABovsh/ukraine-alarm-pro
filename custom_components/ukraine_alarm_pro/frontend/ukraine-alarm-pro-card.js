@@ -41,7 +41,6 @@ const I18N = {
     quietFor: "без тривог з",
     longest: "Найдовша",
     average: "Середня",
-    today: "сьогодні",
     ongoing: "триває",
     journalSince: "дані з",
     gaps: "були перерви в даних",
@@ -80,7 +79,6 @@ const I18N = {
     quietFor: "no alerts since",
     longest: "Longest",
     average: "Average",
-    today: "today",
     ongoing: "ongoing",
     journalSince: "data since",
     gaps: "data had gaps",
@@ -161,10 +159,6 @@ const dayMonth = (date, hass) =>
     month: "2-digit",
     timeZone: hass?.config?.time_zone || undefined,
   });
-
-// A summary day is a server-local calendar date; format it without shifting zones.
-const weekday = (isoDate, t) =>
-  new Date(`${isoDate}T12:00:00Z`).toLocaleDateString(t === I18N.en ? "en" : "uk", { weekday: "short", timeZone: "UTC" });
 
 const LAYOUTS = ["full", "status", "compact"];
 const STATS_FRESH_ACTIVE = 60000;
@@ -263,7 +257,7 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getGridOptions() {
-    return { columns: 12, min_columns: 6, rows: this._config?.layout === "compact" ? 1 : "auto" };
+    return { columns: 12, min_columns: 6, rows: "auto" };
   }
 
   _statsOn() {
@@ -374,15 +368,6 @@ class UkraineAlarmProCard extends HTMLElement {
     const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h / 24) * 100}%"></span>`).join("");
 
     // 7 calendar days from the server, in Home Assistant's own time zone.
-    const daily = Array.isArray(summary?.daily) ? summary.daily : [];
-    const peak = Math.max(...daily.map((d) => d.observed_duration_seconds), 1);
-    const bars = daily
-      .map((d, i) => {
-        const height = d.count ? Math.max((d.observed_duration_seconds / peak) * 100, 12) : 0;
-        const label = i === daily.length - 1 ? t.today : weekday(d.date, t);
-        return `<span class="col${i === daily.length - 1 ? " today" : ""}" title="${esc(`${label}: ${d.count ? span(t, d.observed_duration_seconds) : t.noAlerts}`)}"><i style="height:${height.toFixed(1)}%"></i></span>`;
-      })
-      .join("");
     const weekCount = summary?.count ?? 0;
     const periodStart = dateOf(summary?.period_start)?.getTime() ?? now - 7 * 86400000;
 
@@ -398,7 +383,7 @@ class UkraineAlarmProCard extends HTMLElement {
 
     return `<div class="stats">
       <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline">${ticks}${segments}</div><b>${esc(line(recent.length, recentSeconds, dayAgo))}</b></div>
-      ${daily.length ? `<div class="row"><span class="lbl">${esc(t.week)}</span><div class="bars">${bars}</div><b>${esc(line(weekCount, summary.observed_duration_seconds, periodStart))}</b></div>` : ""}
+      ${summary ? `<div class="row plain"><span class="lbl">${esc(t.week)}</span><b>${esc(line(weekCount, summary.observed_duration_seconds, periodStart))}</b></div>` : ""}
       ${extras.length ? `<div class="hint">${extras.map(esc).join(" · ")}</div>` : ""}
     </div>`;
   }
@@ -552,14 +537,15 @@ const STYLE = `<style>
   .timer.quiet .big { color: var(--uap-green); }
   .stats { position: relative; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "lbl val" "viz viz"; align-items: center; gap: 3px 10px; }
-  .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline, .bars { grid-area: viz; }
+  .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline { grid-area: viz; }
+  .row.plain { display: flex; justify-content: space-between; gap: 10px; }
   @container (min-width: 520px) {
     .row { grid-template-columns: 52px minmax(120px, 1fr) auto; grid-template-areas: "lbl viz val"; }
   }
   .lbl { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
   .row b { font-size: 12px; font-weight: 600; color: var(--primary-text-color); white-space: nowrap;
     font-variant-numeric: tabular-nums; text-align: right; }
-  .timeline, .bars { position: relative; height: 12px; border-radius: 4px; overflow: hidden; }
+  .timeline { position: relative; height: 12px; border-radius: 4px; overflow: hidden; }
   .timeline { background: color-mix(in srgb, var(--uap-green) 18%, transparent); }
   .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 12%, transparent); }
   .seg { position: absolute; top: 0; bottom: 0; background: var(--uap-red); }
@@ -569,11 +555,6 @@ const STYLE = `<style>
   .seg.live { animation: live 1.8s ease-in-out infinite; }
   @keyframes live { 50% { opacity: .6; } }
   @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
-  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; height: 18px; overflow: visible; }
-  .col { display: flex; align-items: flex-end; height: 100%; border-radius: 3px; overflow: hidden;
-    background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); }
-  .col i { display: block; width: 100%; background: color-mix(in srgb, var(--uap-red) 75%, transparent); }
-  .col.today i { background: var(--uap-red); }
   .hint { font-size: 11px; color: var(--secondary-text-color); }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
