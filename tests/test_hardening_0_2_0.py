@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -22,7 +21,6 @@ from custom_components.ukraine_alarm_pro.api.supervisor import (
 from custom_components.ukraine_alarm_pro.config_flow import _flatten
 from custom_components.ukraine_alarm_pro.const import (
     DOMAIN,
-    ISSUE_WS_UNAVAILABLE,
     STALE_AFTER_SECONDS,
     STORAGE_KEY,
     STORAGE_VERSION,
@@ -316,22 +314,6 @@ async def test_oblast_entity_reacts_to_a_raion_alert(
     assert hass.states.get("sensor.uap_14_threat").state == "air"
     assert hass.states.get("binary_sensor.uap_14_alert").state == "on"
     assert hass.states.get("binary_sensor.uap_data_stale").state == "off"
-
-
-async def test_polling_fallback_raises_and_clears_a_repair_issue(
-    hass: HomeAssistant, enable_custom_integrations
-):
-    _, sup = await _setup(hass)
-    on_mode = sup.set_mode_listener.call_args[0][0]
-    registry = ir.async_get(hass)
-
-    on_mode(MODE_POLL)
-    await hass.async_block_till_done()
-    assert registry.async_get_issue(DOMAIN, ISSUE_WS_UNAVAILABLE) is not None
-
-    on_mode("websocket")
-    await hass.async_block_till_done()
-    assert registry.async_get_issue(DOMAIN, ISSUE_WS_UNAVAILABLE) is None
 
 
 async def test_background_tasks_belong_to_the_entry(

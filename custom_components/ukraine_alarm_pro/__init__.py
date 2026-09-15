@@ -30,12 +30,13 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.storage import Store
 
 from .api.poll import PollTransport
-from .api.supervisor import MODE_POLL, TransportSupervisor
+from .api.supervisor import TransportSupervisor
 from .api.ws import WsTransport
 from .const import (
     CONF_REGIONS,
     CROSS_CHECK_AFTER_SECONDS,
     DOMAIN,
+    ISSUE_FEED_UNAVAILABLE,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
     SAVE_DELAY_SECONDS,
@@ -168,6 +169,9 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 async def async_setup_entry(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
 ) -> bool:
+    # Older versions warned about the polling fallback itself; that is not a
+    # user problem, so drop a leftover issue on upgrade.
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
     session = async_get_clientsession(hass)
     supervisor = TransportSupervisor(
         ws=WsTransport(session),
@@ -193,7 +197,6 @@ async def async_setup_entry(
     @callback
     def _on_mode_change(mode: str) -> None:
         coordinator.handle_mode_change(mode)
-        _async_report_transport_mode(hass, mode)
 
     supervisor.set_mode_listener(_on_mode_change)
 
@@ -251,7 +254,7 @@ async def async_unload_entry(
         await entry.runtime_data.supervisor.stop()
         await entry.runtime_data.async_save_now()
         await entry.runtime_data.async_flush_history()
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
     return ok
 
 
@@ -287,22 +290,6 @@ def _async_purge_deselected_regions(
                 region_id,
             )
             registry.async_remove(reg_entry.entity_id)
-
-
-@callback
-def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
-    """Tell the user when we are stuck on the slower polling fallback."""
-    if mode == MODE_POLL:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            ISSUE_WS_UNAVAILABLE,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key=ISSUE_WS_UNAVAILABLE,
-        )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
 
 
 @callback

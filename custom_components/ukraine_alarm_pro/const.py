@@ -14,7 +14,9 @@ STALE_AFTER_SECONDS = 900.0
 # request timeout fit in the margin.
 CROSS_CHECK_AFTER_SECONDS = STALE_AFTER_SECONDS - 180.0
 
+# Retired: polling fallback is not a user problem. Kept to clear leftovers.
 ISSUE_WS_UNAVAILABLE = "websocket_unavailable"
+ISSUE_FEED_UNAVAILABLE = "feed_unavailable"
 
 # Last-known alert map, kept on disk so a restart does not come up blind.
 # Ukraine's reality is that power returns before the uplink does: without this

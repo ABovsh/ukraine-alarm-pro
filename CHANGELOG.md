@@ -13,6 +13,13 @@ This project follows [Semantic Versioning](https://semver.org/).
   off. These episodes carry the official start and all-clear times and
   `start_origin: history`.
 
+### 🔧 Changed
+
+- **Repairs no longer warns when the integration falls back to polling.** The
+  «Alert WebSocket unavailable» issue is removed; polling still delivers alerts. The
+  new «Alert data unavailable» issue appears only when neither the WebSocket nor the
+  fallback source has delivered data for 15 minutes, and clears when data arrives.
+
 ## [0.9.0] - 2026-09-15
 
 ### ✨ Added

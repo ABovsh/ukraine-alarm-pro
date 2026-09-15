@@ -48,8 +48,9 @@ and the `dev` branch as of 2026-09-15. What this integration has:
 
 After repeated WebSocket failures, the integration switches to polling siren.pp.ua
 with a 60-second pause between requests. It periodically retries the WebSocket and
-switches back after receiving data. The data channel, the time of the last data received
-and the fallback mode are visible in the diagnostic entities and under Repairs.
+switches back after receiving data. The data channel and the time of the last data
+received are visible in the diagnostic entities. An issue appears under Repairs only when
+neither the WebSocket nor the fallback source has delivered data for 15 minutes.
 
 ## Entities
 

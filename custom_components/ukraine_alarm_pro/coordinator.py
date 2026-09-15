@@ -9,13 +9,20 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from . import backfill
-from .const import CONF_REGIONS, DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
+from .const import (
+    CONF_REGIONS,
+    DOMAIN,
+    ISSUE_FEED_UNAVAILABLE,
+    RESTORE_MAX_AGE_SECONDS,
+    STALE_AFTER_SECONDS,
+)
 from .events import (
     ORIGIN_BOOTSTRAP,
     ORIGIN_LIVE,
@@ -48,6 +55,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         )
         self.supervisor = supervisor
         self.last_push: datetime | None = None
+        self.started_at = dt_util.utcnow()
         self._store = store
         self._saved_active: dict[str, frozenset] | None = None
         self._views: dict[str, RegionView] = {}
@@ -153,6 +161,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             # the identical region states, so this costs no region rows.
             self.async_update_listeners()
         self._publish_events(was_stale=was_stale, changed=changed)
+        if was_stale:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
     @callback
     def _publish_events(self, *, was_stale: bool, changed: bool) -> None:
@@ -186,6 +196,29 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 {rid: info["name"] for rid, info in self._regions.items()},
                 observed_at=dt_util.utcnow().isoformat(),
             )
+        self._async_report_feed_health()
+
+    @callback
+    def _async_report_feed_health(self) -> None:
+        """Raise a repair issue only when no source delivers alert data.
+
+        Polling after a WebSocket failure still delivers alerts, so it is no
+        problem for the user. Before the first snapshot, the start-up grace
+        period counts as the window instead of a push that never happened.
+        """
+        reference = self.last_push or self.started_at
+        age = (dt_util.utcnow() - reference).total_seconds()
+        if age > STALE_AFTER_SECONDS:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                ISSUE_FEED_UNAVAILABLE,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_FEED_UNAVAILABLE,
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
     async def async_backfill_history(self, _now: datetime | None = None) -> None:
         """Merge the official alert history into the journal, best effort."""
