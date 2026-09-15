@@ -5,6 +5,46 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### ✨ Added
+
+- Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
+  integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
+  duration, coverage, reason and data freshness, time since the last all
+  clear, alert count, total duration and share of time under alert for 24 hours
+  (with an alert strip) and 7 days, the week's longest and average alert.
+  Ukrainian or English (automatic
+  or fixed), layout `full`, `status` or `compact`. It finds a
+  single region on its own and adds no entities or database rows.
+- Per-region `event.uap_<id>_event` with event types `started`, `escalated`,
+  `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
+  change produces at most one event per region with the previous and current
+  state. The first data after startup or a gap is `resynced`, not `started`.
+- `alert_notify_events` automation blueprint: Ukrainian or English messages from
+  the region event, separate actions for start, escalation or added threat,
+  clear, stale data and resync; silent on the first data after startup by
+  default. The existing `alert_notify` blueprint is unchanged.
+- `test_notification` script blueprint that runs notification actions with a
+  «ТЕСТ» / "TEST" message without changing alert entities, events or history.
+- Event attributes `observed_active_since` and `active_since_known`.
+- Constant `region_id` attribute on the region alert, level, start and event
+  entities, so the card finds a region's entities after renaming.
+- Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
+- Integration icon in `custom_components/ukraine_alarm_pro/brand/`, shown by
+  Home Assistant 2026.3 and later; source in `docs/images/icon.svg`.
+- Alert episode journal per region with the response-only actions
+  `ukraine_alarm_pro.get_history` (up to 100 episodes) and
+  `ukraine_alarm_pro.get_summary` (today or 7 local days, with the longest
+  episode and a per-day count and duration). Episodes carry
+  observed start/clear times, the declared start, types seen, the highest air
+  level and gap marks. Completed episodes are kept for 90 days, at most 1000.
+- `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
+  `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
+  declaring regions) and `affected_region_count`. Coverage does not change the
+  alert state.
+- Region list is cached after validation and refreshed daily in the background.
+  Changing regions works from the cached copy while the proxy is down, and a
+  selected region missing from the list is kept instead of dropped.
+
 ### 🐛 Fixed
 
 - **A damaged feed record could clear active alerts.** A record without a usable
@@ -30,46 +70,6 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **A restart could lose the last minutes of the saved alert map.** The map was
   written every 5 minutes and on unload, but a Home Assistant restart does not
   unload entries. It is now also written when Home Assistant stops.
-
-### ✨ Added
-
-- Per-region `event.uap_<id>_event` with event types `started`, `escalated`,
-  `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
-  change produces at most one event per region with the previous and current
-  state. The first data after startup or a gap is `resynced`, not `started`.
-- `alert_notify_events` automation blueprint: Ukrainian or English messages from
-  the region event, separate actions for start, escalation or added threat,
-  clear, stale data and resync; silent on the first data after startup by
-  default. The existing `alert_notify` blueprint is unchanged.
-- `test_notification` script blueprint that runs notification actions with a
-  «ТЕСТ» / "TEST" message without changing alert entities, events or history.
-- Event attributes `observed_active_since` and `active_since_known`.
-- Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
-  integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
-  duration, coverage, reason and data freshness, time since the last all
-  clear, alert count, total duration and share of time under alert for 24 hours
-  (with an alert strip) and 7 days, the week's longest and average alert.
-  Ukrainian or English (automatic
-  or fixed), layout `full`, `status` or `compact`. It finds a
-  single region on its own and adds no entities or database rows.
-- Constant `region_id` attribute on the region alert, level, start and event
-  entities, so the card finds a region's entities after renaming.
-- Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
-- Integration icon in `custom_components/ukraine_alarm_pro/brand/`, shown by
-  Home Assistant 2026.3 and later; source in `docs/images/icon.svg`.
-- Alert episode journal per region with the response-only actions
-  `ukraine_alarm_pro.get_history` (up to 100 episodes) and
-  `ukraine_alarm_pro.get_summary` (today or 7 local days, with the longest
-  episode and a per-day count and duration). Episodes carry
-  observed start/clear times, the declared start, types seen, the highest air
-  level and gap marks. Completed episodes are kept for 90 days, at most 1000.
-- `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
-  `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
-  declaring regions) and `affected_region_count`. Coverage does not change the
-  alert state.
-- Region list is cached after validation and refreshed daily in the background.
-  Changing regions works from the cached copy while the proxy is down, and a
-  selected region missing from the list is kept instead of dropped.
 
 ### 🔧 Changed
 
