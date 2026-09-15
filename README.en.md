@@ -162,7 +162,7 @@ Tapping the card opens the alert sensor with its history.
    region's alert sensor ("… alert") in **Region / Регіон**. Add one card per region.
 
 The card editor lets you change the name (for example "Home" instead of the hromada
-name), turn statistics off, switch to the compact layout or pick the language.
+name), pick the layout — full (status and statistics), status only, or compact on one row — and the language.
 
 If you see "Custom element doesn't exist" or "Configuration error" instead of the card,
 the browser still has the old page: repeat step 2. For YAML-mode dashboards add the
@@ -174,8 +174,7 @@ resource yourself: `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`
 type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # optional with a single region
 name: Home                          # optional
-show_stats: true                    # false hides the 24-hour and 7-day statistics
-compact: false                      # true shows only the top row, no statistics
+layout: full                        # full: status and statistics, status: status only, compact: one row
 language: auto                      # auto (Home Assistant language), uk or en
 ```
 

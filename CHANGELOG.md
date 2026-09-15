@@ -45,7 +45,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   duration, coverage, reason, last event and data freshness, time since the
   last all clear, a 24-hour alert strip, 7 daily bars with count and duration,
   the week's longest, average and last alert. Ukrainian or English (automatic
-  or fixed), statistics can be turned off, optional compact layout. It finds a
+  or fixed), layout `full`, `status` or `compact`. It finds a
   single region on its own and adds no entities or database rows.
 - Constant `region_id` attribute on the region alert, level, start and event
   entities, so the card finds a region's entities after renaming.

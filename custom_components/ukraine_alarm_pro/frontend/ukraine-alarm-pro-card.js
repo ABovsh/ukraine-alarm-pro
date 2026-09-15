@@ -31,32 +31,20 @@ const I18N = {
       nuclear: "Радіаційна загроза",
       unrecognized: "Невідомий тип",
     },
-    events: {
-      started: "почалася",
-      escalated: "рівень підвищився",
-      threat_added: "додалася загроза",
-      updated: "оновлення",
-      cleared: "відбій",
-      data_stale: "дані застаріли",
-      resynced: "синхронізовано",
-    },
-    lastEvent: "Остання подія",
     updated: "оновлено",
     quietNote: "Активних тривог немає",
     notFound: "Не знайдено сутностей Ukraine Alarm Pro",
-    last24: "Останні 24 години",
+    last24: "24 год",
     week: "7 днів",
     now: "зараз",
     noAlerts: "без тривог",
     quietFor: "без тривог з",
     longest: "Найдовша",
     average: "Середня",
-    lastAlert: "Остання тривога",
-    ended: "відбій о",
     today: "сьогодні",
     ongoing: "триває",
-    journalSince: "Статистика ведеться з",
-    gaps: "Частину часу даних не було — тривалість приблизна",
+    journalSince: "дані з",
+    gaps: "були перерви в даних",
     plural: ["тривога", "тривоги", "тривог"],
   },
   en: {
@@ -82,32 +70,20 @@ const I18N = {
       nuclear: "Nuclear threat",
       unrecognized: "Unknown type",
     },
-    events: {
-      started: "started",
-      escalated: "level raised",
-      threat_added: "threat added",
-      updated: "update",
-      cleared: "all clear",
-      data_stale: "data stale",
-      resynced: "resynchronized",
-    },
-    lastEvent: "Last event",
     updated: "updated",
     quietNote: "No active alerts",
     notFound: "No Ukraine Alarm Pro entities found",
-    last24: "Last 24 hours",
+    last24: "24 h",
     week: "7 days",
     now: "now",
     noAlerts: "no alerts",
     quietFor: "no alerts since",
     longest: "Longest",
     average: "Average",
-    lastAlert: "Last alert",
-    ended: "cleared at",
     today: "today",
     ongoing: "ongoing",
-    journalSince: "Statistics recorded since",
-    gaps: "Data was missing for a while — durations are approximate",
+    journalSince: "data since",
+    gaps: "data had gaps",
     plural: ["alert", "alerts", "alerts"],
   },
 };
@@ -190,6 +166,7 @@ const dayMonth = (date, hass) =>
 const weekday = (isoDate, t) =>
   new Date(`${isoDate}T12:00:00Z`).toLocaleDateString(t === I18N.en ? "en" : "uk", { weekday: "short", timeZone: "UTC" });
 
+const LAYOUTS = ["full", "status", "compact"];
 const STATS_FRESH_ACTIVE = 60000;
 const STATS_FRESH_QUIET = 600000;
 
@@ -209,8 +186,19 @@ class UkraineAlarmProCard extends HTMLElement {
           selector: { entity: { filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } },
         },
         { name: "name", selector: { text: {} } },
-        { name: "show_stats", selector: { boolean: {} } },
-        { name: "compact", selector: { boolean: {} } },
+        {
+          name: "layout",
+          selector: {
+            select: {
+              mode: "list",
+              options: [
+                { value: "full", label: "Full: status and statistics / Повний: стан і статистика" },
+                { value: "status", label: "Status only / Лише стан" },
+                { value: "compact", label: "Compact: one row / Компактний: один рядок" },
+              ],
+            },
+          },
+        },
         {
           name: "language",
           selector: {
@@ -229,8 +217,7 @@ class UkraineAlarmProCard extends HTMLElement {
         ({
           entity: "Region / Регіон",
           name: "Name / Назва",
-          show_stats: "Statistics / Статистика",
-          compact: "Compact, no statistics / Компактно, без статистики",
+          layout: "Layout / Вигляд",
           language: "Language / Мова",
         })[schema.name],
     };
@@ -242,7 +229,8 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = { compact: false, show_stats: true, ...config };
+    // One layout choice instead of switches that can contradict each other.
+    this._config = { ...config, layout: LAYOUTS.includes(config.layout) ? config.layout : "full" };
     this._stats = null;
     this._key = null;
     if (this._hass) this._render();
@@ -271,15 +259,15 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config?.compact ? 1 : this._statsOn() ? 7 : 3;
+    return { compact: 1, status: 3, full: 4 }[this._config?.layout] ?? 4;
   }
 
   getGridOptions() {
-    return { columns: 12, min_columns: 6, rows: this._config?.compact ? 1 : "auto" };
+    return { columns: 12, min_columns: 6, rows: this._config?.layout === "compact" ? 1 : "auto" };
   }
 
   _statsOn() {
-    return !this._config.compact && this._config.show_stats !== false;
+    return this._config.layout === "full";
   }
 
   // Statistics come from the journal services: fetched again after every alert
@@ -352,9 +340,19 @@ class UkraineAlarmProCard extends HTMLElement {
     const now = Date.now();
     const dayAgo = now - 86400000;
     const { summary } = stats;
+    const journalStart = dateOf(summary?.coverage_start)?.getTime() ?? 0;
     const episodes = stats.episodes
       .map((ep) => ({ ...ep, start: dateOf(ep.observed_started_at), end: dateOf(ep.observed_cleared_at) }))
       .filter((ep) => ep.start);
+    // Share of the time the journal actually covered, not of time it did not exist.
+    const share = (seconds, from) => {
+      const covered = (now - Math.max(from, journalStart)) / 1000;
+      if (covered <= 0) return "";
+      const pct = Math.min((seconds / covered) * 100, 100);
+      return pct.toLocaleString(fmt.locale.language, { maximumFractionDigits: pct < 10 ? 1 : 0 }) + (t === I18N.en ? "%" : " %");
+    };
+    const line = (count, seconds, from) =>
+      count ? [alerts(t, count), span(t, seconds), share(seconds, from)].filter(Boolean).join(" · ") : t.noAlerts;
 
     // Rolling 24 h: absolute times, so the browser's zone does not matter.
     const recent = episodes.filter((ep) => (ep.end ? ep.end.getTime() : now) > dayAgo);
@@ -367,62 +365,41 @@ class UkraineAlarmProCard extends HTMLElement {
         const from = Math.max(ep.start.getTime(), dayAgo);
         const to = ep.end ? ep.end.getTime() : now;
         const left = ((from - dayAgo) / 86400000) * 100;
-        const width = Math.max(((to - from) / 86400000) * 100, 0.6);
+        const width = Math.max(((to - from) / 86400000) * 100, 0.8);
         const level = ["red", "yellow"].includes(ep.maximum_air_level) ? ep.maximum_air_level : "other";
         const title = `${hhmm(new Date(from), fmt)}–${ep.end ? hhmm(ep.end, fmt) : t.now} · ${span(t, (to - from) / 1000)}`;
         return `<span class="seg ${level}${ep.end ? "" : " live"}${ep.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
       })
       .join("");
-    const ticks = [0, 6, 12, 18]
-      .map((h) => `<span class="tick" style="left:${(h / 24) * 100}%"></span>`)
-      .join("");
+    const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h / 24) * 100}%"></span>`).join("");
 
     // 7 calendar days from the server, in Home Assistant's own time zone.
     const daily = Array.isArray(summary?.daily) ? summary.daily : [];
     const peak = Math.max(...daily.map((d) => d.observed_duration_seconds), 1);
     const bars = daily
       .map((d, i) => {
-        const today = i === daily.length - 1;
-        const height = d.count ? Math.max((d.observed_duration_seconds / peak) * 100, 6) : 0;
-        const value = d.count ? span(t, d.observed_duration_seconds) : "—";
-        return `<div class="day${today ? " today" : ""}" title="${esc(`${alerts(t, d.count)} · ${value}`)}">
-          <div class="val">${d.count ? esc(d.count) : ""}</div>
-          <div class="col"><span style="height:${height.toFixed(1)}%"></span></div>
-          <div class="wd">${esc(today ? t.today : weekday(d.date, t))}</div>
-        </div>`;
+        const height = d.count ? Math.max((d.observed_duration_seconds / peak) * 100, 12) : 0;
+        const label = i === daily.length - 1 ? t.today : weekday(d.date, t);
+        return `<span class="col${i === daily.length - 1 ? " today" : ""}" title="${esc(`${label}: ${d.count ? span(t, d.observed_duration_seconds) : t.noAlerts}`)}"><i style="height:${height.toFixed(1)}%"></i></span>`;
       })
       .join("");
-
     const weekCount = summary?.count ?? 0;
-    const kpis = [];
-    if (weekCount) {
-      kpis.push([t.longest, span(t, summary.longest_duration_seconds || 0)]);
-      kpis.push([t.average, span(t, (summary.observed_duration_seconds || 0) / weekCount)]);
-    }
-    const last = episodes.find((ep) => ep.end);
-    if (last) {
-      kpis.push([
-        t.lastAlert,
-        `${now - last.end.getTime() > 86400000 ? `${dayMonth(last.end, fmt)} ` : ""}${hhmm(last.start, fmt)}–${hhmm(last.end, fmt)} · ${span(t, (last.end - last.start) / 1000)}`,
-      ]);
-    }
+    const periodStart = dateOf(summary?.period_start)?.getTime() ?? now - 7 * 86400000;
 
-    const notes = [];
-    const journalStart = dateOf(summary?.coverage_start);
-    if (journalStart && journalStart.getTime() > now - 7 * 86400000) {
-      notes.push(`${t.journalSince} ${dayMonth(journalStart, fmt)} ${hhmm(journalStart, fmt)}`);
+    const extras = [];
+    if (weekCount) {
+      extras.push(`${t.longest} ${span(t, summary.longest_duration_seconds || 0)}`);
+      extras.push(`${t.average} ${span(t, (summary.observed_duration_seconds || 0) / weekCount)}`);
     }
-    if (summary?.has_gaps || recent.some((ep) => ep.had_gap)) notes.push(t.gaps);
+    if (journalStart > now - 7 * 86400000) {
+      extras.push(`${t.journalSince} ${dayMonth(new Date(journalStart), fmt)}`);
+    }
+    if (summary?.has_gaps || recent.some((ep) => ep.had_gap)) extras.push(t.gaps);
 
     return `<div class="stats">
-      <div class="sec"><span>${esc(t.last24)}</span><b>${recent.length ? `${esc(alerts(t, recent.length))} · ${esc(span(t, recentSeconds))}` : esc(t.noAlerts)}</b></div>
-      <div class="timeline">${ticks}${segments}</div>
-      <div class="axis"><span>${esc(hhmm(new Date(dayAgo), fmt))}</span><span>${esc(hhmm(new Date(now - 43200000), fmt))}</span><span>${esc(t.now)}</span></div>
-      ${daily.length ? `
-      <div class="sec"><span>${esc(t.week)}</span><b>${weekCount ? `${esc(alerts(t, weekCount))} · ${esc(span(t, summary.observed_duration_seconds))}` : esc(t.noAlerts)}</b></div>
-      <div class="bars">${bars}</div>` : ""}
-      ${kpis.length ? `<div class="kpis">${kpis.map(([k, v], i) => `<div class="kpi${last && i === kpis.length - 1 ? " wide" : ""}"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : ""}
-      ${notes.map((n) => `<div class="hint">${esc(n)}</div>`).join("")}
+      <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline">${ticks}${segments}</div><b>${esc(line(recent.length, recentSeconds, dayAgo))}</b></div>
+      ${daily.length ? `<div class="row"><span class="lbl">${esc(t.week)}</span><div class="bars">${bars}</div><b>${esc(line(weekCount, summary.observed_duration_seconds, periodStart))}</b></div>` : ""}
+      ${extras.length ? `<div class="hint">${extras.map(esc).join(" · ")}</div>` : ""}
     </div>`;
   }
 
@@ -446,7 +423,6 @@ class UkraineAlarmProCard extends HTMLElement {
     const threat = st(ids.threat);
     const level = st(ids.level);
     const started = st(ids.started);
-    const event = st(ids.event);
     const stale = st(ids.stale)?.state === "on";
     const updated = st(ids.updated);
 
@@ -482,12 +458,10 @@ class UkraineAlarmProCard extends HTMLElement {
     }
     const reasons = active ? (level?.attributes?.reasons || []).join(" · ") : "";
 
-    const eventType = event?.attributes?.event_type;
-    const eventTime = event && !["unknown", "unavailable"].includes(event.state) ? new Date(event.state) : null;
     const updatedDate = updated && !["unknown", "unavailable"].includes(updated.state) ? new Date(updated.state) : null;
     const freshness = stale ? t.staleNote : `${t.fresh}${updatedDate ? ` · ${t.updated} ${hhmm(updatedDate, fmt)}` : ""}`;
 
-    const compact = this._config.compact;
+    const compact = this._config.layout === "compact";
     this.shadowRoot.innerHTML = `${STYLE}
       <ha-card class="${status}${compact ? " compact" : ""}" tabindex="0">
         <div class="glow"></div>
@@ -507,7 +481,6 @@ class UkraineAlarmProCard extends HTMLElement {
           ${stats ? this._statsHtml(t, stats) : ""}
           <div class="foot">
             <span class="fresh ${stale ? "bad" : "ok"}"><span class="dot"></span>${esc(freshness)}</span>
-            ${eventType && eventTime && !isNaN(eventTime) ? `<span class="event">${esc(t.lastEvent)}: ${esc(t.events[eventType] || eventType)} ${esc(hhmm(eventTime, fmt))}</span>` : ""}
           </div>`}
       </ha-card>`;
     const card = this.shadowRoot.querySelector("ha-card");
@@ -517,7 +490,7 @@ class UkraineAlarmProCard extends HTMLElement {
 
 const STYLE = `<style>
   :host { --uap-red: #e5393b; --uap-yellow: #f2a900; --uap-green: #2e9d57; --uap-gray: #8a8f98; }
-  ha-card { position: relative; overflow: hidden; padding: 16px; cursor: pointer; --accent: var(--uap-green);
+  ha-card { position: relative; overflow: hidden; padding: 12px 14px; cursor: pointer; --accent: var(--uap-green);
     container-type: inline-size; }
   ha-card.red, ha-card.alert { --accent: var(--uap-red); }
   ha-card.yellow { --accent: var(--uap-yellow); }
@@ -526,36 +499,36 @@ const STYLE = `<style>
     background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%); }
   ha-card.red .glow, ha-card.alert .glow, ha-card.yellow .glow {
     background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 34%, transparent), color-mix(in srgb, var(--accent) 6%, transparent) 70%); }
-  .head { position: relative; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .badge { position: relative; flex: none; width: 52px; height: 52px; border-radius: 50%;
+  .head { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .badge { position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%;
     display: grid; place-items: center; color: #fff; background: var(--accent);
     box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent); }
-  .badge ha-icon { --mdc-icon-size: 28px; }
+  .badge ha-icon { --mdc-icon-size: 24px; }
   .pulse { display: none; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--accent); }
   ha-card.red .pulse, ha-card.alert .pulse, ha-card.yellow .pulse { display: block; animation: pulse 1.8s ease-out infinite; }
   @keyframes pulse { from { transform: scale(1); opacity: .8; } to { transform: scale(1.7); opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none !important; } }
   .titles { min-width: 0; flex: 1; }
   .region { font-size: 14px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .status { font-size: 20px; font-weight: 700; line-height: 1.2; color: var(--primary-text-color); }
+  .status { font-size: 18px; font-weight: 700; line-height: 1.2; color: var(--primary-text-color); }
   ha-card.red .status, ha-card.alert .status { color: var(--uap-red); }
   ha-card.yellow .status { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
   .timer { text-align: right; flex: none; }
-  .timer .big { font-size: 20px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+  .timer .big { font-size: 18px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
   .timer .small { font-size: 12px; color: var(--secondary-text-color); }
-  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13px;
+  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12px;
     background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); color: var(--primary-text-color); }
   .chip ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
   .chip .dot, .fresh .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   .chip.level.yellow .dot { background: var(--uap-yellow); }
   .chip.level.red .dot { background: var(--uap-red); }
   .chip.level.unrecognized .dot { background: var(--uap-gray); }
-  .reasons { position: relative; margin-top: 10px; font-size: 13px; color: var(--secondary-text-color);
+  .reasons { position: relative; margin-top: 8px; font-size: 13px; color: var(--secondary-text-color);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .note { position: relative; margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
   .foot { position: relative; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
-    margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
+    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
     font-size: 12px; color: var(--secondary-text-color); }
   .fresh { display: inline-flex; align-items: center; gap: 6px; }
   .fresh.ok .dot { background: var(--uap-green); }
@@ -571,18 +544,23 @@ const STYLE = `<style>
   @container (max-width: 420px) {
     .head { column-gap: 12px; row-gap: 2px; }
     .timer { order: 3; flex-basis: 100%; display: flex; align-items: baseline; gap: 8px;
-      text-align: left; padding-left: 64px; }
+      text-align: left; padding-left: 56px; }
     ha-card.compact .timer { padding-left: 52px; }
-    .status { font-size: 19px; }
-    .timer .big { font-size: 17px; }
+    .status { font-size: 17px; }
+    .timer .big { font-size: 16px; }
   }
   .timer.quiet .big { color: var(--uap-green); }
-  .stats { position: relative; margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
-  .sec { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px;
-    font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); }
-  .sec b { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--primary-text-color); }
-  .timeline { position: relative; height: 18px; border-radius: 6px; overflow: hidden;
-    background: color-mix(in srgb, var(--uap-green) 16%, transparent); }
+  .stats { position: relative; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "lbl val" "viz viz"; align-items: center; gap: 3px 10px; }
+  .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline, .bars { grid-area: viz; }
+  @container (min-width: 520px) {
+    .row { grid-template-columns: 52px minmax(120px, 1fr) auto; grid-template-areas: "lbl viz val"; }
+  }
+  .lbl { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
+  .row b { font-size: 12px; font-weight: 600; color: var(--primary-text-color); white-space: nowrap;
+    font-variant-numeric: tabular-nums; text-align: right; }
+  .timeline, .bars { position: relative; height: 12px; border-radius: 4px; overflow: hidden; }
+  .timeline { background: color-mix(in srgb, var(--uap-green) 18%, transparent); }
   .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 12%, transparent); }
   .seg { position: absolute; top: 0; bottom: 0; background: var(--uap-red); }
   .seg.yellow { background: var(--uap-yellow); }
@@ -591,25 +569,11 @@ const STYLE = `<style>
   .seg.live { animation: live 1.8s ease-in-out infinite; }
   @keyframes live { 50% { opacity: .6; } }
   @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
-  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color);
-    font-variant-numeric: tabular-nums; }
-  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
-  .day { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
-  .day .val { font-size: 11px; height: 14px; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
-  .day .col { position: relative; width: 100%; max-width: 34px; height: 46px; border-radius: 5px;
-    background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); display: flex; align-items: flex-end; overflow: hidden; }
-  .day .col span { display: block; width: 100%; border-radius: 5px 5px 0 0;
-    background: color-mix(in srgb, var(--uap-red) 80%, transparent); }
-  .day .wd { font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
-  .day.today .wd { color: var(--primary-text-color); font-weight: 600; }
-  .day.today .col span { background: var(--uap-red); }
-  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-  .kpi.wide { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 8px; }
-  @container (min-width: 560px) { .kpis { grid-template-columns: 1fr 1fr 2fr; } .kpi.wide { grid-column: auto; flex-direction: column; } }
-  .kpi { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
-    display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .kpi span { font-size: 11px; color: var(--secondary-text-color); }
-  .kpi b { font-size: 13px; font-weight: 600; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; height: 18px; overflow: visible; }
+  .col { display: flex; align-items: flex-end; height: 100%; border-radius: 3px; overflow: hidden;
+    background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); }
+  .col i { display: block; width: 100%; background: color-mix(in srgb, var(--uap-red) 75%, transparent); }
+  .col.today i { background: var(--uap-red); }
   .hint { font-size: 11px; color: var(--secondary-text-color); }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
