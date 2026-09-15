@@ -3,16 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+import voluptuous as vol
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .api.poll import PollTransport
@@ -20,6 +34,7 @@ from .api.supervisor import MODE_POLL, TransportSupervisor
 from .api.ws import WsTransport
 from .const import (
     CONF_REGIONS,
+    CROSS_CHECK_AFTER_SECONDS,
     DOMAIN,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
@@ -34,8 +49,120 @@ _LOGGER = logging.getLogger(__name__)
 
 type UkraineAlarmProConfigEntry = ConfigEntry[AlarmCoordinator]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+# The dashboard card ships with the integration: nothing to add by hand.
+CARD_URL = f"/{DOMAIN}/ukraine-alarm-pro-card.js"
+CARD_PATH = Path(__file__).parent / "frontend" / "ukraine-alarm-pro-card.js"
+
+SERVICE_GET_HISTORY = "get_history"
+SERVICE_GET_SUMMARY = "get_summary"
+_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Required("region_id"): cv.string,
+        vol.Optional("limit", default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=100)
+        ),
+    }
+)
+_SUMMARY_SCHEMA = vol.Schema(
+    {
+        vol.Required("region_id"): cv.string,
+        vol.Optional("days", default=1): vol.All(vol.Coerce(int), vol.In((1, 7))),
+    }
+)
+
 # Unique-id suffixes of the per-region entities, for the deselection purge.
-REGION_ENTITY_KINDS = ("threat", "alert", "started", "level")
+REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
+
+
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Register the history actions and the dashboard card once."""
+
+    async def _register_card(_event=None) -> None:
+        # Lovelace resources exist only once the frontend has set up.
+        await _async_register_card(hass)
+
+    if hass.is_running:
+        await _register_card()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_card)
+
+    def _coordinator(region_id: str) -> AlarmCoordinator:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if (
+                entry.state is ConfigEntryState.LOADED
+                and region_id in entry.data.get(CONF_REGIONS, {})
+            ):
+                return entry.runtime_data
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_region",
+            translation_placeholders={"region_id": region_id},
+        )
+
+    async def _get_history(call: ServiceCall) -> ServiceResponse:
+        region_id = call.data["region_id"]
+        history = _coordinator(region_id).history
+        return {"episodes": history.history(region_id, call.data["limit"])}
+
+    async def _get_summary(call: ServiceCall) -> ServiceResponse:
+        region_id = call.data["region_id"]
+        return _coordinator(region_id).history.summary(region_id, call.data["days"])
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_HISTORY,
+        _get_history,
+        schema=_HISTORY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_SUMMARY,
+        _get_summary,
+        schema=_SUMMARY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    return True
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the card and have every dashboard load it, with a cache-busting hash.
+
+    Storage-mode dashboards get it as a Lovelace resource, exactly like a HACS
+    card: resources load after the frontend is ready. An "extra module" loads
+    earlier, and its element definition could be lost to the frontend's own
+    registry setup — users saw "Custom element doesn't exist". YAML-mode
+    resources cannot be written, so those fall back to the extra module.
+    """
+    if getattr(hass, "http", None) is None or "frontend" not in hass.config.components:
+        return
+    digest = await hass.async_add_executor_job(
+        lambda: hashlib.sha256(CARD_PATH.read_bytes()).hexdigest()[:8]
+    )
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
+    )
+    url = f"{CARD_URL}?v={digest}"
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if getattr(lovelace, "resource_mode", None) != "storage" or not hasattr(
+        resources, "async_create_item"
+    ):
+        add_extra_js_url(hass, url)
+        return
+    await resources.async_get_info()  # loads the collection on first use
+    ours = [
+        item for item in resources.async_items()
+        if str(item.get("url", "")).split("?")[0] == CARD_URL
+    ]
+    if not ours:
+        await resources.async_create_item({"res_type": "module", "url": url})
+    elif ours[0]["url"] != url:
+        await resources.async_update_item(
+            ours[0]["id"], {"res_type": "module", "url": url}
+        )
 
 
 async def async_setup_entry(
@@ -43,13 +170,19 @@ async def async_setup_entry(
 ) -> bool:
     session = async_get_clientsession(hass)
     supervisor = TransportSupervisor(
-        ws=WsTransport(session), poll=PollTransport(session)
+        ws=WsTransport(session),
+        poll=PollTransport(session),
+        stale_after=CROSS_CHECK_AFTER_SECONDS,
     )
     store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     coordinator = AlarmCoordinator(hass, entry, supervisor, store)
     # Before the transports start, so a snapshot that arrives while the disk
     # read is in flight is not overwritten by the older stored one.
     await coordinator.async_restore()
+    await coordinator.history.async_load()
+    entry.async_on_unload(
+        coordinator.events.add_listener(None, coordinator.history.handle_event)
+    )
 
     @callback
     def _on_snapshot(snap: Snapshot) -> None:
@@ -80,10 +213,32 @@ async def async_setup_entry(
             timedelta(seconds=SAVE_DELAY_SECONDS),
         )
     )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, coordinator.async_check_stale, timedelta(seconds=60)
+        )
+    )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            coordinator.async_flush_history,
+            timedelta(seconds=SAVE_DELAY_SECONDS),
+        )
+    )
+    async def _async_save_on_stop(_event) -> None:
+        # A restart does not unload entries: without this the last few minutes
+        # of the map and the journal were lost on every restart.
+        await coordinator.async_save_now()
+        await coordinator.async_flush_history()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_save_on_stop)
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_schedule_descendant_backfill(hass, entry, session)
+    _async_schedule_region_cache_refresh(hass, entry)
     return True
 
 
@@ -94,6 +249,7 @@ async def async_unload_entry(
     if ok:
         await entry.runtime_data.supervisor.stop()
         await entry.runtime_data.async_save_now()
+        await entry.runtime_data.async_flush_history()
         ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
     return ok
 
@@ -149,6 +305,34 @@ def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
 
 
 @callback
+def _async_schedule_region_cache_refresh(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Keep a recent copy of the region tree for editing during an outage.
+
+    Never at startup: the proxy may be the slow part of a post-blackout boot.
+    The check is hourly; a request is made only once the copy is a day old.
+    """
+    from .regions import async_refresh_region_cache
+
+    @callback
+    def _refresh(_now) -> None:
+        # Late lookup, so a patched fetch in tests is honoured.
+        from .config_flow import async_fetch_regions
+
+        entry.async_create_background_task(
+            hass,
+            async_refresh_region_cache(hass, async_fetch_regions),
+            name="region-tree-cache-refresh",
+        )
+
+    entry.async_on_unload(async_call_later(hass, 600, _refresh))
+    entry.async_on_unload(
+        async_track_time_interval(hass, _refresh, timedelta(hours=1))
+    )
+
+
+@callback
 def _async_schedule_descendant_backfill(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry, session
 ) -> None:
@@ -181,10 +365,11 @@ async def _async_backfill_descendants(
     """
     # Imported late: config_flow pulls in voluptuous/selectors that setup
     # does not otherwise need.
-    from .config_flow import _flatten, async_fetch_regions
+    from .config_flow import async_fetch_regions
+    from .regions import async_get_region_tree
 
     try:
-        flat = _flatten(await async_fetch_regions(session))
+        flat, _ = await async_get_region_tree(hass, async_fetch_regions)
     # Best effort only: a broken region tree must never break the entry.
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning(

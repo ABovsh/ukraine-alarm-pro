@@ -3,6 +3,65 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-09-15
+
+### ✨ Added
+
+- **An alert card for your dashboard, with nothing extra to install.** The
+  integration adds `custom:ukraine-alarm-pro-card` to the card picker. It shows
+  the alert state, threat, air alert level and reason, how long the alert has
+  lasted or how long since the last all clear, and whether the data is fresh.
+  It also shows the alert count, total duration and share of time under alert
+  for 24 hours and 7 days. Three layouts (`full`, `status`, `compact`),
+  Ukrainian or English, and it keeps working after you rename entities.
+- **Automations can react to what changed, not only to a state.**
+  `event.uap_<id>_event` fires once per change with its type (`started`,
+  `escalated`, `threat_added`, `updated`, `cleared`, `data_stale`, `resynced`)
+  and the state before and after. The first data after a restart or a lost
+  connection is `resynced`, never a false `started` or `cleared`.
+- **Alert notifications from those events, ready to import.** The
+  `alert_notify_events` blueprint sends a Ukrainian or English message when an
+  alert starts, the level rises or a threat is added, the alert ends, data goes
+  stale or the connection returns. It sends nothing for the first data after a
+  restart. The `test_notification` script runs the same actions with a «ТЕСТ»
+  message, so you can check delivery without an alert.
+- **Alert history for each region.** `ukraine_alarm_pro.get_history` returns
+  past alerts with start, end, threat types and the highest air alert level.
+  `ukraine_alarm_pro.get_summary` returns the count, total and longest duration
+  for today or the last 7 days, day by day. History is kept for 90 days.
+- **You can see whether an alert covers your whole region or only part of it.**
+  The threat sensor gains `coverage` (`whole`, `partial`, `unrecognized`,
+  `none`), `coverage_by_type` and `affected_regions`, the districts or hromadas
+  that declared the alert.
+- **Regions can be changed while the region list is unavailable.** The list is
+  saved after every successful download and refreshed daily. A selected region
+  missing from a new list is kept instead of being removed.
+- **Integration icon** on the Integrations page (Home Assistant 2026.3 and later).
+
+### 🐛 Fixed
+
+- **One damaged record in the feed no longer clears active alerts.** The record
+  was skipped or read as "no alerts". Now the whole update is rejected and the
+  last known state is kept.
+- **Alerts appear after startup even when the first request fails.** The startup
+  request is retried every 60 s, backing off to 5 minutes. Before, nothing
+  arrived until the alert map next changed.
+- **An active alert no longer reads as clear for a moment when the server is
+  slow.** A late reply could overwrite newer WebSocket data. Late replies are
+  now discarded.
+- **`binary_sensor.uap_data_stale` reflects the connection more accurately.** It
+  no longer turns on for up to a minute while a healthy feed is quiet, and it
+  turns off as soon as fresh data arrives.
+- **A restart no longer loses the last few minutes of alert state.** The alert
+  map is now also saved when Home Assistant stops.
+
+### 🔧 Changed
+
+- **Setup no longer aborts when the region list cannot be downloaded.** The form
+  shows an error and you can try again.
+- **Diagnostics show when data was last accepted and when the connection was
+  last checked** as separate fields.
+
 ## [0.8.0] - 2026-09-08
 
 ### ✨ Added

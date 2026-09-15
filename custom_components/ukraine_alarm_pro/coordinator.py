@@ -13,8 +13,16 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
-from .models import Alert, Snapshot, parse_alert_levels
+from .const import CONF_REGIONS, DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
+from .events import (
+    ORIGIN_BOOTSTRAP,
+    ORIGIN_LIVE,
+    ORIGIN_RECOVERY,
+    AlertEventHub,
+    RegionState,
+)
+from .history import HISTORY_STORAGE_VERSION, AlertHistory
+from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +48,16 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.last_push: datetime | None = None
         self._store = store
         self._saved_active: dict[str, frozenset] | None = None
+        self._views: dict[str, RegionView] = {}
+        self._views_of: Snapshot | None = None
+        self.events = AlertEventHub()
+        self.history = AlertHistory(
+            Store(
+                hass,
+                HISTORY_STORAGE_VERSION,
+                f"{DOMAIN}.history.{entry.entry_id}",
+            )
+        )
 
     async def async_restore(self) -> None:
         """Publish the alert map the last run ended with, if it is recent.
@@ -122,10 +140,84 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         # entities wrote a recorder row per repeat (65k rows/day, measured
         # 2026-08-07) without carrying any new information. Staleness has its
         # own tick in entity.py, so it keeps working without these writes.
+        was_stale = self.is_stale
         self.last_push = dt_util.utcnow()
-        if self.data is not None and snap.active == self.data.active:
+        changed = self.data is None or snap.active != self.data.active
+        if changed:
+            self.async_set_updated_data(snap)
+        elif was_stale:
+            # Regaining freshness is news even when the map is unchanged: the
+            # health entities must not wait for their minute tick. HA drops
+            # the identical region states, so this costs no region rows.
+            self.async_update_listeners()
+        self._publish_events(was_stale=was_stale, changed=changed)
+
+    @callback
+    def _publish_events(self, *, was_stale: bool, changed: bool) -> None:
+        """Turn the accepted snapshot into region events, after the states.
+
+        The first snapshot of a run and the first after a gap are resyncs, not
+        live transitions: what happened in between was not observed.
+        """
+        if not self.events.bootstrapped:
+            origin = ORIGIN_BOOTSTRAP
+        elif was_stale or self.events.stale_announced:
+            origin = ORIGIN_RECOVERY
+        elif changed:
+            origin = ORIGIN_LIVE
+        else:
             return
-        self.async_set_updated_data(snap)
+        states = {}
+        for rid, info in self._regions.items():
+            view = self.region_view(rid, info["ancestors"], info.get("descendants", []))
+            if view is not None:
+                states[rid] = (info["name"], RegionState.from_view(view))
+        self.events.accept(
+            states, origin=origin, observed_at=self.last_push.isoformat()
+        )
+
+    @callback
+    def async_check_stale(self, _now: datetime | None = None) -> None:
+        """Announce once that the data went stale; the alert state is kept."""
+        if self.is_stale:
+            self.events.announce_stale(
+                {rid: info["name"] for rid, info in self._regions.items()},
+                observed_at=dt_util.utcnow().isoformat(),
+            )
+
+    async def async_flush_history(self, _now: datetime | None = None) -> None:
+        """Persist the journal; a failed write stays pending for the next try."""
+        try:
+            await self.history.async_flush()
+        # Disk trouble must not break the periodic timer or unload.
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not save the alert history: %s", err)
+
+    @property
+    def _regions(self) -> dict[str, dict[str, Any]]:
+        return self.config_entry.data.get(CONF_REGIONS, {})
+
+    def region_view(
+        self, region_id: str, ancestors, descendants
+    ) -> RegionView | None:
+        """The region's aggregated alerts, computed once per accepted map.
+
+        Six entities per region read it on every update; aggregating in each
+        getter repeated the same work six times. Region trees only change
+        through a reload, which builds a new coordinator.
+        """
+        snap = self.data
+        if snap is None:
+            return None
+        if snap is not self._views_of:
+            self._views = {}
+            self._views_of = snap
+        view = self._views.get(region_id)
+        if view is None:
+            view = self._views[region_id] = region_view(
+                snap, region_id, ancestors, descendants
+            )
+        return view
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""

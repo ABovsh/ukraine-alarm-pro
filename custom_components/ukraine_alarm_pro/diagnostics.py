@@ -21,6 +21,13 @@ async def async_get_config_entry_diagnostics(
             "mode": coordinator.supervisor.mode,
             "seconds_since_update": coordinator.seconds_since_push,
             "stale": coordinator.is_stale,
+            # Accepted data and cross-check attempts are separate facts: a
+            # failed check must never read as a fresh snapshot.
+            "seconds_since_accepted_snapshot": (
+                coordinator.supervisor.seconds_since_snapshot
+            ),
+            "seconds_since_cross_check": coordinator.supervisor.seconds_since_check,
+            "snapshot_revision": coordinator.supervisor.snapshot_revision,
         },
         "configured_regions": {
             rid: {

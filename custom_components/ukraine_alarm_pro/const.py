@@ -4,11 +4,15 @@ from homeassistant.const import Platform
 
 DOMAIN = "ukraine_alarm_pro"
 CONF_REGIONS = "regions"
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.EVENT]
 
 # No snapshot for this long means the feed went silent, not that the country
 # is calm — surfaced as a diagnostic problem sensor and a transport restart.
 STALE_AFTER_SECONDS = 900.0
+# The watchdog cross-checks a quiet feed this much earlier, so a healthy but
+# silent WS is refreshed before it counts as stale: one watchdog tick plus a
+# request timeout fit in the margin.
+CROSS_CHECK_AFTER_SECONDS = STALE_AFTER_SECONDS - 180.0
 
 ISSUE_WS_UNAVAILABLE = "websocket_unavailable"
 

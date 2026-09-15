@@ -8,12 +8,16 @@
         },
         "data_description": {
           "regions": "Pick any level: an oblast also reports alerts declared for its raions and hromadas."
-        }
+        },
+        "description": "{tree_note}"
       }
     },
     "abort": {
       "cannot_connect": "Could not fetch the region list",
       "single_instance_allowed": "Already configured. Only a single instance is possible."
+    },
+    "error": {
+      "cannot_connect": "Could not fetch the region list. Submit the form again to retry."
     }
   },
   "options": {
@@ -25,7 +29,8 @@
         },
         "data_description": {
           "regions": "Entities are rebuilt on save; entities of removed regions are deleted automatically."
-        }
+        },
+        "description": "{tree_note}"
       }
     },
     "abort": {
@@ -81,6 +86,59 @@
       "data_stale": {
         "name": "Data stale"
       }
+    },
+    "event": {
+      "event": {
+        "name": "{region} alert events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Alert started",
+              "escalated": "Air alert level raised",
+              "threat_added": "Threat added",
+              "updated": "Alert updated",
+              "cleared": "Alert cleared",
+              "data_stale": "Data stale",
+              "resynced": "Data resynchronized"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "get_history": {
+      "name": "Get alert history",
+      "description": "Returns the observed alert episodes of a monitored region, newest first.",
+      "fields": {
+        "region_id": {
+          "name": "Region ID",
+          "description": "ID of a monitored region, as in the entity IDs."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of episodes (1–100)."
+        }
+      }
+    },
+    "get_summary": {
+      "name": "Get alert summary",
+      "description": "Returns the number and observed duration of alert episodes for today or the last 7 days.",
+      "fields": {
+        "region_id": {
+          "name": "Region ID",
+          "description": "ID of a monitored region, as in the entity IDs."
+        },
+        "days": {
+          "name": "Days",
+          "description": "1 for today, 7 for the last 7 days (local time)."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_region": {
+      "message": "Region {region_id} is not monitored by Ukraine Alarm Pro."
     }
   }
 }

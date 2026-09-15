@@ -132,6 +132,44 @@ class Snapshot:
         }
 
 
+def _region_id(raw: Any, *, where: str) -> str:
+    """A usable region id as text; anything else rejects the snapshot."""
+    # bool is an int subclass: True would otherwise become the region "True".
+    if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+        raise ValueError(f"{where}: unusable region id ({type(raw).__name__})")  # noqa: TRY004
+    text = str(raw).strip()
+    if not text:
+        raise ValueError(f"{where}: empty region id")
+    return text
+
+
+def _parse_alert(raw: Any, container: str, *, where: str) -> Alert:
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where}: alert is {type(raw).__name__}, not an object")  # noqa: TRY004
+    alert_type = raw.get("type")
+    if alert_type is None:
+        alert_type = ""
+    if not isinstance(alert_type, str):
+        raise ValueError(f"{where}: unusable alert type ({type(alert_type).__name__})")  # noqa: TRY004
+    declaring = raw.get("regionId")
+    stamp = raw.get("lastUpdate")
+    region_type = raw.get("regionType")
+    return Alert(
+        # Missing or blank still means an active alert of unknown kind.
+        type=alert_type.strip(),
+        # An unusable stamp keeps the alert, with its declaration time unknown.
+        last_update=stamp if isinstance(stamp, str) else "",
+        # An alert with no region of its own was declared by its container.
+        region_id=(
+            container
+            if declaring is None or declaring == ""
+            else _region_id(declaring, where=where)
+        ),
+        region_type=region_type if isinstance(region_type, str) else "",
+        levels=parse_alert_levels(raw.get("activeAlertLevels")),
+    )
+
+
 def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     """Normalize a WS publication ({"alerts": [...]}) or poll response ([...]).
 
@@ -139,6 +177,10 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
     read as "no alerts anywhere": that would silently clear every region — the
     one failure mode this integration cannot afford. The transports turn this
     into a TransportError, which reconnects or degrades instead.
+
+    The feeds send full snapshots, so one damaged record rejects the whole
+    snapshot: skipping it, or reading its alerts as `[]`, would clear the
+    regions it covers. Errors name the position, never the payload itself.
     """
     items = raw.get("alerts") if isinstance(raw, dict) else raw
     if not isinstance(items, list):
@@ -149,27 +191,24 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
         )
     regions: dict[str, list[Alert]] = {}
     names: dict[str, str] = {}
-    for region in items:
+    for index, region in enumerate(items):
+        where = f"record {index}"
         if not isinstance(region, dict):
-            continue
-        region_id = str(region.get("regionId", ""))
-        if not region_id:
-            continue
-        name = region.get("regionName")
-        if name:
-            names[region_id] = str(name)
-        active = region.get("activeAlerts")
-        regions[region_id] = [
-            Alert(
-                type=a.get("type", ""),
-                last_update=a.get("lastUpdate", ""),
-                # An alert with no region of its own was declared by its container.
-                region_id=str(a.get("regionId") or region_id),
-                region_type=str(a.get("regionType") or ""),
-                levels=parse_alert_levels(a.get("activeAlertLevels")),
+            raise ValueError(  # noqa: TRY004
+                f"{where} is {type(region).__name__}, not an object"
             )
-            for a in (active if isinstance(active, list) else [])
-            if isinstance(a, dict)
+        region_id = _region_id(region.get("regionId"), where=where)
+        active = region.get("activeAlerts")
+        if not isinstance(active, list):
+            raise ValueError(  # noqa: TRY004
+                f"{where}: activeAlerts is {type(active).__name__}, not a list"
+            )
+        name = region.get("regionName")
+        if isinstance(name, str) and name:
+            names[region_id] = name
+        regions[region_id] = [
+            _parse_alert(alert, region_id, where=f"{where} alert {i}")
+            for i, alert in enumerate(active)
         ]
     return Snapshot(regions=regions, names=names)
 
@@ -187,7 +226,7 @@ def declared_at(alert: Alert) -> datetime | None:
     """
     try:
         parsed = datetime.fromisoformat(alert.last_update)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
@@ -268,3 +307,100 @@ def air_alert_levels(found: list[Alert]) -> list[str]:
         for level in alert.levels:
             levels.add(level.level if level.level in ("red", "yellow") else "unrecognized")
     return [level for level in ("red", "yellow", "unrecognized") if level in levels]
+
+
+# Attributes land in the recorder on every state write; bounded like the alerts.
+MAX_AFFECTED_REGIONS = 25
+
+COVERAGE_NONE = "none"
+COVERAGE_WHOLE = "whole"
+COVERAGE_PARTIAL = "partial"
+COVERAGE_UNRECOGNIZED = "unrecognized"
+# An alert of unknown relation might cover the whole region, so it outranks
+# partial — but a declaration that is known to cover it all settles it.
+_COVERAGE_RANK = {
+    COVERAGE_PARTIAL: 1,
+    COVERAGE_UNRECOGNIZED: 2,
+    COVERAGE_WHOLE: 3,
+}
+
+
+@dataclass(frozen=True)
+class RegionView:
+    """Everything the region entities show, computed once per map change.
+
+    Immutable, holding no reference to the snapshot's mutable lists.
+    """
+
+    alerts: tuple[Alert, ...] = ()
+    threat: ThreatLevel = ThreatLevel.NONE
+    threat_types: tuple[str, ...] = ()
+    started: datetime | None = None
+    air_levels: tuple[str, ...] = ()
+    air_reasons: tuple[str, ...] = ()
+    # Whole/partial coverage explains the alert state; it never filters it.
+    coverage: str = COVERAGE_NONE
+    coverage_by_type: dict[str, str] = field(default_factory=dict)
+    affected_regions: tuple[dict[str, str], ...] = ()
+    affected_region_count: int = 0
+
+
+def _coverage(alert: Alert, own: set[str], below: set[str]) -> str:
+    if alert.region_id in own:
+        return COVERAGE_WHOLE
+    if alert.region_id in below:
+        return COVERAGE_PARTIAL
+    return COVERAGE_UNRECOGNIZED
+
+
+def region_view(
+    snap: Snapshot,
+    region_id: str,
+    ancestors: Iterable[str] = (),
+    descendants: Iterable[str] = (),
+) -> RegionView:
+    """The one aggregation of a region's alerts every entity reads from.
+
+    Coverage is "whole" when the region itself or an ancestor declared an
+    active alert — a hromada repeating it does not make it partial — and
+    "partial" when only descendants did. It does not say where the user is.
+    """
+    ancestors = tuple(ancestors)
+    descendants = tuple(descendants)
+    found = region_alerts(snap, region_id, ancestors, descendants)
+    if not found:
+        return RegionView()
+    stamps = [d for alert in found if (d := declared_at(alert)) is not None]
+    own = {region_id, *ancestors}
+    below = set(descendants) - own
+    by_type: dict[ThreatLevel, str] = {}
+    for alert in found:
+        cov = _coverage(alert, own, below)
+        if _COVERAGE_RANK[cov] > _COVERAGE_RANK.get(by_type.get(alert.threat, ""), 0):
+            by_type[alert.threat] = cov
+    declaring = {alert.region_id for alert in found}
+    affected = sorted(
+        ({"region_id": rid, "region_name": snap.names.get(rid, "")} for rid in declaring),
+        key=lambda item: (item["region_name"], item["region_id"]),
+    )
+    return RegionView(
+        alerts=tuple(found),
+        threat=max((alert.threat for alert in found), key=_SEVERITY.__getitem__),
+        threat_types=tuple(threat_types(found)),
+        started=min(stamps, default=None),
+        air_levels=tuple(air_alert_levels(found)),
+        air_reasons=tuple(sorted({
+            level.reason
+            for alert in found
+            if alert.type == "AIR"
+            for level in alert.levels
+            if level.reason
+        })),
+        coverage=max(by_type.values(), key=_COVERAGE_RANK.__getitem__),
+        coverage_by_type={
+            level.value: by_type[level]
+            for level in sorted(by_type, key=_SEVERITY.__getitem__, reverse=True)
+        },
+        affected_regions=tuple(affected[:MAX_AFFECTED_REGIONS]),
+        affected_region_count=len(affected),
+    )

@@ -1,6 +1,11 @@
 {
   "domain": "ukraine_alarm_pro",
   "name": "Ukraine Alarm Pro",
+  "after_dependencies": [
+    "frontend",
+    "http",
+    "lovelace"
+  ],
   "codeowners": [
     "@ABovsh"
   ],
@@ -14,5 +19,5 @@
   ],
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.8.0"
+  "version": "0.9.0"
 }

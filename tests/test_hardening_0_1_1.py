@@ -22,17 +22,23 @@ from custom_components.ukraine_alarm_pro.models import (
 COMPONENT = Path(__file__).parent.parent / "custom_components" / "ukraine_alarm_pro"
 
 
-# --- A-F01: malformed payloads must become TransportError / be skipped ---
+# --- A-F01: malformed payloads must become TransportError ---
 
 
-def test_parse_payload_skips_non_dict_entries():
-    snap = parse_alert_payload([None, "junk", {"regionId": 7, "activeAlerts": [{"type": "AIR"}]}])
-    assert list(snap.regions) == ["7"]
+def test_parse_payload_rejects_non_dict_entries():
+    # Skipping a damaged record cleared the regions it covered; since UAP-01
+    # the whole snapshot is rejected instead (tests/test_payload_integrity.py).
+    import pytest
+
+    with pytest.raises(ValueError):
+        parse_alert_payload([None, "junk", {"regionId": 7, "activeAlerts": [{"type": "AIR"}]}])
 
 
-def test_parse_payload_skips_non_dict_alerts():
-    snap = parse_alert_payload([{"regionId": 7, "activeAlerts": [None, {"type": "AIR"}]}])
-    assert [a.type for a in snap.regions["7"]] == ["AIR"]
+def test_parse_payload_rejects_non_dict_alerts():
+    import pytest
+
+    with pytest.raises(ValueError):
+        parse_alert_payload([{"regionId": 7, "activeAlerts": [None, {"type": "AIR"}]}])
 
 
 def test_parse_payload_non_list_items_is_rejected():

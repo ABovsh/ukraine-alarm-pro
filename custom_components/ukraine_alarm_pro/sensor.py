@@ -15,15 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
-from .models import (
-    AIR_LEVEL_OPTIONS,
-    ThreatLevel,
-    air_alert_levels,
-    declared_at,
-    region_alerts,
-    region_threat,
-    threat_types,
-)
+from .models import AIR_LEVEL_OPTIONS, RegionView, ThreatLevel
 
 # Attributes land in the recorder on every state write, so the per-region
 # breakdown is capped; the full picture stays available in diagnostics.
@@ -59,14 +51,9 @@ class RegionSensor(UapEntity, SensorEntity):
         self._region_name = info["name"]
         self._attr_translation_placeholders = {"region": info["name"]}
 
-    def _found(self):
-        if self.coordinator.data is None:
-            return None
-        return region_alerts(
-            self.coordinator.data,
-            self._region_id,
-            self._ancestors,
-            self._descendants,
+    def _view(self) -> RegionView | None:
+        return self.coordinator.region_view(
+            self._region_id, self._ancestors, self._descendants
         )
 
 
@@ -84,19 +71,13 @@ class RegionThreatSensor(RegionSensor):
 
     @property
     def native_value(self) -> str | None:
-        if self.coordinator.data is None:
-            return None
-        return region_threat(
-            self.coordinator.data,
-            self._region_id,
-            self._ancestors,
-            self._descendants,
-        ).value
+        view = self._view()
+        return None if view is None else view.threat.value
 
     @property
     def extra_state_attributes(self):
-        found = self._found()
-        if found is None:
+        view = self._view()
+        if view is None:
             return {}
         names = self.coordinator.data.names
         return {
@@ -111,14 +92,20 @@ class RegionThreatSensor(RegionSensor):
                     "type": alert.type,
                     "since": alert.last_update,
                 }
-                for alert in found[:MAX_LISTED_ALERTS]
+                for alert in view.alerts[:MAX_LISTED_ALERTS]
             ],
-            "active_alert_count": len(found),
-            "active_threat_types": ",".join(threat_types(found)),
+            "active_alert_count": len(view.alerts),
+            "active_threat_types": ",".join(view.threat_types),
             "region_id": self._region_id,
             # Constant, so it costs bytes on a recorder row but never a row of
             # its own — and it spares templates from parsing the friendly name.
             "region_name": self._region_name,
+            # Whole/partial explains the state above; it never switches it off.
+            # affected_regions counts declaring regions, not every hromada.
+            "coverage": view.coverage,
+            "coverage_by_type": view.coverage_by_type,
+            "affected_regions": [dict(item) for item in view.affected_regions],
+            "affected_region_count": view.affected_region_count,
         }
 
 
@@ -141,23 +128,20 @@ class AirAlertLevelSensor(RegionSensor):
 
     @property
     def native_value(self) -> str | None:
-        found = self._found()
-        if found is None:
+        view = self._view()
+        if view is None:
             return None
-        levels = air_alert_levels(found)
-        return levels[0] if levels else "none"
+        return view.air_levels[0] if view.air_levels else "none"
 
     @property
     def extra_state_attributes(self):
-        found = self._found()
-        if found is None:
+        view = self._view()
+        if view is None:
             return {}
-        reasons = sorted({
-            level.reason for alert in found if alert.type == "AIR"
-            for level in alert.levels if level.reason
-        })
+        reasons = view.air_reasons
         return {
-            "active_levels": air_alert_levels(found),
+            "region_id": self._region_id,
+            "active_levels": list(view.air_levels),
             "reasons": [reason[:256] for reason in reasons[:MAX_LISTED_ALERTS]],
             "reason_count": len(reasons),
         }
@@ -181,12 +165,13 @@ class AlertStartedSensor(RegionSensor):
 
     @property
     def native_value(self):
-        found = self._found()
-        if not found:
-            return None
+        view = self._view()
         # An unparsable stamp is skipped, never turned into "now".
-        stamps = [d for alert in found if (d := declared_at(alert)) is not None]
-        return min(stamps, default=None)
+        return None if view is None else view.started
+
+    @property
+    def extra_state_attributes(self):
+        return {"region_id": self._region_id}
 
 
 class TransportSensor(UapDiagnosticEntity, SensorEntity):

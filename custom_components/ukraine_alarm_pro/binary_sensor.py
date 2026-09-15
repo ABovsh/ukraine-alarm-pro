@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS, STALE_AFTER_SECONDS
 from .entity import UapEntity, UapStalenessEntity
-from .models import ThreatLevel, region_threat
+from .models import ThreatLevel
 
 
 async def async_setup_entry(
@@ -47,17 +47,18 @@ class RegionAlertBinarySensor(UapEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        if self.coordinator.data is None:
-            return None
-        return (
-            region_threat(
-                self.coordinator.data,
-                self._region_id,
-                self._ancestors,
-                self._descendants,
-            )
-            is not ThreatLevel.NONE
+        view = self.coordinator.region_view(
+            self._region_id, self._ancestors, self._descendants
         )
+        if view is None:
+            return None
+        return view.threat is not ThreatLevel.NONE
+
+    @property
+    def extra_state_attributes(self):
+        # Constant: lets the dashboard card find this region's other entities
+        # even after the user renamed their entity ids.
+        return {"region_id": self._region_id}
 
 
 class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):

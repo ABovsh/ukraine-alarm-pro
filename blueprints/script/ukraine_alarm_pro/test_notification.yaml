@@ -1,0 +1,44 @@
+blueprint:
+  name: Ukraine Alarm Pro — test notification
+  description: >-
+    Runs your notification actions with a message marked «ТЕСТ» / "TEST".
+    It does not change any alert entity, fire an alert event or write the
+    alert history. Run it yourself to check that the actions work.
+
+
+    Actions can use `message` and `region`.
+  domain: script
+  source_url: https://github.com/ABovsh/ukraine-alarm-pro/blob/main/blueprints/script/ukraine_alarm_pro/test_notification.yaml
+  input:
+    region:
+      name: Region name in the message
+      default: Мій регіон
+      selector:
+        text:
+    language:
+      name: Message language
+      default: uk
+      selector:
+        select:
+          options:
+            - label: Українська
+              value: uk
+            - label: English
+              value: en
+    test_actions:
+      name: Actions to test
+      description: The same actions as in the notification automation.
+      selector:
+        action:
+
+mode: single
+
+sequence:
+  - variables:
+      region: !input region
+      language: !input language
+      message: >-
+        {{ ('ТЕСТ. ' ~ region ~ ': повітряна тривога. Це перевірка сповіщень, реальної тривоги немає.')
+           if language == 'uk' else
+           ('TEST. ' ~ region ~ ': air raid alert. This is a notification check, not a real alert.') }}
+  - sequence: !input test_actions
