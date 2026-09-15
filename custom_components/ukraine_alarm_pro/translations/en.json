@@ -81,6 +81,24 @@
       "data_stale": {
         "name": "Data stale"
       }
+    },
+    "event": {
+      "event": {
+        "name": "{region} alert events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Alert started",
+              "escalated": "Air alert level raised",
+              "threat_added": "Threat added",
+              "updated": "Alert updated",
+              "cleared": "Alert cleared",
+              "data_stale": "Data stale",
+              "resynced": "Data resynchronized"
+            }
+          }
+        }
+      }
     }
   }
 }

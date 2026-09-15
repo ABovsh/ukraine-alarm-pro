@@ -38,7 +38,11 @@ def _seed_stale_region(hass: HomeAssistant, entry: MockConfigEntry) -> list[str]
             config_entry=entry,
             suggested_object_id=f"uap_692_{suffix}",
         ).entity_id
-        for platform, suffix in (("sensor", "threat"), ("binary_sensor", "alert"))
+        for platform, suffix in (
+            ("sensor", "threat"),
+            ("binary_sensor", "alert"),
+            ("event", "event"),
+        )
     ]
 
 

@@ -54,6 +54,7 @@ switches back after receiving data.
 | `sensor.uap_<id>_threat` | enum | highest active threat: `none`, `air`, `artillery`, `urban_fights`, `chemical`, `nuclear`, `unrecognized` |
 | `sensor.uap_<id>_air_alert_level` | enum | air alert level: `none`, `yellow`, `red`, `unrecognized` |
 | `sensor.uap_<id>_alert_started` | timestamp | when the oldest active alert was declared; `unknown` while the region is quiet |
+| `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
 | `sensor.uap_last_update` | diagnostic | time of the last data received |
 | `sensor.uap_active_regions` | diagnostic | how many regions are in alert country-wide |
@@ -71,6 +72,30 @@ The `coverage` attribute tells whether the alert covers the whole region:
 - `unrecognized` — an alert exists, but its region is not among the stored higher and
   lower levels;
 - `none` — no active alerts.
+
+### Alert events
+
+`event.uap_<id>_event` has these event types:
+
+- `started` — an alert started in the region;
+- `escalated` — the air alert level rose to yellow or red;
+- `threat_added` — a new threat type joined an active alert;
+- `updated` — any other change: a lower level, different reasons or coverage, or one of
+  several types ended;
+- `cleared` — the alert ended while data arrived without a gap;
+- `data_stale` — the data went stale; the last known state is kept;
+- `resynced` — the first data after startup or after a gap.
+
+One change produces one event. If a type is added and the level rises together, one
+`escalated` event arrives with the new type in `added_types`. After startup or a gap
+the integration does not know what happened meanwhile, so it sends `resynced` with the
+current state instead of `started` or `cleared`.
+
+Event attributes: `schema_version`, `transition_id`, `region_id`, `region_name`,
+`event_type`, `observed_at` (when the integration accepted the change, not an official
+time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`active`,
+`threat_types`, `air_level`, `reasons`, `coverage`, `declared_started_at`),
+`added_types`, `removed_types` and `had_gap`.
 
 If `whole` and `partial` apply together, the attribute shows `whole`. `coverage_by_type`
 gives the coverage of each threat type. `affected_regions` lists up to 25 regions that

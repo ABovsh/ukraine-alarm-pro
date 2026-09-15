@@ -54,6 +54,7 @@
 | `sensor.uap_<id>_threat` | enum | найвища активна загроза: `none`, `air`, `artillery`, `urban_fights`, `chemical`, `nuclear`, `unrecognized` |
 | `sensor.uap_<id>_air_alert_level` | enum | рівень повітряної тривоги: `none`, `yellow`, `red`, `unrecognized` |
 | `sensor.uap_<id>_alert_started` | timestamp | коли оголосили найдавнішу з активних тривог; `unknown`, поки тихо |
+| `event.uap_<id>_event` | event | зміни тривоги в регіоні: одна подія на кожну прийняту зміну |
 | `sensor.uap_transport` | діагностична | `websocket` або `polling` |
 | `sensor.uap_last_update` | діагностична | час останніх отриманих даних |
 | `sensor.uap_active_regions` | діагностична | скільки регіонів у тривозі по всій країні |
@@ -71,6 +72,30 @@
 - `unrecognized` — тривога є, але її регіон не знайдено серед збережених рівнів вище й
   нижче;
 - `none` — активних тривог немає.
+
+### Події тривоги
+
+`event.uap_<id>_event` має такі типи подій:
+
+- `started` — у регіоні почалася тривога;
+- `escalated` — рівень повітряної тривоги підвищився до жовтого або червоного;
+- `threat_added` — до активної тривоги додався новий тип загрози;
+- `updated` — інша зміна: рівень знизився, змінилися причини, охоплення або зник один із
+  типів;
+- `cleared` — відбій, коли дані надходили без перерви;
+- `data_stale` — дані застаріли; останній відомий стан зберігається;
+- `resynced` — перші дані після запуску або після перерви.
+
+Одна зміна дає одну подію. Якщо одночасно додався тип і підвищився рівень, приходить
+одна подія `escalated`, а новий тип є в `added_types`. Після запуску чи перерви
+інтеграція не знає, що сталося за цей час, тому надсилає `resynced` з поточним станом, а
+не `started` чи `cleared`.
+
+Атрибути події: `schema_version`, `transition_id`, `region_id`, `region_name`,
+`event_type`, `observed_at` (коли інтеграція прийняла зміну, а не офіційний час),
+`origin` (`live`, `recovery` або `bootstrap`), `previous` і `current` (`active`,
+`threat_types`, `air_level`, `reasons`, `coverage`, `declared_started_at`),
+`added_types`, `removed_types` і `had_gap`.
 
 Якщо одночасно є `whole` і `partial`, атрибут показує `whole`. `coverage_by_type` дає
 охоплення для кожного типу загрози окремо. `affected_regions` — до 25 регіонів, які

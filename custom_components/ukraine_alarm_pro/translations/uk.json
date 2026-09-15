@@ -81,6 +81,24 @@
       "data_stale": {
         "name": "Дані застаріли"
       }
+    },
+    "event": {
+      "event": {
+        "name": "{region}: події тривоги",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Тривога почалася",
+              "escalated": "Рівень повітряної тривоги підвищився",
+              "threat_added": "Додалася загроза",
+              "updated": "Тривога змінилася",
+              "cleared": "Відбій",
+              "data_stale": "Дані застаріли",
+              "resynced": "Дані синхронізовано"
+            }
+          }
+        }
+      }
     }
   }
 }

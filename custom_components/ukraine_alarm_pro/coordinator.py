@@ -13,7 +13,14 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
+from .const import CONF_REGIONS, DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
+from .events import (
+    ORIGIN_BOOTSTRAP,
+    ORIGIN_LIVE,
+    ORIGIN_RECOVERY,
+    AlertEventHub,
+    RegionState,
+)
 from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +49,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._saved_active: dict[str, frozenset] | None = None
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
+        self.events = AlertEventHub()
 
     async def async_restore(self) -> None:
         """Publish the alert map the last run ended with, if it is recent.
@@ -126,14 +134,52 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         # own tick in entity.py, so it keeps working without these writes.
         was_stale = self.is_stale
         self.last_push = dt_util.utcnow()
-        if self.data is not None and snap.active == self.data.active:
+        changed = self.data is None or snap.active != self.data.active
+        if changed:
+            self.async_set_updated_data(snap)
+        elif was_stale:
             # Regaining freshness is news even when the map is unchanged: the
             # health entities must not wait for their minute tick. HA drops
             # the identical region states, so this costs no region rows.
-            if was_stale:
-                self.async_update_listeners()
+            self.async_update_listeners()
+        self._publish_events(was_stale=was_stale, changed=changed)
+
+    @callback
+    def _publish_events(self, *, was_stale: bool, changed: bool) -> None:
+        """Turn the accepted snapshot into region events, after the states.
+
+        The first snapshot of a run and the first after a gap are resyncs, not
+        live transitions: what happened in between was not observed.
+        """
+        if not self.events.bootstrapped:
+            origin = ORIGIN_BOOTSTRAP
+        elif was_stale or self.events.stale_announced:
+            origin = ORIGIN_RECOVERY
+        elif changed:
+            origin = ORIGIN_LIVE
+        else:
             return
-        self.async_set_updated_data(snap)
+        states = {}
+        for rid, info in self._regions.items():
+            view = self.region_view(rid, info["ancestors"], info.get("descendants", []))
+            if view is not None:
+                states[rid] = (info["name"], RegionState.from_view(view))
+        self.events.accept(
+            states, origin=origin, observed_at=self.last_push.isoformat()
+        )
+
+    @callback
+    def async_check_stale(self, _now: datetime | None = None) -> None:
+        """Announce once that the data went stale; the alert state is kept."""
+        if self.is_stale:
+            self.events.announce_stale(
+                {rid: info["name"] for rid, info in self._regions.items()},
+                observed_at=dt_util.utcnow().isoformat(),
+            )
+
+    @property
+    def _regions(self) -> dict[str, dict[str, Any]]:
+        return self.config_entry.data.get(CONF_REGIONS, {})
 
     def region_view(
         self, region_id: str, ancestors, descendants

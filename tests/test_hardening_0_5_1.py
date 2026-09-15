@@ -30,7 +30,7 @@ from custom_components.ukraine_alarm_pro.coordinator import AlarmCoordinator
 from custom_components.ukraine_alarm_pro.models import parse_alert_payload
 from custom_components.ukraine_alarm_pro.sensor import LastUpdateSensor
 
-ENTRY_DATA = {"regions": ["31"]}
+ENTRY_DATA = {"regions": {"31": {"name": "м. Київ", "ancestors": [], "descendants": []}}}
 SNAP = parse_alert_payload(
     {"alerts": [{"regionId": "31", "activeAlerts": [{"type": "AIR", "lastUpdate": "a"}]}]}
 )

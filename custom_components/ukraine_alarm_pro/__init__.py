@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 type UkraineAlarmProConfigEntry = ConfigEntry[AlarmCoordinator]
 
 # Unique-id suffixes of the per-region entities, for the deselection purge.
-REGION_ENTITY_KINDS = ("threat", "alert", "started", "level")
+REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
 
 
 async def async_setup_entry(
@@ -78,6 +78,11 @@ async def async_setup_entry(
             hass,
             coordinator.async_save_now,
             timedelta(seconds=SAVE_DELAY_SECONDS),
+        )
+    )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, coordinator.async_check_stale, timedelta(seconds=60)
         )
     )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))

@@ -26,6 +26,10 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### ✨ Added
 
+- Per-region `event.uap_<id>_event` with event types `started`, `escalated`,
+  `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
+  change produces at most one event per region with the previous and current
+  state. The first data after startup or a gap is `resynced`, not `started`.
 - `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
   `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
   declaring regions) and `affected_region_count`. Coverage does not change the
