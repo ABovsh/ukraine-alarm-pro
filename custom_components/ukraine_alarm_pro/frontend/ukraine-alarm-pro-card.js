@@ -108,7 +108,7 @@ const ours = (hass, id) => hass.entities?.[id]?.platform === DOMAIN;
 function alertEntities(hass) {
   return Object.keys(hass.states)
     .filter((id) => id.startsWith("binary_sensor.") && ours(hass, id) && hass.entities[id].translation_key === "alert")
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function regionIdOf(hass, alertId) {
