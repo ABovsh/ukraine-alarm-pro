@@ -9,10 +9,12 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from . import backfill
 from .const import CONF_REGIONS, DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
 from .events import (
     ORIGIN_BOOTSTRAP,
@@ -184,6 +186,33 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 {rid: info["name"] for rid, info in self._regions.items()},
                 observed_at=dt_util.utcnow().isoformat(),
             )
+
+    async def async_backfill_history(self, _now: datetime | None = None) -> None:
+        """Merge the official alert history into the journal, best effort."""
+        regions = self._regions
+        if not regions:
+            return
+        now = dt_util.utcnow()
+        start = self.history.backfill_start(now)
+        try:
+            records = await backfill._fetch(
+                async_get_clientsession(self.hass),
+                backfill.root_regions(regions),
+                start,
+                now,
+            )
+        # A missing history must never break the entry or the live alerts.
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Official alert history unavailable: %s", err)
+            return
+        added = sum(
+            self.history.merge_official(
+                rid, backfill.official_intervals(records, rid, info), window_start=start
+            )
+            for rid, info in regions.items()
+        )
+        self.history.mark_synced(now)
+        _LOGGER.debug("Merged %d alert episodes from the official history", added)
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:
         """Persist the journal; a failed write stays pending for the next try."""

@@ -68,6 +68,8 @@ class AlertHistory:
         self._active: dict[str, dict[str, Any]] = {}
         self._completed: list[dict[str, Any]] = []
         self._created_at: str | None = None
+        # When the official history was last merged; drives the next window.
+        self._synced_at: str | None = None
         self._version = 0
         self._saved_version = 0
 
@@ -94,6 +96,8 @@ class AlertHistory:
                 ]
             if _parse(stored.get("created_at")) is not None:
                 self._created_at = stored["created_at"]
+            if _parse(stored.get("official_synced_at")) is not None:
+                self._synced_at = stored["official_synced_at"]
         elif stored is not None:
             _LOGGER.warning("Alert history has an unknown format — starting a new one")
         if self._created_at is None:
@@ -154,11 +158,72 @@ class AlertHistory:
         await self._store.async_save(
             {
                 "created_at": self._created_at,
+                "official_synced_at": self._synced_at,
                 "active": self._active,
                 "episodes": self._completed,
             }
         )
         self._saved_version = version
+
+    def backfill_start(self, now: datetime) -> datetime:
+        """Where the next official-history window begins.
+
+        The first run covers the whole retention; later runs re-read a couple
+        of days before the last sync, enough to fill any outage since.
+        """
+        oldest = now - self._max_age
+        synced = _parse(self._synced_at)
+        return oldest if synced is None else max(oldest, synced - timedelta(days=2))
+
+    def mark_synced(self, now: datetime) -> None:
+        self._synced_at = now.isoformat()
+        self._version += 1
+
+    def merge_official(
+        self,
+        region_id: str,
+        intervals: list[tuple[datetime, datetime]],
+        *,
+        window_start: datetime,
+    ) -> int:
+        """Add official episodes for periods the journal did not observe.
+
+        What the integration observed wins wherever the two overlap, so a
+        re-run or a slightly different official time never duplicates an
+        episode. Returns how many episodes were added.
+        """
+        now = self._now()
+        known = [
+            (_parse(ep["observed_started_at"]), _parse(ep["observed_cleared_at"]) or now)
+            for ep in (*self._completed, self._active.get(region_id))
+            if ep is not None and ep["region_id"] == region_id
+        ]
+        added = 0
+        for start, end in intervals:
+            if end > now or any(start < k_end and end > k_start for k_start, k_end in known):
+                continue
+            self._completed.append({
+                "episode_id": uuid.uuid4().hex[:12],
+                "region_id": region_id,
+                "observed_started_at": start.isoformat(),
+                "declared_started_at": start.isoformat(),
+                "observed_cleared_at": end.isoformat(),
+                "active_types_seen": ["air"],
+                # The history carries no levels.
+                "maximum_air_level": "none",
+                "had_gap": False,
+                "source_start_known": True,
+                "start_origin": "history",
+            })
+            added += 1
+        created = _parse(self._created_at)
+        if created is None or window_start < created:
+            self._created_at = window_start.isoformat()
+            self._version += 1
+        if added:
+            self._version += 1
+            self._prune()
+        return added
 
     def _prune(self) -> None:
         cutoff = self._now() - self._max_age

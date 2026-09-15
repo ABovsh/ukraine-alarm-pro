@@ -239,6 +239,7 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_schedule_descendant_backfill(hass, entry, session)
     _async_schedule_region_cache_refresh(hass, entry)
+    _async_schedule_history_backfill(hass, entry)
     return True
 
 
@@ -302,6 +303,28 @@ def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
         )
     else:
         ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
+
+
+@callback
+def _async_schedule_history_backfill(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Fill the alert journal from the official history, off the startup path.
+
+    Five minutes after setup (a post-blackout boot has better things to do),
+    then daily, which also fills any outage since the previous run.
+    """
+
+    @callback
+    def _run(_now) -> None:
+        entry.async_create_background_task(
+            hass,
+            entry.runtime_data.async_backfill_history(),
+            name="alert-history-backfill",
+        )
+
+    entry.async_on_unload(async_call_later(hass, 300, _run))
+    entry.async_on_unload(async_track_time_interval(hass, _run, timedelta(hours=24)))
 
 
 @callback
