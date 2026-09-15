@@ -131,17 +131,29 @@ missing from the current list stays selected with a ⚠ mark and is not removed.
 installation without network and without a saved copy is not possible: the form offers
 a retry.
 
-## Dashboard
+## Status card
 
-An example dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
-It shows the alert state, threat types, level, declaration time and duration, coverage,
-reasons, the last event and data freshness. Stale data with a last known quiet state is
-shown as "no fresh data", not as a confirmed quiet. Replace `31` with your region ID and
-paste the YAML into the dashboard's raw configuration editor.
+![Ukraine Alarm Pro card](docs/images/status-card.png)
 
-For a single card, use [`docs/examples/status-card.yaml`](docs/examples/status-card.yaml): one line per
-region, such as "🚨 **м. Київ** · повітряна 🟡 · з 09:38, 6 хв" or "🟢 **м. Київ** · тихо". Its text is
-Ukrainian.
+The card ships with the integration; nothing else to install. After installing or
+updating, restart Home Assistant and reload the browser page. Then: dashboard → **Edit** →
+**Add card** → search for **Ukraine Alarm Pro**. With one region the card finds it on its
+own; with several, pick the region's alert sensor.
+
+The card shows the alert state, threat type, level, how long the alert has lasted and
+since when, coverage, the reason, the last event and data freshness. Stale data reads
+"No fresh data", not "All quiet". The browser counts the duration, so the card adds no
+database rows. Entities may be renamed: the card finds them by region. Text follows the
+Home Assistant language (Ukrainian or English).
+
+```yaml
+type: custom:ukraine-alarm-pro-card
+entity: binary_sensor.uap_31_alert  # optional with a single region
+name: Home                          # optional
+compact: false                      # true shows only the top row
+```
+
+An example full dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
 
 ## Notifications
 

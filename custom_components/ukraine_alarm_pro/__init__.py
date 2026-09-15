@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import (
@@ -46,6 +50,10 @@ type UkraineAlarmProConfigEntry = ConfigEntry[AlarmCoordinator]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
+# The dashboard card ships with the integration: nothing to add by hand.
+CARD_URL = f"/{DOMAIN}/ukraine-alarm-pro-card.js"
+CARD_PATH = Path(__file__).parent / "frontend" / "ukraine-alarm-pro-card.js"
+
 SERVICE_GET_HISTORY = "get_history"
 SERVICE_GET_SUMMARY = "get_summary"
 _HISTORY_SCHEMA = vol.Schema(
@@ -68,7 +76,8 @@ REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Register the response-only history actions once for all entries."""
+    """Register the history actions and the dashboard card once."""
+    await _async_register_card(hass)
 
     def _coordinator(region_id: str) -> AlarmCoordinator:
         for entry in hass.config_entries.async_entries(DOMAIN):
@@ -107,6 +116,19 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
     return True
+
+
+async def _async_register_card(hass: HomeAssistant) -> None:
+    """Serve the card and load it on every dashboard, with a cache-busting hash."""
+    if getattr(hass, "http", None) is None or "frontend" not in hass.config.components:
+        return
+    digest = await hass.async_add_executor_job(
+        lambda: hashlib.sha256(CARD_PATH.read_bytes()).hexdigest()[:8]
+    )
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(CARD_URL, str(CARD_PATH), True)]
+    )
+    add_extra_js_url(hass, f"{CARD_URL}?v={digest}")
 
 
 async def async_setup_entry(

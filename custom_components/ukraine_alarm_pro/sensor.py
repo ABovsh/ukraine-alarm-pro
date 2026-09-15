@@ -140,6 +140,7 @@ class AirAlertLevelSensor(RegionSensor):
             return {}
         reasons = view.air_reasons
         return {
+            "region_id": self._region_id,
             "active_levels": list(view.air_levels),
             "reasons": [reason[:256] for reason in reasons[:MAX_LISTED_ALERTS]],
             "reason_count": len(reasons),
@@ -167,6 +168,10 @@ class AlertStartedSensor(RegionSensor):
         view = self._view()
         # An unparsable stamp is skipped, never turned into "now".
         return None if view is None else view.started
+
+    @property
+    def extra_state_attributes(self):
+        return {"region_id": self._region_id}
 
 
 class TransportSensor(UapDiagnosticEntity, SensorEntity):

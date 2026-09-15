@@ -54,6 +54,12 @@ class RegionAlertBinarySensor(UapEntity, BinarySensorEntity):
             return None
         return view.threat is not ThreatLevel.NONE
 
+    @property
+    def extra_state_attributes(self):
+        # Constant: lets the dashboard card find this region's other entities
+        # even after the user renamed their entity ids.
+        return {"region_id": self._region_id}
+
 
 class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):
     """On when no snapshot arrived recently — the alert state is not trustworthy."""

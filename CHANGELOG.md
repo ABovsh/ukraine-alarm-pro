@@ -40,8 +40,13 @@ This project follows [Semantic Versioning](https://semver.org/).
 - `test_notification` script blueprint that runs notification actions with a
   «ТЕСТ» / "TEST" message without changing alert entities, events or history.
 - Event attributes `observed_active_since` and `active_since_known`.
-- Example dashboard on standard cards in `docs/examples/dashboard.yaml` and a
-  compact one-line-per-region status card in `docs/examples/status-card.yaml`.
+- Bundled dashboard card `custom:ukraine-alarm-pro-card`, registered by the
+  integration and listed in the card picker: alert state, threat, level,
+  duration, coverage, reason, last event and data freshness, Ukrainian or
+  English, optional compact layout. It finds a single region on its own.
+- Constant `region_id` attribute on the region alert, level, start and event
+  entities, so the card finds a region's entities after renaming.
+- Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
 - Alert episode journal per region with the response-only actions
   `ukraine_alarm_pro.get_history` (up to 100 episodes) and
   `ukraine_alarm_pro.get_summary` (today or 7 local days). Episodes carry

@@ -43,6 +43,10 @@ class RegionAlertEvent(UapEntity, EventEntity):
         self.entity_id = f"event.uap_{region_id}_event"
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"region_id": self._region_id}
+
+    @property
     def available(self) -> bool:
         # The last event stays meaningful across outages; staleness is an event.
         return True
