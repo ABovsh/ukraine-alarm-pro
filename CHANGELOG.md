@@ -30,6 +30,11 @@ This project follows [Semantic Versioning](https://semver.org/).
   `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
   change produces at most one event per region with the previous and current
   state. The first data after startup or a gap is `resynced`, not `started`.
+- Alert episode journal per region with the response-only actions
+  `ukraine_alarm_pro.get_history` (up to 100 episodes) and
+  `ukraine_alarm_pro.get_summary` (today or 7 local days). Episodes carry
+  observed start/clear times, the declared start, types seen, the highest air
+  level and gap marks. Completed episodes are kept for 90 days, at most 1000.
 - `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
   `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
   declaring regions) and `affected_region_count`. Coverage does not change the

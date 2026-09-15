@@ -171,7 +171,8 @@ async def test_unload_removes_the_event_listeners(
 ):
     entry, _ = await _setup(hass)
     coordinator = entry.runtime_data
-    assert coordinator.events.listener_count == 2
+    # Two region event entities plus the history journal.
+    assert coordinator.events.listener_count == 3
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert coordinator.events.listener_count == 0

@@ -21,6 +21,7 @@ from .events import (
     AlertEventHub,
     RegionState,
 )
+from .history import HISTORY_STORAGE_VERSION, AlertHistory
 from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
         self.events = AlertEventHub()
+        self.history = AlertHistory(
+            Store(
+                hass,
+                HISTORY_STORAGE_VERSION,
+                f"{DOMAIN}.history.{entry.entry_id}",
+            )
+        )
 
     async def async_restore(self) -> None:
         """Publish the alert map the last run ended with, if it is recent.
@@ -176,6 +184,14 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 {rid: info["name"] for rid, info in self._regions.items()},
                 observed_at=dt_util.utcnow().isoformat(),
             )
+
+    async def async_flush_history(self, _now: datetime | None = None) -> None:
+        """Persist the journal; a failed write stays pending for the next try."""
+        try:
+            await self.history.async_flush()
+        # Disk trouble must not break the periodic timer or unload.
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not save the alert history: %s", err)
 
     @property
     def _regions(self) -> dict[str, dict[str, Any]]:

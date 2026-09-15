@@ -124,7 +124,10 @@ class AlertEventHub:
     def listener_count(self) -> int:
         return sum(len(listeners) for listeners in self._listeners.values())
 
-    def add_listener(self, region_id: str, listener: EventListener) -> Callable[[], None]:
+    def add_listener(
+        self, region_id: str | None, listener: EventListener
+    ) -> Callable[[], None]:
+        """Listen to one region, or to every region with `None`."""
         self._listeners.setdefault(region_id, []).append(listener)
 
         def _remove() -> None:
@@ -211,5 +214,8 @@ class AlertEventHub:
             "removed_types": [t for t in before if t not in current.threat_types],
             "had_gap": had_gap,
         }
-        for listener in list(self._listeners.get(region_id, ())):
+        for listener in (
+            *self._listeners.get(region_id, ()),
+            *self._listeners.get(None, ()),
+        ):
             listener(event_type, payload)

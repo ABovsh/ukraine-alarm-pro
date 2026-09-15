@@ -73,6 +73,24 @@ The `coverage` attribute tells whether the alert covers the whole region:
   lower levels;
 - `none` — no active alerts.
 
+If `whole` and `partial` apply together, the attribute shows `whole`. `coverage_by_type`
+gives the coverage of each threat type. `affected_regions` lists up to 25 regions that
+declared active alerts; `affected_region_count` is the full number of such regions. It
+is not the number of hromadas in alert or a share of the area. Coverage does not change
+`binary_sensor.uap_<id>_alert`: a partial alert is still an alert.
+
+The air alert level covers the same region and its ancestors and descendants.
+If yellow and red are active together, the sensor reports `red`; `active_levels`
+contains both. `unrecognized` means an air alert exists but the source supplied no
+recognized level. `none` means no air alert; other threat types remain on `threat`.
+
+The `reasons` attribute contains up to 25 source reasons, each limited to 256 characters;
+`reason_count` is the full count of distinct nonempty reasons. An empty reason does
+not imply a weapon type. Full reasons and each level's declaration time are available
+in diagnostics. The sensor has no long-term statistics: history is written only when
+its state or attributes change. Repeated publications and changes in unrelated regions
+produce no additional history rows for this sensor.
+
 ### Alert events
 
 `event.uap_<id>_event` has these event types:
@@ -96,25 +114,6 @@ Event attributes: `schema_version`, `transition_id`, `region_id`, `region_name`,
 time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`active`,
 `threat_types`, `air_level`, `reasons`, `coverage`, `declared_started_at`),
 `added_types`, `removed_types` and `had_gap`.
-
-If `whole` and `partial` apply together, the attribute shows `whole`. `coverage_by_type`
-gives the coverage of each threat type. `affected_regions` lists up to 25 regions that
-declared active alerts; `affected_region_count` is the full number of such regions. It
-is not the number of hromadas in alert or a share of the area. Coverage does not change
-`binary_sensor.uap_<id>_alert`: a partial alert is still an alert.
-
-
-The air alert level covers the same region and its ancestors and descendants.
-If yellow and red are active together, the sensor reports `red`; `active_levels`
-contains both. `unrecognized` means an air alert exists but the source supplied no
-recognized level. `none` means no air alert; other threat types remain on `threat`.
-
-The `reasons` attribute contains up to 25 source reasons, each limited to 256 characters;
-`reason_count` is the full count of distinct nonempty reasons. An empty reason does
-not imply a weapon type. Full reasons and each level's declaration time are available
-in diagnostics. The sensor has no long-term statistics: history is written only when
-its state or attributes change. Repeated publications and changes in unrelated regions
-produce no additional history rows for this sensor.
 
 ## Installation
 
@@ -143,7 +142,6 @@ condition:
     entity_id: binary_sensor.uap_data_stale
     state: "off"
 ```
-
 
 For escalation notifications, select `sensor.uap_<id>_air_alert_level` in the blueprint
 and configure the optional yellow-to-red action. Actions can use `level` and `reason`;
@@ -177,6 +175,35 @@ sensor:
 ```
 
 The same for the current day — replace `duration` with `start: "{{ today_at() }}"`.
+
+## Alert history
+
+The integration keeps a journal of alert episodes for each region. An episode is one
+continuous period while `binary_sensor.uap_<id>_alert` is on: two overlapping alerts
+form one episode from the first start to the last clear.
+
+Read it with actions that return a response:
+
+```yaml
+action: ukraine_alarm_pro.get_history
+data:
+  region_id: "31"
+  limit: 20
+response_variable: history
+```
+
+`get_history` returns up to 100 episodes, newest first, including the current one.
+`get_summary` with `days: 1` (today) or `days: 7` returns the episode count,
+`observed_duration_seconds` and `has_gaps` over Home Assistant's local days.
+
+Episode times are when the integration received the data, not official times:
+`observed_started_at`, `observed_cleared_at` and `declared_started_at` from the source.
+If data was interrupted or an alert was already active at startup, `had_gap` is `true`
+and `source_start_known` is `false`; missed episodes are not reconstructed.
+`coverage_start` shows when the journal started: it has no earlier data.
+
+Completed episodes are kept for up to 90 days and at most 1000 in total; current
+episodes are never removed. Recorder history is not affected.
 
 ## What to know about the data
 

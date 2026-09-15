@@ -100,5 +100,40 @@
         }
       }
     }
+  },
+  "services": {
+    "get_history": {
+      "name": "Get alert history",
+      "description": "Returns the observed alert episodes of a monitored region, newest first.",
+      "fields": {
+        "region_id": {
+          "name": "Region ID",
+          "description": "ID of a monitored region, as in the entity IDs."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Maximum number of episodes (1–100)."
+        }
+      }
+    },
+    "get_summary": {
+      "name": "Get alert summary",
+      "description": "Returns the number and observed duration of alert episodes for today or the last 7 days.",
+      "fields": {
+        "region_id": {
+          "name": "Region ID",
+          "description": "ID of a monitored region, as in the entity IDs."
+        },
+        "days": {
+          "name": "Days",
+          "description": "1 for today, 7 for the last 7 days (local time)."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_region": {
+      "message": "Region {region_id} is not monitored by Ukraine Alarm Pro."
+    }
   }
 }

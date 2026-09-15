@@ -7,8 +7,17 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -34,8 +43,69 @@ _LOGGER = logging.getLogger(__name__)
 
 type UkraineAlarmProConfigEntry = ConfigEntry[AlarmCoordinator]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+SERVICE_GET_HISTORY = "get_history"
+SERVICE_GET_SUMMARY = "get_summary"
+_HISTORY_SCHEMA = vol.Schema(
+    {
+        vol.Required("region_id"): cv.string,
+        vol.Optional("limit", default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=100)
+        ),
+    }
+)
+_SUMMARY_SCHEMA = vol.Schema(
+    {
+        vol.Required("region_id"): cv.string,
+        vol.Optional("days", default=1): vol.All(vol.Coerce(int), vol.In((1, 7))),
+    }
+)
+
 # Unique-id suffixes of the per-region entities, for the deselection purge.
 REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
+
+
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Register the response-only history actions once for all entries."""
+
+    def _coordinator(region_id: str) -> AlarmCoordinator:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if (
+                entry.state is ConfigEntryState.LOADED
+                and region_id in entry.data.get(CONF_REGIONS, {})
+            ):
+                return entry.runtime_data
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_region",
+            translation_placeholders={"region_id": region_id},
+        )
+
+    async def _get_history(call: ServiceCall) -> ServiceResponse:
+        region_id = call.data["region_id"]
+        history = _coordinator(region_id).history
+        return {"episodes": history.history(region_id, call.data["limit"])}
+
+    async def _get_summary(call: ServiceCall) -> ServiceResponse:
+        region_id = call.data["region_id"]
+        return _coordinator(region_id).history.summary(region_id, call.data["days"])
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_HISTORY,
+        _get_history,
+        schema=_HISTORY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_SUMMARY,
+        _get_summary,
+        schema=_SUMMARY_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    return True
 
 
 async def async_setup_entry(
@@ -50,6 +120,10 @@ async def async_setup_entry(
     # Before the transports start, so a snapshot that arrives while the disk
     # read is in flight is not overwritten by the older stored one.
     await coordinator.async_restore()
+    await coordinator.history.async_load()
+    entry.async_on_unload(
+        coordinator.events.add_listener(None, coordinator.history.handle_event)
+    )
 
     @callback
     def _on_snapshot(snap: Snapshot) -> None:
@@ -85,6 +159,13 @@ async def async_setup_entry(
             hass, coordinator.async_check_stale, timedelta(seconds=60)
         )
     )
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            coordinator.async_flush_history,
+            timedelta(seconds=SAVE_DELAY_SECONDS),
+        )
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -99,6 +180,7 @@ async def async_unload_entry(
     if ok:
         await entry.runtime_data.supervisor.stop()
         await entry.runtime_data.async_save_now()
+        await entry.runtime_data.async_flush_history()
         ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
     return ok
 
