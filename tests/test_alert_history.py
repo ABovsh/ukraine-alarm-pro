@@ -219,3 +219,21 @@ async def test_services_return_history_and_validate_input(
             DOMAIN, "get_history", {"region_id": "31", "limit": 101}, blocking=True, return_response=True
         )
     assert dt_util.utcnow() is not None
+
+
+async def test_journal_and_map_are_saved_when_home_assistant_stops(
+    hass: HomeAssistant, enable_custom_integrations, hass_storage
+):
+    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+
+    entry, push = await _setup(hass)
+    push(parse_alert_payload(
+        {"alerts": [{"regionId": "31", "activeAlerts": [{"type": "AIR", "lastUpdate": "2026-09-15T06:00:00Z"}]}]}
+    ))
+    await hass.async_block_till_done()
+    key = f"{DOMAIN}.history.{entry.entry_id}"
+    assert key not in hass_storage
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert hass_storage[key]["data"]["active"]["31"]["region_id"] == "31"
+    assert f"{DOMAIN}.snapshot" in hass_storage

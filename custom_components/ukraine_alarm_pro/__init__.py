@@ -9,6 +9,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -165,6 +166,15 @@ async def async_setup_entry(
             coordinator.async_flush_history,
             timedelta(seconds=SAVE_DELAY_SECONDS),
         )
+    )
+    async def _async_save_on_stop(_event) -> None:
+        # A restart does not unload entries: without this the last few minutes
+        # of the map and the journal were lost on every restart.
+        await coordinator.async_save_now()
+        await coordinator.async_flush_history()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_save_on_stop)
     )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     _async_purge_deselected_regions(hass, entry)

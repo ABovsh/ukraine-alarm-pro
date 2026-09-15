@@ -23,6 +23,9 @@ This project follows [Semantic Versioning](https://semver.org/).
 - **Recovery with an unchanged map waited up to a minute.** When fresh data
   matched the stale map, `binary_sensor.uap_data_stale` cleared only on its next
   tick. It now clears on the first accepted snapshot.
+- **A restart could lose the last minutes of the saved alert map.** The map was
+  written every 5 minutes and on unload, but a Home Assistant restart does not
+  unload entries. It is now also written when Home Assistant stops.
 
 ### ✨ Added
 
