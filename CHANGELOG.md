@@ -24,8 +24,18 @@ This project follows [Semantic Versioning](https://semver.org/).
   matched the stale map, `binary_sensor.uap_data_stale` cleared only on its next
   tick. It now clears on the first accepted snapshot.
 
+### ✨ Added
+
+- `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,
+  `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
+  declaring regions) and `affected_region_count`. Coverage does not change the
+  alert state.
+
 ### 🔧 Changed
 
+- Region entities share one aggregation per region per alert-map change instead
+  of recomputing it in each entity. Entity states and existing attributes are
+  unchanged.
 - Diagnostics show the time since the last accepted snapshot, the last watchdog
   cross-check and a local snapshot counter as separate fields.
 

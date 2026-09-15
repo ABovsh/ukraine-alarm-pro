@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
-from .models import Alert, Snapshot, parse_alert_levels
+from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +40,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.last_push: datetime | None = None
         self._store = store
         self._saved_active: dict[str, frozenset] | None = None
+        self._views: dict[str, RegionView] = {}
+        self._views_of: Snapshot | None = None
 
     async def async_restore(self) -> None:
         """Publish the alert map the last run ended with, if it is recent.
@@ -132,6 +134,28 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 self.async_update_listeners()
             return
         self.async_set_updated_data(snap)
+
+    def region_view(
+        self, region_id: str, ancestors, descendants
+    ) -> RegionView | None:
+        """The region's aggregated alerts, computed once per accepted map.
+
+        Six entities per region read it on every update; aggregating in each
+        getter repeated the same work six times. Region trees only change
+        through a reload, which builds a new coordinator.
+        """
+        snap = self.data
+        if snap is None:
+            return None
+        if snap is not self._views_of:
+            self._views = {}
+            self._views_of = snap
+        view = self._views.get(region_id)
+        if view is None:
+            view = self._views[region_id] = region_view(
+                snap, region_id, ancestors, descendants
+            )
+        return view
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""

@@ -307,3 +307,100 @@ def air_alert_levels(found: list[Alert]) -> list[str]:
         for level in alert.levels:
             levels.add(level.level if level.level in ("red", "yellow") else "unrecognized")
     return [level for level in ("red", "yellow", "unrecognized") if level in levels]
+
+
+# Attributes land in the recorder on every state write; bounded like the alerts.
+MAX_AFFECTED_REGIONS = 25
+
+COVERAGE_NONE = "none"
+COVERAGE_WHOLE = "whole"
+COVERAGE_PARTIAL = "partial"
+COVERAGE_UNRECOGNIZED = "unrecognized"
+# An alert of unknown relation might cover the whole region, so it outranks
+# partial — but a declaration that is known to cover it all settles it.
+_COVERAGE_RANK = {
+    COVERAGE_PARTIAL: 1,
+    COVERAGE_UNRECOGNIZED: 2,
+    COVERAGE_WHOLE: 3,
+}
+
+
+@dataclass(frozen=True)
+class RegionView:
+    """Everything the region entities show, computed once per map change.
+
+    Immutable, holding no reference to the snapshot's mutable lists.
+    """
+
+    alerts: tuple[Alert, ...] = ()
+    threat: ThreatLevel = ThreatLevel.NONE
+    threat_types: tuple[str, ...] = ()
+    started: datetime | None = None
+    air_levels: tuple[str, ...] = ()
+    air_reasons: tuple[str, ...] = ()
+    # Whole/partial coverage explains the alert state; it never filters it.
+    coverage: str = COVERAGE_NONE
+    coverage_by_type: dict[str, str] = field(default_factory=dict)
+    affected_regions: tuple[dict[str, str], ...] = ()
+    affected_region_count: int = 0
+
+
+def _coverage(alert: Alert, own: set[str], below: set[str]) -> str:
+    if alert.region_id in own:
+        return COVERAGE_WHOLE
+    if alert.region_id in below:
+        return COVERAGE_PARTIAL
+    return COVERAGE_UNRECOGNIZED
+
+
+def region_view(
+    snap: Snapshot,
+    region_id: str,
+    ancestors: Iterable[str] = (),
+    descendants: Iterable[str] = (),
+) -> RegionView:
+    """The one aggregation of a region's alerts every entity reads from.
+
+    Coverage is "whole" when the region itself or an ancestor declared an
+    active alert — a hromada repeating it does not make it partial — and
+    "partial" when only descendants did. It does not say where the user is.
+    """
+    ancestors = tuple(ancestors)
+    descendants = tuple(descendants)
+    found = region_alerts(snap, region_id, ancestors, descendants)
+    if not found:
+        return RegionView()
+    stamps = [d for alert in found if (d := declared_at(alert)) is not None]
+    own = {region_id, *ancestors}
+    below = set(descendants) - own
+    by_type: dict[ThreatLevel, str] = {}
+    for alert in found:
+        cov = _coverage(alert, own, below)
+        if _COVERAGE_RANK[cov] > _COVERAGE_RANK.get(by_type.get(alert.threat, ""), 0):
+            by_type[alert.threat] = cov
+    declaring = {alert.region_id for alert in found}
+    affected = sorted(
+        ({"region_id": rid, "region_name": snap.names.get(rid, "")} for rid in declaring),
+        key=lambda item: (item["region_name"], item["region_id"]),
+    )
+    return RegionView(
+        alerts=tuple(found),
+        threat=max((alert.threat for alert in found), key=_SEVERITY.__getitem__),
+        threat_types=tuple(threat_types(found)),
+        started=min(stamps, default=None),
+        air_levels=tuple(air_alert_levels(found)),
+        air_reasons=tuple(sorted({
+            level.reason
+            for alert in found
+            if alert.type == "AIR"
+            for level in alert.levels
+            if level.reason
+        })),
+        coverage=max(by_type.values(), key=_COVERAGE_RANK.__getitem__),
+        coverage_by_type={
+            level.value: by_type[level]
+            for level in sorted(by_type, key=_SEVERITY.__getitem__, reverse=True)
+        },
+        affected_regions=tuple(affected[:MAX_AFFECTED_REGIONS]),
+        affected_region_count=len(affected),
+    )

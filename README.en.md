@@ -63,6 +63,21 @@ switches back after receiving data.
 name of the region that declared each one (at most 25 entries, the full number is in
 `active_alert_count`). The complete list is in the diagnostics.
 
+The `coverage` attribute tells whether the alert covers the whole region:
+
+- `whole` — the region itself or a higher-level region containing it declared the alert;
+- `partial` — alerts are declared only in part of the region, such as one raion of an
+  oblast;
+- `unrecognized` — an alert exists, but its region is not among the stored higher and
+  lower levels;
+- `none` — no active alerts.
+
+If `whole` and `partial` apply together, the attribute shows `whole`. `coverage_by_type`
+gives the coverage of each threat type. `affected_regions` lists up to 25 regions that
+declared active alerts; `affected_region_count` is the full number of such regions. It
+is not the number of hromadas in alert or a share of the area. Coverage does not change
+`binary_sensor.uap_<id>_alert`: a partial alert is still an alert.
+
 
 The air alert level covers the same region and its ancestors and descendants.
 If yellow and red are active together, the sensor reports `red`; `active_levels`
