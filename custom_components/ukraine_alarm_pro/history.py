@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -70,6 +70,8 @@ class AlertHistory:
         self._created_at: str | None = None
         # When the official history was last merged; drives the next window.
         self._synced_at: str | None = None
+        # Which regions that merge covered; a region added later has none yet.
+        self._synced_regions: set[str] = set()
         self._version = 0
         self._saved_version = 0
 
@@ -98,6 +100,9 @@ class AlertHistory:
                 self._created_at = stored["created_at"]
             if _parse(stored.get("official_synced_at")) is not None:
                 self._synced_at = stored["official_synced_at"]
+                synced_regions = stored.get("official_synced_regions")
+                if isinstance(synced_regions, list):
+                    self._synced_regions = {str(rid) for rid in synced_regions}
         elif stored is not None:
             _LOGGER.warning("Alert history has an unknown format — starting a new one")
         if self._created_at is None:
@@ -159,24 +164,29 @@ class AlertHistory:
             {
                 "created_at": self._created_at,
                 "official_synced_at": self._synced_at,
+                "official_synced_regions": sorted(self._synced_regions),
                 "active": self._active,
                 "episodes": self._completed,
             }
         )
         self._saved_version = version
 
-    def backfill_start(self, now: datetime) -> datetime:
+    def backfill_start(self, now: datetime, region_ids: Iterable[str]) -> datetime:
         """Where the next official-history window begins.
 
         The first run covers the whole retention; later runs re-read a couple
-        of days before the last sync, enough to fill any outage since.
+        of days before the last sync, enough to fill any outage since. A region
+        the last sync did not cover (added through Configure) needs it all.
         """
         oldest = now - self._max_age
         synced = _parse(self._synced_at)
-        return oldest if synced is None else max(oldest, synced - timedelta(days=2))
+        if synced is None or not set(region_ids) <= self._synced_regions:
+            return oldest
+        return max(oldest, synced - timedelta(days=2))
 
-    def mark_synced(self, now: datetime) -> None:
+    def mark_synced(self, now: datetime, region_ids: Iterable[str]) -> None:
         self._synced_at = now.isoformat()
+        self._synced_regions = set(region_ids)
         self._version += 1
 
     def merge_official(

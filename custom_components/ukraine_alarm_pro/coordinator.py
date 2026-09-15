@@ -193,7 +193,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if not regions:
             return
         now = dt_util.utcnow()
-        start = self.history.backfill_start(now)
+        start = self.history.backfill_start(now, regions)
         try:
             records = await backfill._fetch(
                 async_get_clientsession(self.hass),
@@ -211,7 +211,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             )
             for rid, info in regions.items()
         )
-        self.history.mark_synced(now)
+        self.history.mark_synced(now, regions)
         _LOGGER.debug("Merged %d alert episodes from the official history", added)
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:

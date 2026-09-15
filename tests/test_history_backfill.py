@@ -125,6 +125,33 @@ async def test_merge_never_extends_coverage_forward_and_skips_the_active_period(
     assert history.summary("31", 1)["coverage_start"] == T0.isoformat()
 
 
+async def test_a_region_added_after_a_sync_gets_the_whole_retention():
+    store = FakeStore()
+    history, _ = _hist(store)
+    await history.async_load()
+    assert history.backfill_start(T0, ["31"]) == T0 - timedelta(days=90)
+    history.mark_synced(T0, ["31"])
+    later = T0 + timedelta(days=1)
+    assert history.backfill_start(later, ["31"]) == T0 - timedelta(days=2)
+    # Regions edited through Configure: the new one has no history yet, while
+    # the journal already claims 90 days of coverage for every region.
+    assert history.backfill_start(later, ["31", "695"]) == later - timedelta(days=90)
+    await history.async_flush()
+    reloaded, _ = _hist(FakeStore(store.data))
+    await reloaded.async_load()
+    assert reloaded.backfill_start(later, ["31"]) == T0 - timedelta(days=2)
+    assert reloaded.backfill_start(later, ["695"]) == later - timedelta(days=90)
+
+
+async def test_a_region_removed_and_added_back_is_filled_again():
+    history, _ = _hist(FakeStore())
+    await history.async_load()
+    history.mark_synced(T0, ["31", "695"])
+    history.mark_synced(T0 + timedelta(days=10), ["31"])
+    later = T0 + timedelta(days=20)
+    assert history.backfill_start(later, ["31", "695"]) == later - timedelta(days=90)
+
+
 class _Resp:
     def __init__(self, text, status=200):
         self._text = text
