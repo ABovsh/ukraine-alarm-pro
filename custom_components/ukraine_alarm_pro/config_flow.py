@@ -2,42 +2,28 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
 )
+from homeassistant.util import dt as dt_util
 
 from .api.errors import TransportError
-from .api.poll import DEFAULT_BASE_URL
 from .const import CONF_REGIONS, DOMAIN
+from .regions import async_fetch_regions, async_get_region_tree
+
+__all__ = ["async_fetch_regions"]
 
 # The administrative tree is oblast > raion > hromada; the cap only keeps a
 # malformed or self-referential feed from blowing the Python stack.
 _MAX_TREE_DEPTH = 8
-
-
-async def async_fetch_regions(session: aiohttp.ClientSession) -> dict[str, Any]:
-    """Fetch the full region tree from the public proxy."""
-    try:
-        resp = await session.get(
-            f"{DEFAULT_BASE_URL}/regions",
-            headers={"accept": "application/json"},
-            timeout=aiohttp.ClientTimeout(total=30),
-        )
-        resp.raise_for_status()
-        return await resp.json()
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
-        raise TransportError(f"regions fetch failed: {err}") from err
 
 
 def _flatten(tree: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -78,11 +64,19 @@ def _flatten(tree: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _regions_schema(
-    flat: dict[str, dict[str, Any]], selected: list[str]
+    flat: dict[str, dict[str, Any]],
+    selected: list[str],
+    stored: dict[str, dict[str, Any]] | None = None,
 ) -> vol.Schema:
     options = [
         SelectOptionDict(value=rid, label=info["label"])
         for rid, info in sorted(flat.items(), key=lambda kv: kv[1]["label"])
+    ]
+    # A monitored region the current tree lacks stays selectable, never dropped.
+    options += [
+        SelectOptionDict(value=rid, label=f"{info.get('name', rid)} ({rid}) ⚠")
+        for rid, info in (stored or {}).items()
+        if rid not in flat
     ]
     return vol.Schema(
         {
@@ -98,17 +92,32 @@ def _regions_schema(
 
 
 def _selected_regions(
-    flat: dict[str, dict[str, Any]], region_ids: list[str]
+    flat: dict[str, dict[str, Any]],
+    region_ids: list[str],
+    stored: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    return {
-        rid: {
-            "name": flat[rid]["name"],
-            "ancestors": flat[rid]["ancestors"],
-            "descendants": flat[rid]["descendants"],
-        }
-        for rid in region_ids
-        if rid in flat
-    }
+    selected = {}
+    stored = stored or {}
+    for rid in region_ids:
+        if rid in flat:
+            selected[rid] = {
+                "name": flat[rid]["name"],
+                "ancestors": flat[rid]["ancestors"],
+                "descendants": flat[rid]["descendants"],
+            }
+        elif rid in stored:
+            # Missing from this tree (outage, rename): keep what we had.
+            selected[rid] = stored[rid]
+    return selected
+
+
+def _tree_note(cached_at, language: str) -> str:
+    if cached_at is None:
+        return ""
+    stamp = dt_util.as_local(cached_at).strftime("%Y-%m-%d %H:%M")
+    if language == "uk":
+        return f"Не вдалося отримати перелік регіонів; показано копію від {stamp}."
+    return f"The region list could not be fetched; showing the copy saved {stamp}."
 
 
 class UkraineAlarmProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -129,7 +138,7 @@ class UkraineAlarmProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
-        if user_input is not None:
+        if user_input is not None and CONF_REGIONS in user_input:
             return self.async_create_entry(
                 title="Ukraine Alarm Pro",
                 data={
@@ -139,14 +148,23 @@ class UkraineAlarmProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
+        # An empty submit is the retry after a failed fetch.
         try:
-            tree = await async_fetch_regions(async_get_clientsession(self.hass))
+            self._flat, cached_at = await async_get_region_tree(
+                self.hass, async_fetch_regions
+            )
         except TransportError:
-            return self.async_abort(reason="cannot_connect")
-        self._flat = _flatten(tree)
+            return self.async_show_form(
+                step_id="user",
+                data_schema=vol.Schema({}),
+                errors={"base": "cannot_connect"},
+                description_placeholders={"tree_note": ""},
+            )
 
         return self.async_show_form(
-            step_id="user", data_schema=_regions_schema(self._flat, [])
+            step_id="user",
+            data_schema=_regions_schema(self._flat, []),
+            description_placeholders={"tree_note": _tree_note(cached_at, self.hass.config.language)},
         )
 
 
@@ -158,24 +176,32 @@ class UkraineAlarmProOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
+            # Re-read at submit: another flow or the backfill may have written
+            # the entry since this form was opened.
+            data = self.config_entry.data
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
                 data={
-                    **self.config_entry.data,
+                    **data,
                     CONF_REGIONS: _selected_regions(
-                        self._flat, user_input[CONF_REGIONS]
+                        self._flat,
+                        user_input[CONF_REGIONS],
+                        data.get(CONF_REGIONS, {}),
                     ),
                 },
             )
             return self.async_create_entry(title="", data={})
 
         try:
-            tree = await async_fetch_regions(async_get_clientsession(self.hass))
+            self._flat, cached_at = await async_get_region_tree(
+                self.hass, async_fetch_regions
+            )
         except TransportError:
             return self.async_abort(reason="cannot_connect")
-        self._flat = _flatten(tree)
 
-        current = list(self.config_entry.data.get(CONF_REGIONS, {}))
+        stored = self.config_entry.data.get(CONF_REGIONS, {})
         return self.async_show_form(
-            step_id="init", data_schema=_regions_schema(self._flat, current)
+            step_id="init",
+            data_schema=_regions_schema(self._flat, list(stored), stored),
+            description_placeholders={"tree_note": _tree_note(cached_at, self.hass.config.language)},
         )

@@ -46,9 +46,14 @@ This project follows [Semantic Versioning](https://semver.org/).
   `unrecognized`, `none`), `coverage_by_type`, `affected_regions` (up to 25
   declaring regions) and `affected_region_count`. Coverage does not change the
   alert state.
+- Region list is cached after validation and refreshed daily in the background.
+  Changing regions works from the cached copy while the proxy is down, and a
+  selected region missing from the list is kept instead of dropped.
 
 ### 🔧 Changed
 
+- The first-install form shows a retryable error instead of aborting when the
+  region list cannot be fetched.
 - Region entities share one aggregation per region per alert-map change instead
   of recomputing it in each entity. Entity states and existing attributes are
   unchanged.

@@ -125,6 +125,12 @@ pick the regions. The whole tree is available, down to hromadas.
 To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
 Configure**. Entities of removed regions are deleted automatically.
 
+The integration keeps a copy of the region list and refreshes it once a day. If the
+proxy is unavailable, the options show the saved copy with its date. A selected region
+missing from the current list stays selected with a ⚠ mark and is not removed. A first
+installation without network and without a saved copy is not possible: the form offers
+a retry.
+
 ## Notifications
 
 ### Notifications from events

@@ -21,7 +21,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 
 from .api.poll import PollTransport
@@ -170,6 +170,7 @@ async def async_setup_entry(
     _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_schedule_descendant_backfill(hass, entry, session)
+    _async_schedule_region_cache_refresh(hass, entry)
     return True
 
 
@@ -236,6 +237,34 @@ def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
 
 
 @callback
+def _async_schedule_region_cache_refresh(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Keep a recent copy of the region tree for editing during an outage.
+
+    Never at startup: the proxy may be the slow part of a post-blackout boot.
+    The check is hourly; a request is made only once the copy is a day old.
+    """
+    from .regions import async_refresh_region_cache
+
+    @callback
+    def _refresh(_now) -> None:
+        # Late lookup, so a patched fetch in tests is honoured.
+        from .config_flow import async_fetch_regions
+
+        entry.async_create_background_task(
+            hass,
+            async_refresh_region_cache(hass, async_fetch_regions),
+            name="region-tree-cache-refresh",
+        )
+
+    entry.async_on_unload(async_call_later(hass, 600, _refresh))
+    entry.async_on_unload(
+        async_track_time_interval(hass, _refresh, timedelta(hours=1))
+    )
+
+
+@callback
 def _async_schedule_descendant_backfill(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry, session
 ) -> None:
@@ -268,10 +297,11 @@ async def _async_backfill_descendants(
     """
     # Imported late: config_flow pulls in voluptuous/selectors that setup
     # does not otherwise need.
-    from .config_flow import _flatten, async_fetch_regions
+    from .config_flow import async_fetch_regions
+    from .regions import async_get_region_tree
 
     try:
-        flat = _flatten(await async_fetch_regions(session))
+        flat, _ = await async_get_region_tree(hass, async_fetch_regions)
     # Best effort only: a broken region tree must never break the entry.
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning(

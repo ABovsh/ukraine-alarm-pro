@@ -70,5 +70,6 @@ async def test_flow_aborts_on_regions_fetch_failure(
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
         )
-    assert result["type"] == "abort"
-    assert result["reason"] == "cannot_connect"
+    # A retryable form since UAP-08, not a dead end (tests/test_region_cache.py).
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "cannot_connect"}
