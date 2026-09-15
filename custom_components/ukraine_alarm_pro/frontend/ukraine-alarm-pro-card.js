@@ -340,8 +340,15 @@ class UkraineAlarmProCard extends HTMLElement {
       .join(";") + `;${this._hass.locale?.language};${this._config.language}`;
   }
 
+  // Times and dates follow the card language, not only the user's profile.
+  _fmt() {
+    const forced = this._config.language;
+    const language = forced === "uk" || forced === "en" ? forced : this._hass.locale?.language || this._hass.language;
+    return { locale: { language }, config: this._hass.config };
+  }
+
   _statsHtml(t, stats) {
-    const hass = this._hass;
+    const fmt = this._fmt();
     const now = Date.now();
     const dayAgo = now - 86400000;
     const { summary } = stats;
@@ -362,7 +369,7 @@ class UkraineAlarmProCard extends HTMLElement {
         const left = ((from - dayAgo) / 86400000) * 100;
         const width = Math.max(((to - from) / 86400000) * 100, 0.6);
         const level = ["red", "yellow"].includes(ep.maximum_air_level) ? ep.maximum_air_level : "other";
-        const title = `${hhmm(new Date(from), hass)}–${ep.end ? hhmm(ep.end, hass) : t.now} · ${span(t, (to - from) / 1000)}`;
+        const title = `${hhmm(new Date(from), fmt)}–${ep.end ? hhmm(ep.end, fmt) : t.now} · ${span(t, (to - from) / 1000)}`;
         return `<span class="seg ${level}${ep.end ? "" : " live"}${ep.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
       })
       .join("");
@@ -396,21 +403,21 @@ class UkraineAlarmProCard extends HTMLElement {
     if (last) {
       kpis.push([
         t.lastAlert,
-        `${now - last.end.getTime() > 86400000 ? `${dayMonth(last.end, hass)} ` : ""}${hhmm(last.start, hass)}–${hhmm(last.end, hass)} · ${span(t, (last.end - last.start) / 1000)}`,
+        `${now - last.end.getTime() > 86400000 ? `${dayMonth(last.end, fmt)} ` : ""}${hhmm(last.start, fmt)}–${hhmm(last.end, fmt)} · ${span(t, (last.end - last.start) / 1000)}`,
       ]);
     }
 
     const notes = [];
     const journalStart = dateOf(summary?.coverage_start);
     if (journalStart && journalStart.getTime() > now - 7 * 86400000) {
-      notes.push(`${t.journalSince} ${dayMonth(journalStart, hass)} ${hhmm(journalStart, hass)}`);
+      notes.push(`${t.journalSince} ${dayMonth(journalStart, fmt)} ${hhmm(journalStart, fmt)}`);
     }
     if (summary?.has_gaps || recent.some((ep) => ep.had_gap)) notes.push(t.gaps);
 
     return `<div class="stats">
       <div class="sec"><span>${esc(t.last24)}</span><b>${recent.length ? `${esc(alerts(t, recent.length))} · ${esc(span(t, recentSeconds))}` : esc(t.noAlerts)}</b></div>
       <div class="timeline">${ticks}${segments}</div>
-      <div class="axis"><span>${esc(hhmm(new Date(dayAgo), hass))}</span><span>${esc(hhmm(new Date(now - 43200000), hass))}</span><span>${esc(t.now)}</span></div>
+      <div class="axis"><span>${esc(hhmm(new Date(dayAgo), fmt))}</span><span>${esc(hhmm(new Date(now - 43200000), fmt))}</span><span>${esc(t.now)}</span></div>
       ${daily.length ? `
       <div class="sec"><span>${esc(t.week)}</span><b>${weekCount ? `${esc(alerts(t, weekCount))} · ${esc(span(t, summary.observed_duration_seconds))}` : esc(t.noAlerts)}</b></div>
       <div class="bars">${bars}</div>` : ""}
@@ -427,6 +434,7 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!this._hass || !this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const hass = this._hass;
+    const fmt = this._fmt();
     const t = lang(hass, this._config.language);
     const ids = this._entities();
     if (!ids) {
@@ -477,7 +485,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const eventType = event?.attributes?.event_type;
     const eventTime = event && !["unknown", "unavailable"].includes(event.state) ? new Date(event.state) : null;
     const updatedDate = updated && !["unknown", "unavailable"].includes(updated.state) ? new Date(updated.state) : null;
-    const freshness = stale ? t.staleNote : `${t.fresh}${updatedDate ? ` · ${t.updated} ${hhmm(updatedDate, hass)}` : ""}`;
+    const freshness = stale ? t.staleNote : `${t.fresh}${updatedDate ? ` · ${t.updated} ${hhmm(updatedDate, fmt)}` : ""}`;
 
     const compact = this._config.compact;
     this.shadowRoot.innerHTML = `${STYLE}
@@ -489,8 +497,8 @@ class UkraineAlarmProCard extends HTMLElement {
             <div class="region">${esc(name)}${compact && active && t.level[air] ? ` · <span class="lvl ${esc(air)}">${esc(t.level[air])}</span>` : ""}</div>
             <div class="status">${esc(title)}</div>
           </div>
-          ${since ? `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, hass))}</div></div>` : ""}
-          ${lastCleared ? `<div class="timer quiet"><div class="big">${esc(duration(t, lastCleared))}</div><div class="small">${esc(t.quietFor)} ${esc(Date.now() - lastCleared > 86400000 ? dayMonth(lastCleared, hass) : "")} ${esc(hhmm(lastCleared, hass))}</div></div>` : ""}
+          ${since ? `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, fmt))}</div></div>` : ""}
+          ${lastCleared ? `<div class="timer quiet"><div class="big">${esc(duration(t, lastCleared))}</div><div class="small">${esc(t.quietFor)} ${esc(Date.now() - lastCleared > 86400000 ? dayMonth(lastCleared, fmt) : "")} ${esc(hhmm(lastCleared, fmt))}</div></div>` : ""}
         </div>
         ${compact ? "" : `
           ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
@@ -499,7 +507,7 @@ class UkraineAlarmProCard extends HTMLElement {
           ${stats ? this._statsHtml(t, stats) : ""}
           <div class="foot">
             <span class="fresh ${stale ? "bad" : "ok"}"><span class="dot"></span>${esc(freshness)}</span>
-            ${eventType && eventTime && !isNaN(eventTime) ? `<span class="event">${esc(t.lastEvent)}: ${esc(t.events[eventType] || eventType)} ${esc(hhmm(eventTime, hass))}</span>` : ""}
+            ${eventType && eventTime && !isNaN(eventTime) ? `<span class="event">${esc(t.lastEvent)}: ${esc(t.events[eventType] || eventType)} ${esc(hhmm(eventTime, fmt))}</span>` : ""}
           </div>`}
       </ha-card>`;
     const card = this.shadowRoot.querySelector("ha-card");
