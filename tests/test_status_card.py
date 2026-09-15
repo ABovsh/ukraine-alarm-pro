@@ -104,3 +104,6 @@ def test_card_defines_its_element_and_picker_entry():
     assert 'customElements.define(CARD' in source
     assert "window.customCards" in source
     assert "getConfigForm" in source
+    # Statistics come from the journal actions, not from new entities.
+    assert '"get_summary"' in source and '"get_history"' in source
+    assert "return_response: true" in source

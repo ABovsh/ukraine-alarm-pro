@@ -135,26 +135,54 @@ a retry.
 
 ![Ukraine Alarm Pro card](docs/images/status-card.png)
 
-The card ships with the integration and adds itself to **Settings → Dashboards →
-Resources**; nothing else to install. For YAML-mode resources add
-`/ukraine_alarm_pro/ukraine-alarm-pro-card.js` as a `module` yourself. After installing or
-updating, restart Home Assistant and reload the browser page. Then: dashboard → **Edit** →
-**Add card** → search for **Ukraine Alarm Pro**. With one region the card finds it on its
-own; with several, pick the region's alert sensor.
+One card shows everything the integration knows about a region:
 
-The card shows the alert state, threat type, level, how long the alert has lasted and
-since when, coverage, the reason, the last event and data freshness. Stale data reads
-"No fresh data", not "All quiet". The browser counts the duration, so the card adds no
-database rows. Entities may be renamed: the card finds them by region. Text follows the
-Home Assistant language (Ukrainian or English).
+- **State.** Alert or "All quiet", threat type, level (yellow or red), reason and
+  coverage: the whole region or part of it with the affected districts or hromadas. When
+  data is stale the card says "No fresh data", not "All quiet".
+- **Time.** During an alert, how long it has lasted and since when. Without one, how long
+  it has been since the last all clear.
+- **Last 24 hours.** A day strip: red and yellow segments are alerts, with their count and
+  total duration. Hovering a segment shows its start, end and duration.
+- **7 days.** One bar per day: height is alert duration, the number above is the count.
+  Below: the week's longest and average alert and the time of the last one.
+- **Data.** Whether data is current, when it was updated, the last event.
+
+Tapping the card opens the alert sensor with its history.
+
+### Adding the card
+
+1. Install the integration and restart Home Assistant. The card adds itself to
+   **Settings → Dashboards → Resources**; nothing else to install.
+2. Reload the browser page. In the Home Assistant app: **Settings → Companion app →
+   Troubleshooting → Reset frontend cache**, then restart the app.
+3. Open a dashboard → pencil **Edit** → **Add card**.
+4. Search for **Ukraine Alarm Pro** and pick the card.
+5. With one region the card finds it on its own — press **Save**. With several, pick the
+   region's alert sensor ("… alert") in **Region / Регіон**. Add one card per region.
+
+The card editor lets you change the name (for example "Home" instead of the hromada
+name), turn statistics off, switch to the compact layout or pick the language.
+
+If you see "Custom element doesn't exist" or "Configuration error" instead of the card,
+the browser still has the old page: repeat step 2. For YAML-mode dashboards add the
+resource yourself: `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
+
+### YAML configuration
 
 ```yaml
 type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # optional with a single region
 name: Home                          # optional
-compact: false                      # true shows only the top row
+show_stats: true                    # false hides the 24-hour and 7-day statistics
+compact: false                      # true shows only the top row, no statistics
 language: auto                      # auto (Home Assistant language), uk or en
 ```
+
+Statistics come from the alert journal (see "Alert history"): the journal starts when this
+version is installed, so for the first days the card shows the date its data starts from.
+The card creates no entities and no database rows. Entities may be renamed: the card finds
+them by region.
 
 An example full dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
 
@@ -248,7 +276,8 @@ response_variable: history
 
 `get_history` returns up to 100 episodes, newest first, including the current one.
 `get_summary` with `days: 1` (today) or `days: 7` returns the episode count,
-`observed_duration_seconds` and `has_gaps` over Home Assistant's local days.
+`observed_duration_seconds`, `longest_duration_seconds`, `has_gaps` and `daily` — count and
+duration per day — over Home Assistant's local days.
 
 Episode times are when the integration received the data, not official times:
 `observed_started_at`, `observed_cleared_at` and `declared_started_at` from the source.

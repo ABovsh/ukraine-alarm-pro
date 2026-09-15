@@ -196,31 +196,62 @@ class AlertHistory:
     def summary(self, region_id: str, days: int) -> dict[str, Any]:
         """Episodes overlapping the last `days` local calendar days."""
         now = self._now()
-        period_start = dt_util.start_of_local_day(dt_util.as_local(now)) - timedelta(
-            days=days - 1
-        )
-        count = 0
-        duration = 0.0
-        has_gaps = False
+        today = dt_util.as_local(now).date()
+        # Per-day bounds from local midnights, so a DST day stays 23 or 25 h.
+        bounds = [
+            dt_util.start_of_local_day(today - timedelta(days=offset))
+            for offset in range(days - 1, -1, -1)
+        ]
+        bounds.append(now)
+        period_start = bounds[0]
         episodes = [ep for ep in self._completed if ep["region_id"] == region_id]
         if region_id in self._active:
             episodes.append(self._active[region_id])
+        daily = [
+            {"date": start.date().isoformat(), "count": 0, "observed_duration_seconds": 0.0}
+            for start in bounds[:-1]
+        ]
+        count = 0
+        duration = 0.0
+        longest = 0.0
+        has_gaps = False
         for ep in episodes:
             start = _parse(ep["observed_started_at"])
-            end = _parse(ep["observed_cleared_at"]) or now
-            overlap = (min(end, now) - max(start, period_start)).total_seconds()
-            if overlap <= 0 and not (ep["observed_cleared_at"] is None and start <= now):
+            ongoing = ep["observed_cleared_at"] is None
+            end = min(_parse(ep["observed_cleared_at"]) or now, now)
+            if not self._overlaps(start, end, period_start, now, ongoing):
                 continue
+            overlap = max((end - max(start, period_start)).total_seconds(), 0)
             count += 1
-            duration += max(overlap, 0)
+            duration += overlap
+            longest = max(longest, overlap)
             has_gaps = has_gaps or ep["had_gap"]
+            for bucket, day_start, day_end in zip(daily, bounds, bounds[1:], strict=False):
+                if self._overlaps(start, end, day_start, day_end, ongoing):
+                    bucket["count"] += 1
+                    bucket["observed_duration_seconds"] += max(
+                        (min(end, day_end) - max(start, day_start)).total_seconds(), 0
+                    )
+        for bucket in daily:
+            bucket["observed_duration_seconds"] = round(bucket["observed_duration_seconds"])
         return {
             "region_id": region_id,
             "days": days,
             "period_start": period_start.isoformat(),
             "count": count,
             "observed_duration_seconds": round(duration),
+            "longest_duration_seconds": round(longest),
             "has_gaps": has_gaps,
+            "daily": daily,
             # Before this the journal did not exist: incomplete, not zero.
             "coverage_start": self._created_at,
         }
+
+    @staticmethod
+    def _overlaps(
+        start: datetime, end: datetime, lo: datetime, hi: datetime, ongoing: bool
+    ) -> bool:
+        if start > hi or (start == hi and not ongoing):
+            return False
+        # An ongoing episode that began this very moment still counts.
+        return end > lo or (ongoing and end >= lo)

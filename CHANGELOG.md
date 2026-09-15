@@ -42,14 +42,18 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Event attributes `observed_active_since` and `active_since_known`.
 - Bundled dashboard card `custom:ukraine-alarm-pro-card`, added by the
   integration as a Lovelace resource and listed in the card picker: alert state, threat, level,
-  duration, coverage, reason, last event and data freshness, Ukrainian or
-  English (automatic or fixed), optional compact layout. It finds a single region on its own.
+  duration, coverage, reason, last event and data freshness, time since the
+  last all clear, a 24-hour alert strip, 7 daily bars with count and duration,
+  the week's longest, average and last alert. Ukrainian or English (automatic
+  or fixed), statistics can be turned off, optional compact layout. It finds a
+  single region on its own and adds no entities or database rows.
 - Constant `region_id` attribute on the region alert, level, start and event
   entities, so the card finds a region's entities after renaming.
 - Example dashboard on standard cards in `docs/examples/dashboard.yaml`.
 - Alert episode journal per region with the response-only actions
   `ukraine_alarm_pro.get_history` (up to 100 episodes) and
-  `ukraine_alarm_pro.get_summary` (today or 7 local days). Episodes carry
+  `ukraine_alarm_pro.get_summary` (today or 7 local days, with the longest
+  episode and a per-day count and duration). Episodes carry
   observed start/clear times, the declared start, types seen, the highest air
   level and gap marks. Completed episodes are kept for 90 days, at most 1000.
 - `sensor.uap_<id>_threat` attributes `coverage` (`whole`, `partial`,

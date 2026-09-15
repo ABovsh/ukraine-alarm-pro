@@ -182,8 +182,14 @@ async def test_summary_uses_local_days_and_reports_coverage_start(hass: HomeAssi
     assert day["has_gaps"] is False
     assert day["period_start"] == datetime(2026, 9, 15, tzinfo=kyiv).isoformat()
     assert day["coverage_start"] == now.astimezone(UTC).isoformat()
+    assert day["longest_duration_seconds"] == 1800
+    assert day["daily"] == [{"date": "2026-09-15", "count": 1, "observed_duration_seconds": 1800}]
     week = history.summary("31", 7)
     assert week["observed_duration_seconds"] == 3600
+    assert week["longest_duration_seconds"] == 3600
+    assert [d["date"] for d in week["daily"]] == [f"2026-09-{d:02d}" for d in range(9, 16)]
+    assert week["daily"][-2] == {"date": "2026-09-14", "count": 1, "observed_duration_seconds": 1800}
+    assert sum(d["count"] for d in week["daily"][:-2]) == 0
 
 
 async def test_services_return_history_and_validate_input(

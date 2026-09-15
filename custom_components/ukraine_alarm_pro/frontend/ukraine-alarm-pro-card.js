@@ -1,8 +1,8 @@
 /*
  * Ukraine Alarm Pro card — shipped with the integration, no HACS frontend
  * resource needed. Pick a region's alert sensor; with one region the card
- * finds it on its own. Durations tick in the browser, so nothing is written
- * to the recorder.
+ * finds it on its own. Durations tick in the browser and statistics come from
+ * the integration's journal services, so nothing is written to the recorder.
  */
 const DOMAIN = "ukraine_alarm_pro";
 const CARD = "ukraine-alarm-pro-card";
@@ -16,6 +16,7 @@ const I18N = {
     staleNote: "Дані застаріли — стан може бути неактуальним",
     fresh: "Дані актуальні",
     since: "з",
+    d: "дн",
     h: "год",
     m: "хв",
     whole: "Увесь регіон",
@@ -43,7 +44,20 @@ const I18N = {
     updated: "оновлено",
     quietNote: "Активних тривог немає",
     notFound: "Не знайдено сутностей Ukraine Alarm Pro",
-    editor: { entity: "Регіон (сенсор тривоги)", name: "Назва (необов'язково)", compact: "Компактний вигляд" },
+    last24: "Останні 24 години",
+    week: "7 днів",
+    now: "зараз",
+    noAlerts: "без тривог",
+    quietFor: "без тривог з",
+    longest: "Найдовша",
+    average: "Середня",
+    lastAlert: "Остання тривога",
+    ended: "відбій о",
+    today: "сьогодні",
+    ongoing: "триває",
+    journalSince: "Статистика ведеться з",
+    gaps: "Частину часу даних не було — тривалість приблизна",
+    plural: ["тривога", "тривоги", "тривог"],
   },
   en: {
     alert: "Alert",
@@ -53,6 +67,7 @@ const I18N = {
     staleNote: "Data is stale — the state may be outdated",
     fresh: "Data is current",
     since: "since",
+    d: "d",
     h: "h",
     m: "min",
     whole: "Whole region",
@@ -80,7 +95,20 @@ const I18N = {
     updated: "updated",
     quietNote: "No active alerts",
     notFound: "No Ukraine Alarm Pro entities found",
-    editor: { entity: "Region (alert sensor)", name: "Name (optional)", compact: "Compact layout" },
+    last24: "Last 24 hours",
+    week: "7 days",
+    now: "now",
+    noAlerts: "no alerts",
+    quietFor: "no alerts since",
+    longest: "Longest",
+    average: "Average",
+    lastAlert: "Last alert",
+    ended: "cleared at",
+    today: "today",
+    ongoing: "ongoing",
+    journalSince: "Statistics recorded since",
+    gaps: "Data was missing for a while — durations are approximate",
+    plural: ["alert", "alerts", "alerts"],
   },
 };
 
@@ -128,11 +156,42 @@ function hub(hass, key) {
   return Object.keys(hass.states).find((id) => ours(hass, id) && hass.entities[id].translation_key === key);
 }
 
-function duration(t, from) {
-  const minutes = Math.max(0, Math.floor((Date.now() - from.getTime()) / 60000));
+function span(t, seconds) {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  const d = Math.floor(minutes / 1440);
   const h = Math.floor(minutes / 60);
+  if (d >= 2) return `${d} ${t.d} ${Math.floor((minutes % 1440) / 60)} ${t.h}`;
   return h ? `${h} ${t.h} ${minutes % 60} ${t.m}` : `${minutes} ${t.m}`;
 }
+
+const duration = (t, from) => span(t, (Date.now() - from.getTime()) / 1000);
+
+function alerts(t, n) {
+  if (t === I18N.en) return `${n} ${n === 1 ? t.plural[0] : t.plural[1]}`;
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  const form = mod10 === 1 && mod100 !== 11 ? 0 : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 1 : 2;
+  return `${n} ${t.plural[form]}`;
+}
+
+const dateOf = (stamp) => {
+  const date = stamp ? new Date(stamp) : null;
+  return date && !isNaN(date) ? date : null;
+};
+
+const dayMonth = (date, hass) =>
+  date.toLocaleDateString(hass?.locale?.language || undefined, {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: hass?.config?.time_zone || undefined,
+  });
+
+// A summary day is a server-local calendar date; format it without shifting zones.
+const weekday = (isoDate, t) =>
+  new Date(`${isoDate}T12:00:00Z`).toLocaleDateString(t === I18N.en ? "en" : "uk", { weekday: "short", timeZone: "UTC" });
+
+const STATS_FRESH_ACTIVE = 60000;
+const STATS_FRESH_QUIET = 600000;
 
 const hhmm = (date, hass) =>
   date.toLocaleTimeString(hass?.locale?.language || undefined, {
@@ -150,6 +209,7 @@ class UkraineAlarmProCard extends HTMLElement {
           selector: { entity: { filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } },
         },
         { name: "name", selector: { text: {} } },
+        { name: "show_stats", selector: { boolean: {} } },
         { name: "compact", selector: { boolean: {} } },
         {
           name: "language",
@@ -166,7 +226,13 @@ class UkraineAlarmProCard extends HTMLElement {
         },
       ],
       computeLabel: (schema) =>
-        ({ entity: "Region / Регіон", name: "Name / Назва", compact: "Compact / Компактно", language: "Language / Мова" })[schema.name],
+        ({
+          entity: "Region / Регіон",
+          name: "Name / Назва",
+          show_stats: "Statistics / Статистика",
+          compact: "Compact, no statistics / Компактно, без статистики",
+          language: "Language / Мова",
+        })[schema.name],
     };
   }
 
@@ -176,7 +242,8 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = { compact: false, ...config };
+    this._config = { compact: false, show_stats: true, ...config };
+    this._stats = null;
     this._key = null;
     if (this._hass) this._render();
   }
@@ -188,11 +255,15 @@ class UkraineAlarmProCard extends HTMLElement {
       this._key = key;
       this._render();
     }
+    this._maybeRefresh();
   }
 
   connectedCallback() {
     // Durations tick locally; state writes stay untouched.
-    this._timer = setInterval(() => this._render(), 30000);
+    this._timer = setInterval(() => {
+      this._maybeRefresh();
+      this._render();
+    }, 30000);
   }
 
   disconnectedCallback() {
@@ -200,11 +271,46 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config?.compact ? 1 : 3;
+    return this._config?.compact ? 1 : this._statsOn() ? 7 : 3;
   }
 
   getGridOptions() {
     return { columns: 12, min_columns: 6, rows: this._config?.compact ? 1 : "auto" };
+  }
+
+  _statsOn() {
+    return !this._config.compact && this._config.show_stats !== false;
+  }
+
+  // Statistics come from the journal services: fetched again after every alert
+  // event, and on a timer so ongoing durations and the 24 h window move.
+  _maybeRefresh() {
+    if (!this._hass || !this._config || !this._statsOn() || this._loading || !this.isConnected) return;
+    const ids = this._entities();
+    const rid = ids && regionIdOf(this._hass, ids.alert);
+    if (!rid || this._statsFailed === rid) return;
+    const event = ids.event ? this._hass.states[ids.event] : undefined;
+    const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}`;
+    const age = this._stats ? Date.now() - this._stats.fetched : Infinity;
+    const maxAge = this._hass.states[ids.alert].state === "on" ? STATS_FRESH_ACTIVE : STATS_FRESH_QUIET;
+    if (this._stats?.trigger === trigger && age < maxAge) return;
+    this._loading = true;
+    const call = (service, data) =>
+      this._hass
+        .callWS({ type: "call_service", domain: DOMAIN, service, service_data: { region_id: rid, ...data }, return_response: true })
+        .then((result) => result.response);
+    Promise.all([call("get_summary", { days: 7 }), call("get_history", { limit: 50 })])
+      .then(([summary, history]) => {
+        this._stats = { rid, trigger, fetched: Date.now(), summary, episodes: history.episodes || [] };
+      })
+      .catch(() => {
+        // An older integration without the services: the card works without statistics.
+        this._statsFailed = rid;
+      })
+      .finally(() => {
+        this._loading = false;
+        this._render();
+      });
   }
 
   _entities() {
@@ -232,6 +338,85 @@ class UkraineAlarmProCard extends HTMLElement {
         return s ? `${s.state}|${s.last_updated}` : "-";
       })
       .join(";") + `;${this._hass.locale?.language};${this._config.language}`;
+  }
+
+  _statsHtml(t, stats) {
+    const hass = this._hass;
+    const now = Date.now();
+    const dayAgo = now - 86400000;
+    const { summary } = stats;
+    const episodes = stats.episodes
+      .map((ep) => ({ ...ep, start: dateOf(ep.observed_started_at), end: dateOf(ep.observed_cleared_at) }))
+      .filter((ep) => ep.start);
+
+    // Rolling 24 h: absolute times, so the browser's zone does not matter.
+    const recent = episodes.filter((ep) => (ep.end ? ep.end.getTime() : now) > dayAgo);
+    const recentSeconds = recent.reduce(
+      (sum, ep) => sum + Math.max(0, ((ep.end ? ep.end.getTime() : now) - Math.max(ep.start.getTime(), dayAgo)) / 1000),
+      0,
+    );
+    const segments = recent
+      .map((ep) => {
+        const from = Math.max(ep.start.getTime(), dayAgo);
+        const to = ep.end ? ep.end.getTime() : now;
+        const left = ((from - dayAgo) / 86400000) * 100;
+        const width = Math.max(((to - from) / 86400000) * 100, 0.6);
+        const level = ["red", "yellow"].includes(ep.maximum_air_level) ? ep.maximum_air_level : "other";
+        const title = `${hhmm(new Date(from), hass)}–${ep.end ? hhmm(ep.end, hass) : t.now} · ${span(t, (to - from) / 1000)}`;
+        return `<span class="seg ${level}${ep.end ? "" : " live"}${ep.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
+      })
+      .join("");
+    const ticks = [0, 6, 12, 18]
+      .map((h) => `<span class="tick" style="left:${(h / 24) * 100}%"></span>`)
+      .join("");
+
+    // 7 calendar days from the server, in Home Assistant's own time zone.
+    const daily = Array.isArray(summary?.daily) ? summary.daily : [];
+    const peak = Math.max(...daily.map((d) => d.observed_duration_seconds), 1);
+    const bars = daily
+      .map((d, i) => {
+        const today = i === daily.length - 1;
+        const height = d.count ? Math.max((d.observed_duration_seconds / peak) * 100, 6) : 0;
+        const value = d.count ? span(t, d.observed_duration_seconds) : "—";
+        return `<div class="day${today ? " today" : ""}" title="${esc(`${alerts(t, d.count)} · ${value}`)}">
+          <div class="val">${d.count ? esc(d.count) : ""}</div>
+          <div class="col"><span style="height:${height.toFixed(1)}%"></span></div>
+          <div class="wd">${esc(today ? t.today : weekday(d.date, t))}</div>
+        </div>`;
+      })
+      .join("");
+
+    const weekCount = summary?.count ?? 0;
+    const kpis = [];
+    if (weekCount) {
+      kpis.push([t.longest, span(t, summary.longest_duration_seconds || 0)]);
+      kpis.push([t.average, span(t, (summary.observed_duration_seconds || 0) / weekCount)]);
+    }
+    const last = episodes.find((ep) => ep.end);
+    if (last) {
+      kpis.push([
+        t.lastAlert,
+        `${now - last.end.getTime() > 86400000 ? `${dayMonth(last.end, hass)} ` : ""}${hhmm(last.start, hass)}–${hhmm(last.end, hass)} · ${span(t, (last.end - last.start) / 1000)}`,
+      ]);
+    }
+
+    const notes = [];
+    const journalStart = dateOf(summary?.coverage_start);
+    if (journalStart && journalStart.getTime() > now - 7 * 86400000) {
+      notes.push(`${t.journalSince} ${dayMonth(journalStart, hass)} ${hhmm(journalStart, hass)}`);
+    }
+    if (summary?.has_gaps || recent.some((ep) => ep.had_gap)) notes.push(t.gaps);
+
+    return `<div class="stats">
+      <div class="sec"><span>${esc(t.last24)}</span><b>${recent.length ? `${esc(alerts(t, recent.length))} · ${esc(span(t, recentSeconds))}` : esc(t.noAlerts)}</b></div>
+      <div class="timeline">${ticks}${segments}</div>
+      <div class="axis"><span>${esc(hhmm(new Date(dayAgo), hass))}</span><span>${esc(hhmm(new Date(now - 43200000), hass))}</span><span>${esc(t.now)}</span></div>
+      ${daily.length ? `
+      <div class="sec"><span>${esc(t.week)}</span><b>${weekCount ? `${esc(alerts(t, weekCount))} · ${esc(span(t, summary.observed_duration_seconds))}` : esc(t.noAlerts)}</b></div>
+      <div class="bars">${bars}</div>` : ""}
+      ${kpis.length ? `<div class="kpis">${kpis.map(([k, v], i) => `<div class="kpi${last && i === kpis.length - 1 ? " wide" : ""}"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : ""}
+      ${notes.map((n) => `<div class="hint">${esc(n)}</div>`).join("")}
+    </div>`;
   }
 
   _moreInfo(entityId) {
@@ -270,6 +455,8 @@ class UkraineAlarmProCard extends HTMLElement {
     const title = noData ? t.noData : active ? t.types[types[0]] || t.alert : stale ? t.stale : t.quiet;
     const startDate = started && !["unknown", "unavailable"].includes(started.state) ? new Date(started.state) : null;
     const since = active && startDate && !isNaN(startDate) ? startDate : null;
+    const stats = this._statsOn() && this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null;
+    const lastCleared = !active && !noData && !stale && stats ? dateOf(stats.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at) : null;
 
     const chips = [];
     if (active) {
@@ -303,11 +490,13 @@ class UkraineAlarmProCard extends HTMLElement {
             <div class="status">${esc(title)}</div>
           </div>
           ${since ? `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, hass))}</div></div>` : ""}
+          ${lastCleared ? `<div class="timer quiet"><div class="big">${esc(duration(t, lastCleared))}</div><div class="small">${esc(t.quietFor)} ${esc(Date.now() - lastCleared > 86400000 ? dayMonth(lastCleared, hass) : "")} ${esc(hhmm(lastCleared, hass))}</div></div>` : ""}
         </div>
         ${compact ? "" : `
           ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
           ${reasons ? `<div class="reasons">${esc(reasons)}</div>` : ""}
-          ${!active && !noData && !stale ? `<div class="note">${esc(t.quietNote)}</div>` : ""}
+          ${!active && !noData && !stale && !stats ? `<div class="note">${esc(t.quietNote)}</div>` : ""}
+          ${stats ? this._statsHtml(t, stats) : ""}
           <div class="foot">
             <span class="fresh ${stale ? "bad" : "ok"}"><span class="dot"></span>${esc(freshness)}</span>
             ${eventType && eventTime && !isNaN(eventTime) ? `<span class="event">${esc(t.lastEvent)}: ${esc(t.events[eventType] || eventType)} ${esc(hhmm(eventTime, hass))}</span>` : ""}
@@ -379,6 +568,41 @@ const STYLE = `<style>
     .status { font-size: 19px; }
     .timer .big { font-size: 17px; }
   }
+  .timer.quiet .big { color: var(--uap-green); }
+  .stats { position: relative; margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .sec { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--secondary-text-color); }
+  .sec b { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 600; color: var(--primary-text-color); }
+  .timeline { position: relative; height: 18px; border-radius: 6px; overflow: hidden;
+    background: color-mix(in srgb, var(--uap-green) 16%, transparent); }
+  .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 12%, transparent); }
+  .seg { position: absolute; top: 0; bottom: 0; background: var(--uap-red); }
+  .seg.yellow { background: var(--uap-yellow); }
+  .seg.other { background: color-mix(in srgb, var(--uap-red) 70%, var(--uap-gray)); }
+  .seg.gap { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
+  .seg.live { animation: live 1.8s ease-in-out infinite; }
+  @keyframes live { 50% { opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
+  .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color);
+    font-variant-numeric: tabular-nums; }
+  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .day { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+  .day .val { font-size: 11px; height: 14px; color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+  .day .col { position: relative; width: 100%; max-width: 34px; height: 46px; border-radius: 5px;
+    background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); display: flex; align-items: flex-end; overflow: hidden; }
+  .day .col span { display: block; width: 100%; border-radius: 5px 5px 0 0;
+    background: color-mix(in srgb, var(--uap-red) 80%, transparent); }
+  .day .wd { font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
+  .day.today .wd { color: var(--primary-text-color); font-weight: 600; }
+  .day.today .col span { background: var(--uap-red); }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .kpi.wide { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 8px; }
+  @container (min-width: 560px) { .kpis { grid-template-columns: 1fr 1fr 2fr; } .kpi.wide { grid-column: auto; flex-direction: column; } }
+  .kpi { padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
+    display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .kpi span { font-size: 11px; color: var(--secondary-text-color); }
+  .kpi b { font-size: 13px; font-weight: 600; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .hint { font-size: 11px; color: var(--secondary-text-color); }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
 
