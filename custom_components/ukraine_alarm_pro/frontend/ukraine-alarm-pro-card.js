@@ -93,7 +93,10 @@ const TYPE_ICONS = {
   unrecognized: "mdi:help-circle-outline",
 };
 
-const lang = (hass) => ((hass?.locale?.language || hass?.language || "en").startsWith("uk") ? I18N.uk : I18N.en);
+const lang = (hass, forced) =>
+  (forced === "uk" || forced === "en" ? forced : hass?.locale?.language || hass?.language || "en").startsWith("uk")
+    ? I18N.uk
+    : I18N.en;
 
 const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -148,8 +151,22 @@ class UkraineAlarmProCard extends HTMLElement {
         },
         { name: "name", selector: { text: {} } },
         { name: "compact", selector: { boolean: {} } },
+        {
+          name: "language",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: [
+                { value: "auto", label: "Auto / Як у Home Assistant" },
+                { value: "uk", label: "Українська" },
+                { value: "en", label: "English" },
+              ],
+            },
+          },
+        },
       ],
-      computeLabel: (schema) => ({ entity: "Region / Регіон", name: "Name / Назва", compact: "Compact / Компактно" })[schema.name],
+      computeLabel: (schema) =>
+        ({ entity: "Region / Регіон", name: "Name / Назва", compact: "Compact / Компактно", language: "Language / Мова" })[schema.name],
     };
   }
 
@@ -214,7 +231,7 @@ class UkraineAlarmProCard extends HTMLElement {
         const s = id && this._hass.states[id];
         return s ? `${s.state}|${s.last_updated}` : "-";
       })
-      .join(";") + `;${this._hass.locale?.language}`;
+      .join(";") + `;${this._hass.locale?.language};${this._config.language}`;
   }
 
   _moreInfo(entityId) {
@@ -225,7 +242,7 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!this._hass || !this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const hass = this._hass;
-    const t = lang(hass);
+    const t = lang(hass, this._config.language);
     const ids = this._entities();
     if (!ids) {
       this.shadowRoot.innerHTML = `${STYLE}<ha-card><div class="empty">${esc(t.notFound)}</div></ha-card>`;
@@ -365,9 +382,21 @@ const STYLE = `<style>
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
 
-if (!customElements.get(CARD)) {
-  customElements.define(CARD, UkraineAlarmProCard);
-  window.customCards = window.customCards || [];
+// Loaded as an early "extra module": the frontend can swap its element registry
+// after that, dropping a definition made too soon. Re-check for a while so the
+// card always ends up defined in the registry the dashboards actually use.
+function register() {
+  if (!window.customElements.get(CARD)) window.customElements.define(CARD, UkraineAlarmProCard);
+}
+register();
+let registerChecks = 0;
+const registerTimer = setInterval(() => {
+  register();
+  if (++registerChecks >= 150) clearInterval(registerTimer);
+}, 100);
+
+window.customCards = window.customCards || [];
+if (!window.customCards.some((card) => card.type === CARD)) {
   window.customCards.push({
     type: CARD,
     name: "Ukraine Alarm Pro",

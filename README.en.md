@@ -151,6 +151,7 @@ type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # optional with a single region
 name: Home                          # optional
 compact: false                      # true shows only the top row
+language: auto                      # auto (Home Assistant language), uk or en
 ```
 
 An example full dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).

@@ -43,7 +43,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 - Bundled dashboard card `custom:ukraine-alarm-pro-card`, registered by the
   integration and listed in the card picker: alert state, threat, level,
   duration, coverage, reason, last event and data freshness, Ukrainian or
-  English, optional compact layout. It finds a single region on its own.
+  English (automatic or fixed), optional compact layout. It finds a single region on its own.
 - Constant `region_id` attribute on the region alert, level, start and event
   entities, so the card finds a region's entities after renaming.
 - Example dashboard on standard cards in `docs/examples/dashboard.yaml`.

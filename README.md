@@ -151,6 +151,7 @@ type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # необов'язково, якщо регіон один
 name: Дім                           # необов'язково
 compact: false                      # true — лише верхній рядок
+language: uk                        # auto (як у Home Assistant), uk або en
 ```
 
 Приклад цілої панелі на стандартних картках — [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
