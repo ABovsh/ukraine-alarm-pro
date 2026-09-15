@@ -30,6 +30,13 @@ This project follows [Semantic Versioning](https://semver.org/).
   `threat_added`, `updated`, `cleared`, `data_stale` and `resynced`. Each accepted
   change produces at most one event per region with the previous and current
   state. The first data after startup or a gap is `resynced`, not `started`.
+- `alert_notify_events` automation blueprint: Ukrainian or English messages from
+  the region event, separate actions for start, escalation or added threat,
+  clear, stale data and resync; silent on the first data after startup by
+  default. The existing `alert_notify` blueprint is unchanged.
+- `test_notification` script blueprint that runs notification actions with a
+  «ТЕСТ» / "TEST" message without changing alert entities, events or history.
+- Event attributes `observed_active_since` and `active_since_known`.
 - Alert episode journal per region with the response-only actions
   `ukraine_alarm_pro.get_history` (up to 100 episodes) and
   `ukraine_alarm_pro.get_summary` (today or 7 local days). Episodes carry

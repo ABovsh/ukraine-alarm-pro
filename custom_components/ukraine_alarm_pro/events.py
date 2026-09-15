@@ -114,6 +114,9 @@ class AlertEventHub:
     def __init__(self) -> None:
         self._listeners: dict[str, list[EventListener]] = {}
         self._states: dict[str, RegionState] = {}
+        # When each region's current active period was first seen, and whether
+        # that was its real start (a live clear→active) or just our first look.
+        self._since: dict[str, tuple[str, bool]] = {}
         # Unique within one runtime; no exactly-once promise across restarts.
         self._runtime = uuid.uuid4().hex[:8]
         self._counter = itertools.count(1)
@@ -154,10 +157,16 @@ class AlertEventHub:
                 # After a gap nobody knows what started or ended in between:
                 # report where things stand instead of replaying guesses.
                 event_type = EVENT_RESYNCED
+            since = self._since.get(region_id)
+            if current.active and since is None:
+                self._since[region_id] = (observed_at, event_type == EVENT_STARTED)
+            elif not current.active:
+                self._since.pop(region_id, None)
             self._publish(
                 region_id,
                 name,
                 event_type,
+                since=since if not current.active else self._since[region_id],
                 origin=origin,
                 observed_at=observed_at,
                 previous=None if origin == ORIGIN_BOOTSTRAP else previous,
@@ -180,6 +189,7 @@ class AlertEventHub:
                 region_id,
                 name,
                 EVENT_DATA_STALE,
+                since=self._since.get(region_id),
                 origin=ORIGIN_LIVE,
                 observed_at=observed_at,
                 previous=state,
@@ -193,6 +203,7 @@ class AlertEventHub:
         name: str,
         event_type: str,
         *,
+        since: tuple[str, bool] | None,
         origin: str,
         observed_at: str,
         previous: RegionState | None,
@@ -213,6 +224,10 @@ class AlertEventHub:
             "added_types": [t for t in current.threat_types if t not in before],
             "removed_types": [t for t in before if t not in current.threat_types],
             "had_gap": had_gap,
+            # For `cleared`, the period that just ended. Only a known start
+            # gives an observed duration; a bootstrap start does not.
+            "observed_active_since": since[0] if since else None,
+            "active_since_known": bool(since and since[1]),
         }
         for listener in (
             *self._listeners.get(region_id, ()),

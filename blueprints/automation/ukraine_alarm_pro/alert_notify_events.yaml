@@ -1,0 +1,193 @@
+blueprint:
+  name: Ukraine Alarm Pro — alert notifications from events
+  description: >-
+    Sends ready-made Ukrainian or English messages from one region's
+    `event.uap_<id>_event`: alert start, escalation or a new threat, all clear,
+    stale data and resynchronization.
+
+
+    Every message is built from the event payload, so rapid changes are
+    reported with the facts of their own moment. The first data after a Home
+    Assistant start is silent by default, and data lost during an outage is
+    never reported as an all clear.
+
+
+    Actions can use `message`, `event_type`, `origin`, `region`, `threat_types`,
+    `added_types`, `level`, `reason` and `payload` (the full event attributes).
+  domain: automation
+  source_url: https://github.com/ABovsh/ukraine-alarm-pro/blob/main/blueprints/automation/ukraine_alarm_pro/alert_notify_events.yaml
+  input:
+    region:
+      name: Region
+      icon: mdi:map-marker-alert
+      collapsed: false
+      input:
+        event_entity:
+          name: Alert events
+          description: The region's `event.uap_<id>_event`.
+          selector:
+            entity:
+              filter:
+                - integration: ukraine_alarm_pro
+                  domain: event
+        language:
+          name: Message language
+          default: uk
+          selector:
+            select:
+              options:
+                - label: Українська
+                  value: uk
+                - label: English
+                  value: en
+        notify_on_bootstrap:
+          name: Report the first data after a restart
+          description: >-
+            Off by default: an alert already in progress at startup is not a
+            new alert.
+          default: false
+          selector:
+            boolean:
+    actions:
+      name: What to do
+      icon: mdi:bell-ring
+      collapsed: false
+      input:
+        on_started:
+          name: When an alert starts
+          description: >-
+            For example a notification with `message: "{{ message }}"`.
+          default: []
+          selector:
+            action:
+        on_escalation:
+          name: When the air alert level rises or a threat is added
+          default: []
+          selector:
+            action:
+        on_cleared:
+          name: When the alert ends
+          default: []
+          selector:
+            action:
+        on_stale:
+          name: When the data goes stale (optional)
+          default: []
+          selector:
+            action:
+        on_resynced:
+          name: When data returns after an outage or a restart (optional)
+          default: []
+          selector:
+            action:
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input event_entity
+
+conditions:
+  # A restored or newly added entity is not a new event.
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.to_state is not none
+         and trigger.to_state.state not in ['unknown', 'unavailable']
+         and trigger.from_state.state != trigger.to_state.state
+         and trigger.to_state.attributes.event_type is defined }}
+  - condition: template
+    value_template: >-
+      {% set p = trigger.to_state.attributes %}
+      {{ p.event_type != 'updated'
+         and not (p.event_type == 'resynced' and p.origin == 'bootstrap'
+                  and not notify_on_bootstrap) }}
+
+variables:
+  notify_on_bootstrap: !input notify_on_bootstrap
+  language: !input language
+
+actions:
+  # Rendered only after the conditions passed, i.e. for a real event.
+  - variables:
+      # A plain copy: the rest reads keys, and attributes are a read-only mapping.
+      payload: "{{ trigger.to_state.attributes | tojson | from_json }}"
+      event_type: "{{ payload.event_type }}"
+      origin: "{{ payload.origin }}"
+      region: "{{ payload.region_name }}"
+      current: "{{ payload.current }}"
+      previous: "{{ payload.previous or {} }}"
+      names: >-
+        {{ {
+          'uk': {'air': 'повітряна тривога', 'artillery': 'загроза артобстрілу',
+                 'urban_fights': 'загроза вуличних боїв', 'chemical': 'хімічна загроза',
+                 'nuclear': 'радіаційна загроза', 'unrecognized': 'тривога невідомого типу'},
+          'en': {'air': 'air raid alert', 'artillery': 'artillery threat',
+                 'urban_fights': 'urban fighting threat', 'chemical': 'chemical threat',
+                 'nuclear': 'nuclear threat', 'unrecognized': 'alert of unknown type'}
+        }[language] }}
+      level_names: >-
+        {{ {
+          'uk': {'yellow': 'жовтий', 'red': 'червоний', 'unrecognized': 'не вказано', 'none': ''},
+          'en': {'yellow': 'yellow', 'red': 'red', 'unrecognized': 'not specified', 'none': ''}
+        }[language] }}
+      threat_types: >-
+        {% set ns = namespace(out=[]) %}
+        {% for t in current.threat_types %}{% set ns.out = ns.out + [names.get(t, t)] %}{% endfor %}
+        {{ ns.out | join(', ') }}
+      added_types: >-
+        {% set ns = namespace(out=[]) %}
+        {% for t in payload.added_types %}{% set ns.out = ns.out + [names.get(t, t)] %}{% endfor %}
+        {{ ns.out | join(', ') }}
+      level: "{{ level_names[current.air_level] }}"
+      reason: "{{ current.reasons | join('; ') }}"
+      since_local: >-
+        {% set d = (current.declared_started_at or payload.observed_at) | as_datetime %}
+        {{ (d | as_local).strftime('%H:%M') if d else '' }}
+      duration: >-
+        {% if payload.active_since_known and payload.observed_active_since %}
+        {% set secs = ((payload.observed_at | as_datetime)
+                       - (payload.observed_active_since | as_datetime)).total_seconds() %}
+        {% set h = (secs // 3600) | int %}{% set m = ((secs % 3600) // 60) | int %}
+        {% if language == 'uk' %}{{ (h ~ ' год ' ~ m ~ ' хв') if h else (m ~ ' хв') }}
+        {% else %}{{ (h ~ ' h ' ~ m ~ ' min') if h else (m ~ ' min') }}{% endif %}
+        {% endif %}
+      message: >-
+        {% set uk = language == 'uk' %}
+        {% if event_type == 'started' %}
+        {{ region }}: {{ threat_types }} {{ 'з' if uk else 'since' }} {{ since_local }}.
+        {{- (' Рівень: ' if uk else ' Level: ') ~ level ~ '.' if level else '' }}
+        {{- (' Причина: ' if uk else ' Reason: ') ~ reason ~ '.' if reason else '' }}
+        {% elif event_type == 'escalated' %}
+        {{ region }}: {{ 'рівень повітряної тривоги підвищився до' if uk else 'air alert level raised to' }} {{ {'yellow': 'жовтого', 'red': 'червоного'}.get(current.air_level, level) if uk else level }}.
+        {{- (' Додалося: ' if uk else ' Added: ') ~ added_types ~ '.' if added_types else '' }}
+        {{- (' Причина: ' if uk else ' Reason: ') ~ reason ~ '.' if reason else '' }}
+        {% elif event_type == 'threat_added' %}
+        {{ region }}: {{ 'додалося' if uk else 'added' }}: {{ added_types }}. {{ 'Зараз' if uk else 'Now' }}: {{ threat_types }}.
+        {% elif event_type == 'cleared' %}
+        {{ region }}: {{ 'відбій.' if uk else 'all clear.' }}
+        {{- ((' Тривалість за спостереженнями: ' if uk else ' Observed duration: ') ~ duration | trim ~ '.') if duration | trim else '' }}
+        {% elif event_type == 'data_stale' %}
+        {{ 'Дані про тривоги застаріли. Останній відомий стан для ' if uk else 'Alert data is stale. Last known state for ' }}{{ region }}:
+        {{- (' тривога.' if uk else ' alert.') if current.active else (' тривоги немає.' if uk else ' no alert.') }}
+        {% elif event_type == 'resynced' %}
+        {% if current.active %}
+        {{ ('Зв\'язок відновлено. Поточний стан для ' if uk else 'Connection restored. Current state for ') if origin == 'recovery' else ('Дані отримано після запуску. Поточний стан для ' if uk else 'Data received after startup. Current state for ') }}{{ region }}: {{ 'тривога триває' if uk else 'alert in progress' }} ({{ threat_types }}).
+        {% elif origin == 'recovery' %}
+        {{ region }}: {{ 'після відновлення зв\'язку активної тривоги не зафіксовано.' if uk else 'no active alert after the connection was restored.' }}
+        {% else %}
+        {{ region }}: {{ 'після запуску активної тривоги немає.' if uk else 'no active alert after startup.' }}
+        {% endif %}
+        {% endif %}
+  - choose:
+      - conditions: "{{ event_type == 'started' }}"
+        sequence: !input on_started
+      - conditions: "{{ event_type in ['escalated', 'threat_added'] }}"
+        sequence: !input on_escalation
+      - conditions: "{{ event_type == 'cleared' }}"
+        sequence: !input on_cleared
+      - conditions: "{{ event_type == 'data_stale' }}"
+        sequence: !input on_stale
+      - conditions: "{{ event_type == 'resynced' }}"
+        sequence: !input on_resynced

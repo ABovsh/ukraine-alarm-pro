@@ -113,7 +113,9 @@ Event attributes: `schema_version`, `transition_id`, `region_id`, `region_name`,
 `event_type`, `observed_at` (when the integration accepted the change, not an official
 time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`active`,
 `threat_types`, `air_level`, `reasons`, `coverage`, `declared_started_at`),
-`added_types`, `removed_types` and `had_gap`.
+`added_types`, `removed_types`, `had_gap`, plus `observed_active_since` and
+`active_since_known` — when the integration first saw the current alert and whether that
+was its real start.
 
 ## Installation
 
@@ -124,6 +126,25 @@ To change the regions later: **Settings → Devices & services → Ukraine Alarm
 Configure**. Entities of removed regions are deleted automatically.
 
 ## Notifications
+
+### Notifications from events
+
+The [event notification blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify_events.yaml) reads one `event.uap_<id>_event` entity and
+sends ready-made messages in Ukrainian or English, for example
+"м. Київ: air raid alert since 14:32. Level: red. Reason: …" or
+"м. Київ: all clear. Observed duration: 1 h 12 min."
+
+Separate actions cover the start, a raised level or a new threat, the all clear, stale
+data and restored data; an empty action sends nothing. The first data after a Home
+Assistant start is silent by default. If an alert ended during a data gap, a
+connection-restored message is sent, not an all clear. Actions can use `message`,
+`event_type`, `origin`, `region`, `threat_types`, `added_types`, `level`, `reason` and
+`payload`.
+
+To check the actions without an alert, import the [test script](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fukraine_alarm_pro%2Ftest_notification.yaml). It sends a
+message marked "TEST" and changes no alert entity, event or history.
+
+### Sensor-based blueprint
 
 The repository ships a blueprint —
 [import it](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml).

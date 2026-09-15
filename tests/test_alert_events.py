@@ -88,6 +88,8 @@ async def test_first_snapshot_is_a_bootstrap_resync_not_a_start(
     assert payload["current"]["air_level"] == "red"
     assert payload["current"]["threat_types"] == ["air"]
     assert payload["previous"] is None
+    assert payload["observed_active_since"] == payload["observed_at"]
+    assert payload["active_since_known"] is False
 
 
 async def test_live_sequence_publishes_one_event_per_change(
@@ -122,6 +124,9 @@ async def test_live_sequence_publishes_one_event_per_change(
     assert all(e["origin"] == "live" and e["had_gap"] is False for e in events)
     cleared = events[-1]
     assert cleared["previous"]["active"] is True
+    assert cleared["observed_active_since"] == events[0]["observed_at"]
+    assert cleared["active_since_known"] is True
+    assert events[0]["observed_active_since"] == events[0]["observed_at"]
     assert cleared["removed_types"] == ["chemical", "air"]
     ids = [e["transition_id"] for e in events]
     assert len(set(ids)) == len(ids)

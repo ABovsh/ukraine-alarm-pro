@@ -114,7 +114,9 @@
 `event_type`, `observed_at` (коли інтеграція прийняла зміну, а не офіційний час),
 `origin` (`live`, `recovery` або `bootstrap`), `previous` і `current` (`active`,
 `threat_types`, `air_level`, `reasons`, `coverage`, `declared_started_at`),
-`added_types`, `removed_types` і `had_gap`.
+`added_types`, `removed_types`, `had_gap`, а також `observed_active_since` і
+`active_since_known` — коли інтеграція вперше побачила поточну тривогу і чи це був її
+справжній початок.
 
 ## Встановлення
 
@@ -125,6 +127,29 @@ HACS → користувацький репозиторій → `ABovsh/ukraine
 Налаштувати**. Сутності знятих регіонів видаляються самі.
 
 ## Сповіщення
+
+### Сповіщення з подій
+
+Шаблон [сповіщень з подій](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify_events.yaml) читає одну сутність `event.uap_<id>_event` і
+надсилає готові повідомлення українською або англійською:
+
+- «м. Київ: повітряна тривога з 14:32. Рівень: червоний. Причина: …»
+- «м. Київ: рівень повітряної тривоги підвищився до червоного.»
+- «м. Київ: відбій. Тривалість за спостереженнями: 1 год 12 хв.»
+- «Дані про тривоги застаріли. Останній відомий стан для м. Київ: тривога.»
+- «Зв'язок відновлено. Поточний стан для м. Київ: тривога триває (повітряна тривога).»
+
+Окремі дії задаються для початку, підвищення рівня або нової загрози, відбою,
+застарілих даних і відновлення зв'язку; порожня дія нічого не надсилає. Перші дані
+після запуску Home Assistant за замовчуванням не надсилаються. Якщо тривога
+закінчилася під час перерви у даних, приходить повідомлення про відновлення зв'язку, а
+не «відбій». У діях доступні `message`, `event_type`, `origin`, `region`, `threat_types`,
+`added_types`, `level`, `reason` і `payload`.
+
+Щоб перевірити дії без тривоги, імпортуйте [тестовий скрипт](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fukraine_alarm_pro%2Ftest_notification.yaml). Він надсилає
+повідомлення з позначкою «ТЕСТ» і не змінює сутностей тривоги, подій чи журналу.
+
+### Шаблон на сенсорах
 
 У репозиторії є готовий blueprint —
 [імпортувати](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml).
