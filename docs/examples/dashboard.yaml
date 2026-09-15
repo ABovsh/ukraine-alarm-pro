@@ -1,0 +1,145 @@
+# Ukraine Alarm Pro — приклад панелі «Тривоги» на стандартних картках HA.
+# Замініть 31 на ID свого регіону (як у binary_sensor.uap_<id>_alert),
+# а «Мій регіон» — на назву. Для кількох регіонів повторіть другу секцію.
+# Вставте в: Панель → ⋮ → Редагувати → ⋮ → Редактор сирої конфігурації.
+views:
+- title: Тривоги
+  path: alarm
+  icon: mdi:alarm-light
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: markdown
+      grid_options:
+        columns: 12
+      visibility:
+      - condition: or
+        conditions:
+        - condition: state
+          entity: binary_sensor.uap_31_alert
+          state: 'on'
+      content: |-
+        # 🚨 Повітряна або інша тривога
+        Деталі по кожному регіону нижче. Тривога може бути оголошена на рівні громади, району чи області.
+    - type: markdown
+      grid_options:
+        columns: 12
+      visibility:
+      - condition: state
+        entity: binary_sensor.uap_data_stale
+        state: 'on'
+      content: |-
+        ## ⚠️ Дані застаріли
+        Понад 15 хвилин без оновлень. Останній відомий стан збережено, але він може не відповідати дійсності; «тихо» зараз не означає відбій.
+    - type: tile
+      entity: binary_sensor.uap_data_stale
+      name: Дані
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.uap_last_update
+      name: Оновлено
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Мій регіон
+      heading_style: title
+      icon: mdi:map-marker-alert
+    - type: markdown
+      content: |
+        {%- set types = {'air': 'повітряна тривога', 'artillery': 'загроза артобстрілу',
+          'urban_fights': 'загроза вуличних боїв', 'chemical': 'хімічна загроза',
+          'nuclear': 'радіаційна загроза', 'unrecognized': 'тривога невідомого типу'} -%}
+        {%- set levels = {'yellow': '🟡 жовтий', 'red': '🔴 червоний', 'unrecognized': 'не вказано'} -%}
+        {%- set rid = '31' -%}
+        {%- set alert = states('binary_sensor.uap_' ~ rid ~ '_alert') -%}
+        {%- set threat = 'sensor.uap_' ~ rid ~ '_threat' -%}
+        {%- set type_list = (state_attr(threat, 'active_threat_types') or '').split(',') | reject('eq', '') | list -%}
+        {%- set level = states('sensor.uap_' ~ rid ~ '_air_alert_level') -%}
+        {%- set started = states('sensor.uap_' ~ rid ~ '_alert_started') | as_datetime -%}
+        {%- set cov = state_attr(threat, 'coverage') -%}
+        {%- set affected = state_attr(threat, 'affected_regions') or [] -%}
+        {%- set reasons = state_attr('sensor.uap_' ~ rid ~ '_air_alert_level', 'reasons') or [] -%}
+        {%- set stale = is_state('binary_sensor.uap_data_stale', 'on') -%}
+        {%- if alert in ['unavailable', 'unknown'] %}
+        ## ⚪ Мій регіон
+        Даних ще немає.
+        {%- elif alert == 'on' %}
+        {%- set ns = namespace(out=[]) %}
+        {%- for t in type_list %}{%- set ns.out = ns.out + [types.get(t, t)] %}{%- endfor %}
+        ## 🚨 Мій регіон — тривога
+        **{{ ns.out | join(', ') | capitalize }}**
+        {%- if level in levels %}
+
+        Рівень: **{{ levels[level] }}**
+        {%- endif %}
+        {%- if started %}
+        {%- set mins = ((now() - started).total_seconds() // 60) | int %}
+
+        Оголошено о **{{ (started | as_local).strftime('%H:%M') }}**, триває **{{ ((mins // 60) ~ ' год ' if mins >= 60 else '') ~ (mins % 60) ~ ' хв' }}**
+        {%- endif %}
+        {%- if cov == 'whole' %}
+
+        Охоплення: вся територія
+        {%- elif cov == 'partial' %}
+
+        Охоплення: частина — {{ affected | map(attribute='region_name') | list | join(', ') }}
+        {%- elif cov == 'unrecognized' %}
+
+        Охоплення: не визначено
+        {%- endif %}
+        {%- if reasons %}
+
+        Причина: {{ reasons | join('; ') }}
+        {%- endif %}
+        {%- if stale %}
+
+        ⚠️ Дані застаріли — стан може бути неактуальним.
+        {%- endif %}
+        {%- else %}
+        ## {{ '⚪' if stale else '🟢' }} Мій регіон — {{ 'немає свіжих даних' if stale else 'тихо' }}
+        {%- if stale %}
+
+        Останній відомий стан: тривоги немає. Це не підтверджена тиша.
+        {%- endif %}
+        {%- endif %}
+      grid_options:
+        columns: 12
+    - type: tile
+      entity: binary_sensor.uap_31_alert
+      name: Тривога
+      state_content:
+      - state
+      - last_changed
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.uap_31_threat
+      name: Загроза
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.uap_31_air_alert_level
+      name: Рівень
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: event.uap_31_event
+      name: Остання подія
+      state_content:
+      - event_type
+      - last_changed
+      grid_options:
+        columns: 6
+    - type: history-graph
+      title: Тривога за 24 год
+      hours_to_show: 24
+      entities:
+      - entity: binary_sensor.uap_31_alert
+        name: Мій регіон
+      grid_options:
+        columns: 12

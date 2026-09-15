@@ -131,6 +131,14 @@ missing from the current list stays selected with a ⚠ mark and is not removed.
 installation without network and without a saved copy is not possible: the form offers
 a retry.
 
+## Dashboard
+
+An example dashboard on standard cards is in [`docs/examples/dashboard.yaml`](docs/examples/dashboard.yaml).
+It shows the alert state, threat types, level, declaration time and duration, coverage,
+reasons, the last event and data freshness. Stale data with a last known quiet state is
+shown as "no fresh data", not as a confirmed quiet. Replace `31` with your region ID and
+paste the YAML into the dashboard's raw configuration editor.
+
 ## Notifications
 
 ### Notifications from events
