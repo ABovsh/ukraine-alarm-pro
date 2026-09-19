@@ -30,7 +30,7 @@ from .events import (
     AlertEventHub,
     RegionState,
 )
-from .history import HISTORY_STORAGE_VERSION, AlertHistory
+from .history import HISTORY_STORAGE_VERSION, AlertHistory, history_storage_key
 from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             Store(
                 hass,
                 HISTORY_STORAGE_VERSION,
-                f"{DOMAIN}.history.{entry.entry_id}",
+                history_storage_key(entry.entry_id),
             )
         )
 
@@ -82,7 +82,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if not isinstance(stored, dict):
             return
         saved_at = dt_util.parse_datetime(str(stored.get("saved_at", "")))
-        if saved_at is None:
+        # A stamp without an offset was not written by us: ignore it rather
+        # than fail setup comparing it with an aware clock.
+        if saved_at is None or saved_at.tzinfo is None:
             return
         age = (dt_util.utcnow() - saved_at).total_seconds()
         if not 0 <= age <= RESTORE_MAX_AGE_SECONDS:

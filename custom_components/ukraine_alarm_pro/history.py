@@ -16,6 +16,8 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 HISTORY_STORAGE_VERSION = 1
@@ -36,8 +38,15 @@ _FIELDS = (
 )
 
 
+def history_storage_key(entry_id: str) -> str:
+    return f"{DOMAIN}.history.{entry_id}"
+
+
 def _parse(stamp: Any) -> datetime | None:
-    return dt_util.parse_datetime(stamp) if isinstance(stamp, str) else None
+    # Every stamp this journal writes carries its offset; one without it is
+    # damage, and comparing it with an aware time would fail the whole setup.
+    parsed = dt_util.parse_datetime(stamp) if isinstance(stamp, str) else None
+    return parsed if parsed is not None and parsed.tzinfo is not None else None
 
 
 def _valid(episode: Any) -> bool:

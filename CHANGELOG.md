@@ -13,8 +13,25 @@ This project follows [Semantic Versioning](https://semver.org/).
   off. These episodes carry the official start and all-clear times and
   `start_origin: history`.
 
+### 🐛 Fixed
+
+- **No alert update is lost when the map sends several at once.** The alert server can
+  pack several messages into one WebSocket frame; such a frame was read as a broken
+  connection, its updates were dropped and the WebSocket reconnected. Every message in
+  the frame is now applied.
+- **A damaged saved file no longer stops the integration from loading.** A stored alert
+  map or journal with an unreadable time is ignored instead of failing setup.
+- **Removing the integration deletes its saved alert map and journal** instead of
+  leaving them in `.storage`.
+- **Setup and Configure require at least one region.** An empty choice used to create
+  an entry that monitored nothing.
+
 ### 🔧 Changed
 
+- **The card takes less space on a phone.** The duration stays on the right of the
+  region and status instead of taking its own row, and the quiet card no longer repeats
+  «No active alerts» under «All quiet». On a narrow card the statistics wrap instead of
+  being cut off.
 - **Repairs no longer warns when the integration falls back to polling.** The
   «Alert WebSocket unavailable» issue is removed; polling still delivers alerts. The
   new «Alert data unavailable» issue appears only when neither the WebSocket nor the

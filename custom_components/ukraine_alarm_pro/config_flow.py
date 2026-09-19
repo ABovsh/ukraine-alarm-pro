@@ -139,6 +139,14 @@ class UkraineAlarmProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None and CONF_REGIONS in user_input:
+            if not user_input[CONF_REGIONS]:
+                # An entry watching nothing looks installed and warns about nothing.
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_regions_schema(self._flat, []),
+                    errors={"base": "no_regions"},
+                    description_placeholders={"tree_note": ""},
+                )
             return self.async_create_entry(
                 title="Ukraine Alarm Pro",
                 data={
@@ -175,6 +183,14 @@ class UkraineAlarmProOptionsFlow(config_entries.OptionsFlow):
         self._flat: dict[str, dict[str, Any]] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None and not user_input.get(CONF_REGIONS):
+            stored = self.config_entry.data.get(CONF_REGIONS, {})
+            return self.async_show_form(
+                step_id="init",
+                data_schema=_regions_schema(self._flat, list(stored), stored),
+                errors={"base": "no_regions"},
+                description_placeholders={"tree_note": ""},
+            )
         if user_input is not None:
             # Re-read at submit: another flow or the backfill may have written
             # the entry since this form was opened.

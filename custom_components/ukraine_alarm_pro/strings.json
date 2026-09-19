@@ -17,7 +17,8 @@
       "single_instance_allowed": "Already configured. Only a single instance is possible."
     },
     "error": {
-      "cannot_connect": "Could not fetch the region list. Submit the form again to retry."
+      "cannot_connect": "Could not fetch the region list. Submit the form again to retry.",
+      "no_regions": "Select at least one region."
     }
   },
   "options": {
@@ -35,6 +36,9 @@
     },
     "abort": {
       "cannot_connect": "Could not fetch the region list"
+    },
+    "error": {
+      "no_regions": "Select at least one region."
     }
   },
   "issues": {

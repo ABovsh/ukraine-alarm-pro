@@ -44,6 +44,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .coordinator import AlarmCoordinator
+from .history import HISTORY_STORAGE_VERSION, history_storage_key
 from .models import Snapshot
 
 _LOGGER = logging.getLogger(__name__)
@@ -256,6 +257,15 @@ async def async_unload_entry(
         await entry.runtime_data.async_flush_history()
         ir.async_delete_issue(hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
     return ok
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Delete what the entry kept on disk; nothing else ever reads it again."""
+    history = Store(hass, HISTORY_STORAGE_VERSION, history_storage_key(entry.entry_id))
+    await history.async_remove()
+    await Store(hass, STORAGE_VERSION, STORAGE_KEY).async_remove()
 
 
 async def _async_reload_entry(
