@@ -32,7 +32,6 @@ const I18N = {
       unrecognized: "Невідомий тип",
     },
     updated: "оновлено",
-    quietNote: "Активних тривог немає",
     notFound: "Не знайдено сутностей Ukraine Alarm Pro",
     last24: "24 год",
     week: "7 днів",
@@ -70,7 +69,6 @@ const I18N = {
       unrecognized: "Unknown type",
     },
     updated: "updated",
-    quietNote: "No active alerts",
     notFound: "No Ukraine Alarm Pro entities found",
     last24: "24 h",
     week: "7 days",
@@ -504,11 +502,9 @@ class UkraineAlarmProCard extends HTMLElement {
     const chips = this._chips(t, view);
     const reasons = view.active ? (view.level?.attributes?.reasons || []).join(" · ") : "";
     const stats = this._statsOn() ? view.journal : null;
-    const quiet = !view.active && !view.noData && !view.stale;
     const parts = [
       chips.length ? `<div class="chips">${chips.join("")}</div>` : "",
       reasons ? `<div class="reasons">${esc(reasons)}</div>` : "",
-      quiet && !stats ? `<div class="note">${esc(t.quietNote)}</div>` : "",
       stats ? this._statsHtml(t, stats) : "",
       `<div class="foot">
             <span class="fresh ${view.stale ? "bad" : "ok"}"><span class="dot"></span>${esc(this._freshness(t, view))}</span>
@@ -577,8 +573,8 @@ const STYLE = `<style>
   ha-card.yellow .status { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
   .timer { text-align: right; flex: none; }
   .timer .big { font-size: 18px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
-  .timer .small { font-size: 12px; color: var(--secondary-text-color); }
-  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .timer .small { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
+  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12px;
     background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); color: var(--primary-text-color); }
   .chip ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
@@ -588,9 +584,8 @@ const STYLE = `<style>
   .chip.level.unrecognized .dot { background: var(--uap-gray); }
   .reasons { position: relative; margin-top: 8px; font-size: 13px; color: var(--secondary-text-color);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .note { position: relative; margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
   .foot { position: relative; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
-    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
+    margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
     font-size: 12px; color: var(--secondary-text-color); }
   .fresh { display: inline-flex; align-items: center; gap: 6px; }
   .fresh.ok .dot { background: var(--uap-green); }
@@ -602,17 +597,8 @@ const STYLE = `<style>
   ha-card.compact .status, ha-card.compact .timer .big { font-size: 17px; }
   .lvl.red { color: var(--uap-red); font-weight: 600; }
   .lvl.yellow { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); font-weight: 600; }
-  /* Narrow card (phone): the timer moves under the title instead of colliding with it. */
-  @container (max-width: 420px) {
-    .head { column-gap: 12px; row-gap: 2px; }
-    .timer { order: 3; flex-basis: 100%; display: flex; align-items: baseline; gap: 8px;
-      text-align: left; padding-left: 56px; }
-    ha-card.compact .timer { padding-left: 52px; }
-    .status { font-size: 17px; }
-    .timer .big { font-size: 16px; }
-  }
   .timer.quiet .big { color: var(--uap-green); }
-  .stats { position: relative; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .stats { position: relative; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "lbl val" "viz viz"; align-items: center; gap: 3px 10px; }
   .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline { grid-area: viz; }
   .row.plain { display: flex; justify-content: space-between; gap: 10px; }
@@ -633,6 +619,21 @@ const STYLE = `<style>
   @keyframes live { 50% { opacity: .6; } }
   @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
   .hint { font-size: 11px; color: var(--secondary-text-color); }
+  /* The timer keeps the right-hand column; only a very narrow card (a half-width
+     tile on a phone) moves it under the title instead of colliding with it. */
+  @container (max-width: 280px) {
+    .head { column-gap: 12px; row-gap: 2px; }
+    .timer { order: 3; flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px;
+      text-align: left; padding-left: 56px; }
+    ha-card.compact .timer { padding-left: 52px; }
+    .status { font-size: 17px; }
+    .timer .big { font-size: 16px; }
+    .timer .small { white-space: normal; }
+    /* Statistics values wrap under their label instead of being cut off. */
+    .row, .row.plain { display: grid; grid-template-columns: 1fr; grid-template-areas: "lbl" "val" "viz"; }
+    .row.plain { grid-template-areas: "lbl" "val"; }
+    .row b { text-align: left; white-space: normal; }
+  }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
 

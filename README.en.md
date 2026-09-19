@@ -17,40 +17,92 @@ without an API key.
 
 [`ukraine_alarm`](https://www.home-assistant.io/integrations/ukraine_alarm/) ships with
 Home Assistant and gets its data from the same source through siren.pp.ua.
+What this integration has:
+
+- **Alerts from every administrative level.** An oblast, raion or hromada takes the
+  alerts of the regions above it and inside it into account. `ukraine_alarm` shows the
+  selected region only.
+- **A dashboard card.** State, alert duration or time since the all clear, statistics for
+  24 hours and 7 days. `ukraine_alarm` has no card.
+- **A 90-day alert journal**, filled with the official history right after installation.
+  `ukraine_alarm` has no journal.
+- **Events and ready-made notifications** for an alert start, a level rise, the all clear
+  and gaps in the data. `ukraine_alarm` creates state binary sensors only.
+- **Air alert level with its reason** — yellow or red. In the `ukraine_alarm` `dev`
+  branch the levels were added as two binary sensors, without reasons.
+- **The last state is kept** through a lost connection and a restart, and a separate
+  sensor marks stale data. In `ukraine_alarm` a failed poll makes the entities
+  `unavailable`.
+- **One connection for all regions**, with no limit on their number. `ukraine_alarm`
+  polls the proxy separately for each region and allows up to five regions.
+
 This comparison was checked against [Home Assistant 2026.9.2 source](https://github.com/home-assistant/core/tree/2026.9.2/homeassistant/components/ukraine_alarm)
-and the `dev` branch as of 2026-09-15. What this integration has:
+and the `dev` branch as of 2026-09-15.
 
-- **Alerts from every administrative level.** For an oblast, raion or hromada it takes
-  the region itself, the regions above it and the regions inside it into account, and
-  shows whether an alert covers the whole region or only part of it. `ukraine_alarm`
-  shows the API response for one selected region.
-- **A dashboard card is part of the integration.** State, alert duration or time since
-  the all clear, and statistics for 24 hours and 7 days, in three layouts.
-  `ukraine_alarm` has no card.
-- **A 90-day alert journal.** For each region it keeps start, all clear, threat types and
-  the highest level, filled with the official history right after installation; the `get_history` and `get_summary` actions return the list of
-  alerts and totals for a day or a week. `ukraine_alarm` has no journal.
-- **Change events and ready-made notifications.** `event.uap_<id>_event` reports an alert
-  start, a level rise, a new threat, the all clear, stale data and a restored connection;
-  an automation blueprint turns these events into ready messages in Ukrainian or English.
-  `ukraine_alarm` creates state binary sensors only.
-- **Air alert level with its reason.** A separate sensor shows the yellow or red level and
-  the reason supplied by the source. In the `ukraine_alarm` `dev` branch the levels were
-  added as two binary sensors, without reasons.
-- **Keeps its state through a lost connection and a restart.** The last received state
-  stays, and after 15 minutes without data `binary_sensor.uap_data_stale` marks it as
-  stale; after a restart the integration restores the saved alert map if it is no more than
-  six hours old. In
-  `ukraine_alarm` a failed poll makes the entities `unavailable`.
-- **One WebSocket connection for all regions**, with no limit on their number.
-  `ukraine_alarm` polls the proxy every 10 seconds separately for each region and allows
-  up to five regions.
+## Dashboard card
 
-After repeated WebSocket failures, the integration switches to polling siren.pp.ua
-with a 60-second pause between requests. It periodically retries the WebSocket and
-switches back after receiving data. The data channel and the time of the last data
-received are visible in the diagnostic entities. An issue appears under Repairs only when
-neither the WebSocket nor the fallback source has delivered data for 15 minutes.
+The card is part of the integration; there is nothing else to install. The screenshot
+shows its three layouts, top to bottom:
+
+<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: compact, status only and full layouts" width="420">
+
+- **Compact** — region name, state and time: how long the alert has lasted or how long
+  since the all clear. During an alert the level is shown next to the name.
+- **Status only** — the same, plus threat types, level, reason, coverage (the whole
+  region or part of it) and whether the data is current. When data is stale the card
+  says "No fresh data", not "All quiet".
+- **Full** — the same, plus statistics for 24 hours and 7 days: alert count, their
+  duration, share of time under alert, a day strip with the alerts, and the longest and
+  average alert.
+
+Tapping the card opens the alert sensor with its history. How to add the card is in
+"Installation".
+
+## Installation
+
+HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add the integration →
+pick the regions. The whole tree is available, down to hromadas.
+
+To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
+Configure**. Entities of removed regions are deleted automatically.
+
+The integration keeps a copy of the region list and refreshes it once a day. If the
+proxy is unavailable, the options show the saved copy with its date. A selected region
+missing from the current list stays selected with a ⚠ mark and is not removed. A first
+installation without network and without a saved copy is not possible: the form offers
+a retry.
+
+### Adding the card
+
+1. Install the integration and restart Home Assistant.
+2. Reload the browser page. In the Home Assistant app: **Settings → Companion app →
+   Troubleshooting → Reset frontend cache**, then restart the app.
+3. Open a dashboard and press the pencil, **Edit dashboard**.
+4. Press **Add card**, search for **Ukraine Alarm Pro** and pick the card.
+5. In **Region / Регіон** pick your region's alert sensor. With a single region the card
+   picks it on its own.
+6. In **Layout / Вигляд** choose full, status only or compact. Optionally set
+   **Name / Назва** (for example "Home") and **Language / Мова**.
+7. Press **Save**. Add one card per region.
+
+If you see "Custom element doesn't exist" or "Configuration error" instead of the card,
+the browser still has the old page: repeat step 2. For YAML-mode dashboards add the
+resource yourself: `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
+
+### Card in YAML
+
+```yaml
+type: custom:ukraine-alarm-pro-card
+entity: binary_sensor.uap_31_alert  # optional with a single region
+name: Home                          # optional
+layout: full                        # full, status (status only) or compact
+language: auto                      # auto (Home Assistant language), uk or en
+```
+
+Statistics come from the alert journal (see "Alert history"). A few minutes after
+installation the journal is filled with 90 days of official history.
+The card creates no entities and no database rows. Entities may be renamed: the card finds
+them by region.
 
 ## Entities
 
@@ -122,70 +174,6 @@ time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`
 `added_types`, `removed_types`, `had_gap`, plus `observed_active_since` and
 `active_since_known` — when the integration first saw the current alert and whether that
 was its real start.
-
-## Installation
-
-HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add the integration →
-pick the regions. The whole tree is available, down to hromadas.
-
-To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
-Configure**. Entities of removed regions are deleted automatically.
-
-The integration keeps a copy of the region list and refreshes it once a day. If the
-proxy is unavailable, the options show the saved copy with its date. A selected region
-missing from the current list stays selected with a ⚠ mark and is not removed. A first
-installation without network and without a saved copy is not possible: the form offers
-a retry.
-
-## Dashboard card
-
-The card is part of the integration; there is nothing else to install. The screenshot
-shows its three layouts, top to bottom:
-
-<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: compact, status only and full layouts" width="420">
-
-- **Compact** — region name, state and time: how long the alert has lasted or how long
-  since the all clear. During an alert the level is shown next to the name.
-- **Status only** — the same, plus threat types, level, reason, coverage (the whole
-  region or part of it) and whether the data is current. When data is stale the card
-  says "No fresh data", not "All quiet".
-- **Full** — the same, plus statistics: alert count, duration and share of time under
-  alert for 24 hours and 7 days, a day strip with the alerts, and the longest and average
-  alert.
-
-Tapping the card opens the alert sensor with its history.
-
-### Adding the card
-
-1. Install the integration (see "Installation") and restart Home Assistant.
-2. Reload the browser page. In the Home Assistant app: **Settings → Companion app →
-   Troubleshooting → Reset frontend cache**, then restart the app.
-3. Open a dashboard and press the pencil, **Edit dashboard**.
-4. Press **Add card**, search for **Ukraine Alarm Pro** and pick the card.
-5. In **Region / Регіон** pick your region's alert sensor. With a single region the card
-   picks it on its own.
-6. In **Layout / Вигляд** choose full, status only or compact. Optionally set
-   **Name / Назва** (for example "Home") and **Language / Мова**.
-7. Press **Save**. Add one card per region.
-
-If you see "Custom element doesn't exist" or "Configuration error" instead of the card,
-the browser still has the old page: repeat step 2. For YAML-mode dashboards add the
-resource yourself: `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
-
-### YAML configuration
-
-```yaml
-type: custom:ukraine-alarm-pro-card
-entity: binary_sensor.uap_31_alert  # optional with a single region
-name: Home                          # optional
-layout: full                        # full, status (status only) or compact
-language: auto                      # auto (Home Assistant language), uk or en
-```
-
-Statistics come from the alert journal (see "Alert history"). A few minutes after
-installation the journal is filled with 90 days of official history.
-The card creates no entities and no database rows. Entities may be renamed: the card finds
-them by region.
 
 ## Notifications
 
@@ -277,6 +265,12 @@ redact: the integration is fully anonymous.
 
 ## Data sources
 
-[ukrainealarm.com](https://map.ukrainealarm.com/) — primary, push.
-[siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, fallback.
-Alert history for the journal — from the [alert map](https://map.ukrainealarm.com/).
+- [ukrainealarm.com](https://map.ukrainealarm.com/) — primary, push over a WebSocket.
+- [siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, fallback.
+- Alert history for the journal — from the [alert map](https://map.ukrainealarm.com/).
+
+After repeated WebSocket failures, the integration switches to polling siren.pp.ua
+with a 60-second pause between requests. It periodically retries the WebSocket and
+switches back after receiving data. The data channel and the time of the last data
+received are visible in the diagnostic entities. An issue appears under Repairs only when
+neither the WebSocket nor the fallback source has delivered data for 15 minutes.
