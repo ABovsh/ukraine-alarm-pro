@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.9.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.10.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ABovsh_ukraine-alarm-pro)
@@ -39,6 +39,20 @@ What this integration has:
 This comparison was checked against [Home Assistant 2026.9.2 source](https://github.com/home-assistant/core/tree/2026.9.2/homeassistant/components/ukraine_alarm)
 and the `dev` branch as of 2026-09-15.
 
+## Installation
+
+HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add the integration →
+pick the regions. The whole tree is available, down to hromadas.
+
+To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
+Configure**. Entities of removed regions are deleted automatically.
+
+The integration keeps a copy of the region list and refreshes it once a day. If the
+proxy is unavailable, the options show the saved copy with its date. A selected region
+missing from the current list stays selected with a ⚠ mark and is not removed. A first
+installation without network and without a saved copy is not possible: the form offers
+a retry.
+
 ## Dashboard card
 
 The card is part of the integration; there is nothing else to install. The screenshot
@@ -55,22 +69,7 @@ shows its three layouts, top to bottom:
   duration, share of time under alert, a day strip with the alerts, and the longest and
   average alert.
 
-Tapping the card opens the alert sensor with its history. How to add the card is in
-"Installation".
-
-## Installation
-
-HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add the integration →
-pick the regions. The whole tree is available, down to hromadas.
-
-To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
-Configure**. Entities of removed regions are deleted automatically.
-
-The integration keeps a copy of the region list and refreshes it once a day. If the
-proxy is unavailable, the options show the saved copy with its date. A selected region
-missing from the current list stays selected with a ⚠ mark and is not removed. A first
-installation without network and without a saved copy is not possible: the form offers
-a retry.
+Tapping the card opens the alert sensor with its history.
 
 ### Adding the card
 
@@ -103,6 +102,43 @@ Statistics come from the alert journal (see "Alert history"). A few minutes afte
 installation the journal is filled with 90 days of official history.
 The card creates no entities and no database rows. Entities may be renamed: the card finds
 them by region.
+
+## Notifications
+
+### Notifications from events
+
+The [event notification blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify_events.yaml) reads one `event.uap_<id>_event` entity and
+sends ready-made messages in Ukrainian or English, for example
+"м. Київ: air raid alert since 14:32. Level: red. Reason: …" or
+"м. Київ: all clear. Observed duration: 1 h 12 min."
+
+Separate actions cover the start, a raised level or a new threat, the all clear, stale
+data and restored data; an empty action sends nothing. The first data after a Home
+Assistant start is silent by default. If an alert ended during a data gap, a
+connection-restored message is sent, not an all clear. Actions can use `message`,
+`event_type`, `origin`, `region`, `threat_types`, `added_types`, `level`, `reason` and
+`payload`.
+
+To check the actions without an alert, import the [test script](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fukraine_alarm_pro%2Ftest_notification.yaml). It sends a
+message marked "TEST" and changes no alert entity, event or history.
+
+### Earlier sensor-based blueprint
+
+Use notifications from events for new automations. The [sensor-based blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml)
+stays for existing automations: an action for the start of an alert, one for the
+all clear and an optional yellow-to-red action. It does not fire when Home Assistant
+restarts during an alert, and sends nothing while the data is stale.
+
+If you write a sensor-based automation by hand, add the same condition:
+
+```yaml
+condition:
+  - condition: state
+    entity_id: binary_sensor.uap_data_stale
+    state: "off"
+```
+
+Imported blueprints are updated separately: HACS installs only the integration.
 
 ## Entities
 
@@ -174,43 +210,6 @@ time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`
 `added_types`, `removed_types`, `had_gap`, plus `observed_active_since` and
 `active_since_known` — when the integration first saw the current alert and whether that
 was its real start.
-
-## Notifications
-
-### Notifications from events
-
-The [event notification blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify_events.yaml) reads one `event.uap_<id>_event` entity and
-sends ready-made messages in Ukrainian or English, for example
-"м. Київ: air raid alert since 14:32. Level: red. Reason: …" or
-"м. Київ: all clear. Observed duration: 1 h 12 min."
-
-Separate actions cover the start, a raised level or a new threat, the all clear, stale
-data and restored data; an empty action sends nothing. The first data after a Home
-Assistant start is silent by default. If an alert ended during a data gap, a
-connection-restored message is sent, not an all clear. Actions can use `message`,
-`event_type`, `origin`, `region`, `threat_types`, `added_types`, `level`, `reason` and
-`payload`.
-
-To check the actions without an alert, import the [test script](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fscript%2Fukraine_alarm_pro%2Ftest_notification.yaml). It sends a
-message marked "TEST" and changes no alert entity, event or history.
-
-### Earlier sensor-based blueprint
-
-Use notifications from events for new automations. The [sensor-based blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Falert_notify.yaml)
-stays for existing automations: an action for the start of an alert, one for the
-all clear and an optional yellow-to-red action. It does not fire when Home Assistant
-restarts during an alert, and sends nothing while the data is stale.
-
-If you write a sensor-based automation by hand, add the same condition:
-
-```yaml
-condition:
-  - condition: state
-    entity_id: binary_sensor.uap_data_stale
-    state: "off"
-```
-
-Imported blueprints are updated separately: HACS installs only the integration.
 
 ## Alert history
 

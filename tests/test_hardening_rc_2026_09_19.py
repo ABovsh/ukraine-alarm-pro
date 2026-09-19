@@ -182,9 +182,7 @@ class ReplyBatchingServer(FakeAlarmServer):
         await ws.prepare(request)
         async for msg in ws:
             d = json.loads(msg.data)
-            if "method" not in d:
-                await ws.send_str(json.dumps({"id": d["id"], "result": {}}))
-            elif d["method"] == 1:
+            if "method" not in d or d["method"] == 1:  # connect, subscribe
                 await ws.send_str(json.dumps({"id": d["id"], "result": {}}))
             elif d["method"] == 6:
                 publication = {"result": {"channel": "updateMap", "data": {"data": PUSH_DATA}}}

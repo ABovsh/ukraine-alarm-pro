@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.10.0] - 2026-09-19
 
 ### ✨ Added
 
@@ -32,6 +32,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   region and status instead of taking its own row, and the quiet card no longer repeats
   «No active alerts» under «All quiet». On a narrow card the statistics wrap instead of
   being cut off.
+
+  <img src="https://github.com/ABovsh/ukraine-alarm-pro/raw/v0.10.0/docs/images/status-card.jpg" alt="The card in 0.10.0: compact, status only and full layouts" width="420">
+
 - **Repairs no longer warns when the integration falls back to polling.** The
   «Alert WebSocket unavailable» issue is removed; polling still delivers alerts. The
   new «Alert data unavailable» issue appears only when neither the WebSocket nor the
