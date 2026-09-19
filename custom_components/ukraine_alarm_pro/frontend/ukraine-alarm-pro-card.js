@@ -32,7 +32,6 @@ const I18N = {
       unrecognized: "Невідомий тип",
     },
     updated: "оновлено",
-    quietNote: "Активних тривог немає",
     notFound: "Не знайдено сутностей Ukraine Alarm Pro",
     last24: "24 год",
     week: "7 днів",
@@ -70,7 +69,6 @@ const I18N = {
       unrecognized: "Unknown type",
     },
     updated: "updated",
-    quietNote: "No active alerts",
     notFound: "No Ukraine Alarm Pro entities found",
     last24: "24 h",
     week: "7 days",
@@ -95,10 +93,11 @@ const TYPE_ICONS = {
   unrecognized: "mdi:help-circle-outline",
 };
 
-const lang = (hass, forced) =>
-  (forced === "uk" || forced === "en" ? forced : hass?.locale?.language || hass?.language || "en").startsWith("uk")
-    ? I18N.uk
-    : I18N.en;
+// The card language wins over the user's profile language.
+const languageOf = (hass, forced) =>
+  forced === "uk" || forced === "en" ? forced : hass?.locale?.language || hass?.language;
+
+const lang = (hass, forced) => ((languageOf(hass, forced) || "en").startsWith("uk") ? I18N.uk : I18N.en);
 
 const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -121,7 +120,7 @@ function regionIdOf(hass, alertId) {
 function sibling(hass, key, regionId) {
   return Object.keys(hass.states).find((id) => {
     const entry = hass.entities?.[id];
-    if (!entry || entry.platform !== DOMAIN || entry.translation_key !== key) return false;
+    if (entry?.platform !== DOMAIN || entry.translation_key !== key) return false;
     return regionId === null || String(hass.states[id].attributes.region_id ?? "") === regionId;
   });
 }
@@ -140,17 +139,23 @@ function span(t, seconds) {
 
 const duration = (t, from) => span(t, (Date.now() - from.getTime()) / 1000);
 
-function alerts(t, n) {
-  if (t === I18N.en) return `${n} ${n === 1 ? t.plural[0] : t.plural[1]}`;
+// Ukrainian plural: 1 тривога, 2–4 тривоги, 5+ тривог (11–14 always the last).
+function ukrainianForm(n) {
   const mod10 = n % 10;
   const mod100 = n % 100;
-  const form = mod10 === 1 && mod100 !== 11 ? 0 : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 1 : 2;
-  return `${n} ${t.plural[form]}`;
+  if (mod10 === 1 && mod100 !== 11) return 0;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 1;
+  return 2;
+}
+
+function alerts(t, n) {
+  if (t === I18N.en) return `${n} ${n === 1 ? t.plural[0] : t.plural[1]}`;
+  return `${n} ${t.plural[ukrainianForm(n)]}`;
 }
 
 const dateOf = (stamp) => {
   const date = stamp ? new Date(stamp) : null;
-  return date && !isNaN(date) ? date : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
 };
 
 const dayMonth = (date, hass) =>
@@ -160,7 +165,7 @@ const dayMonth = (date, hass) =>
     timeZone: hass?.config?.time_zone || undefined,
   });
 
-const LAYOUTS = ["full", "status", "compact"];
+const LAYOUTS = new Set(["full", "status", "compact"]);
 const STATS_FRESH_ACTIVE = 60000;
 const STATS_FRESH_QUIET = 600000;
 // A failed call (a reconnect, a restart, an older integration) is retried, not final.
@@ -226,7 +231,7 @@ class UkraineAlarmProCard extends HTMLElement {
 
   setConfig(config) {
     // One layout choice instead of switches that can contradict each other.
-    this._config = { ...config, layout: LAYOUTS.includes(config.layout) ? config.layout : "full" };
+    this._config = { ...config, layout: LAYOUTS.has(config.layout) ? config.layout : "full" };
     this._stats = null;
     this._key = null;
     if (this._hass) this._render();
@@ -329,9 +334,7 @@ class UkraineAlarmProCard extends HTMLElement {
 
   // Times and dates follow the card language, not only the user's profile.
   _fmt() {
-    const forced = this._config.language;
-    const language = forced === "uk" || forced === "en" ? forced : this._hass.locale?.language || this._hass.language;
-    return { locale: { language }, config: this._hass.config };
+    return { locale: { language: languageOf(this._hass, this._config.language) }, config: this._hass.config };
   }
 
   _statsHtml(t, stats) {
@@ -378,8 +381,10 @@ class UkraineAlarmProCard extends HTMLElement {
 
     const extras = [];
     if (weekCount) {
-      extras.push(`${t.longest} ${span(t, summary.longest_duration_seconds || 0)}`);
-      extras.push(`${t.average} ${span(t, (summary.observed_duration_seconds || 0) / weekCount)}`);
+      extras.push(
+        `${t.longest} ${span(t, summary.longest_duration_seconds || 0)}`,
+        `${t.average} ${span(t, (summary.observed_duration_seconds || 0) / weekCount)}`,
+      );
     }
     if (journalStart > now - 7 * 86400000) {
       extras.push(`${t.journalSince} ${dayMonth(new Date(journalStart), fmt)}`);
@@ -400,83 +405,145 @@ class UkraineAlarmProCard extends HTMLElement {
   _render() {
     if (!this._hass || !this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-    const hass = this._hass;
-    const fmt = this._fmt();
-    const t = lang(hass, this._config.language);
+    const t = lang(this._hass, this._config.language);
     const ids = this._entities();
     if (!ids) {
       this.shadowRoot.innerHTML = `${STYLE}<ha-card><div class="empty">${esc(t.notFound)}</div></ha-card>`;
       return;
     }
-    const st = (id) => (id ? hass.states[id] : undefined);
-    const alert = st(ids.alert);
-    const threat = st(ids.threat);
-    const level = st(ids.level);
-    const started = st(ids.started);
-    const stale = st(ids.stale)?.state === "on";
-    const updated = st(ids.updated);
-
-    const name = this._config.name || threat?.attributes?.region_name || alert.attributes.friendly_name;
-    const active = alert.state === "on";
-    const noData = ["unavailable", "unknown"].includes(alert.state);
-    const types = String(threat?.attributes?.active_threat_types || "")
-      .split(",")
-      .filter(Boolean);
-    const air = level?.state;
-    const status = noData ? "nodata" : active ? (air === "red" ? "red" : air === "yellow" ? "yellow" : "alert") : stale ? "stale" : "quiet";
-    const icon = { red: "mdi:alarm-light", yellow: "mdi:alarm-light", alert: "mdi:alarm-light", quiet: "mdi:shield-check", stale: "mdi:cloud-off-outline", nodata: "mdi:timer-sand" }[status];
-
-    const title = noData ? t.noData : active ? t.types[types[0]] || t.alert : stale ? t.stale : t.quiet;
-    const startDate = started && !["unknown", "unavailable"].includes(started.state) ? new Date(started.state) : null;
-    const since = active && startDate && !isNaN(startDate) ? startDate : null;
-    const journal = this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null;
-    const stats = this._statsOn() ? journal : null;
-    const lastCleared = !active && !noData && !stale && journal ? dateOf(journal.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at) : null;
-
-    const chips = [];
-    if (active) {
-      types.slice(active ? 1 : 0).forEach((type) =>
-        chips.push(`<span class="chip"><ha-icon icon="${TYPE_ICONS[type] || TYPE_ICONS.unrecognized}"></ha-icon>${esc(t.types[type] || type)}</span>`),
-      );
-      if (t.level[air]) chips.push(`<span class="chip level ${esc(air)}"><span class="dot"></span>${esc(t.level[air])}</span>`);
-      const coverage = threat?.attributes?.coverage;
-      if (coverage === "whole") chips.push(`<span class="chip"><ha-icon icon="mdi:map"></ha-icon>${esc(t.whole)}</span>`);
-      if (coverage === "partial") {
-        const areas = (threat.attributes.affected_regions || []).map((r) => r.region_name).filter(Boolean);
-        chips.push(`<span class="chip"><ha-icon icon="mdi:map-marker-radius"></ha-icon>${esc(t.partial)}${areas.length ? `: ${esc(areas.slice(0, 3).join(", "))}${areas.length > 3 ? "…" : ""}` : ""}</span>`);
-      }
-      if (coverage === "unrecognized") chips.push(`<span class="chip"><ha-icon icon="mdi:map-search"></ha-icon>${esc(t.unknownCoverage)}</span>`);
-    }
-    const reasons = active ? (level?.attributes?.reasons || []).join(" · ") : "";
-
-    const updatedDate = updated && !["unknown", "unavailable"].includes(updated.state) ? new Date(updated.state) : null;
-    const freshness = stale ? t.staleNote : `${t.fresh}${updatedDate ? ` · ${t.updated} ${hhmm(updatedDate, fmt)}` : ""}`;
-
+    const view = this._view(t, ids);
     const compact = this._config.layout === "compact";
+    const region = compact ? `${esc(view.name)}${levelSuffix(t, view)}` : esc(view.name);
+    const body = compact ? "" : this._bodyHtml(t, view);
     this.shadowRoot.innerHTML = `${STYLE}
-      <ha-card class="${status}${compact ? " compact" : ""}" tabindex="0">
+      <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0">
         <div class="glow"></div>
         <div class="head">
-          <div class="badge"><span class="pulse"></span><ha-icon icon="${icon}"></ha-icon></div>
+          <div class="badge"><span class="pulse"></span><ha-icon icon="${STATUS_ICONS[view.status]}"></ha-icon></div>
           <div class="titles">
-            <div class="region">${esc(name)}${compact && active && t.level[air] ? ` · <span class="lvl ${esc(air)}">${esc(t.level[air])}</span>` : ""}</div>
-            <div class="status">${esc(title)}</div>
+            <div class="region">${region}</div>
+            <div class="status">${esc(view.title)}</div>
           </div>
-          ${since ? `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, fmt))}</div></div>` : ""}
-          ${lastCleared ? `<div class="timer quiet"><div class="big">${esc(duration(t, lastCleared))}</div><div class="small">${esc(t.quietFor)} ${esc(Date.now() - lastCleared > 86400000 ? dayMonth(lastCleared, fmt) : "")} ${esc(hhmm(lastCleared, fmt))}</div></div>` : ""}
+          ${this._timerHtml(t, view)}
         </div>
-        ${compact ? "" : `
-          ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
-          ${reasons ? `<div class="reasons">${esc(reasons)}</div>` : ""}
-          ${!active && !noData && !stale && !stats ? `<div class="note">${esc(t.quietNote)}</div>` : ""}
-          ${stats ? this._statsHtml(t, stats) : ""}
-          <div class="foot">
-            <span class="fresh ${stale ? "bad" : "ok"}"><span class="dot"></span>${esc(freshness)}</span>
-          </div>`}
+        ${body}
       </ha-card>`;
     const card = this.shadowRoot.querySelector("ha-card");
     card.addEventListener("click", () => this._moreInfo(ids.alert));
   }
+
+  // Everything the markup needs, read once from the entities.
+  _view(t, ids) {
+    const hass = this._hass;
+    const st = (id) => (id ? hass.states[id] : undefined);
+    const alert = st(ids.alert);
+    const threat = st(ids.threat);
+    const flags = {
+      active: alert.state === "on",
+      noData: ["unavailable", "unknown"].includes(alert.state),
+      stale: st(ids.stale)?.state === "on",
+      air: st(ids.level)?.state,
+      types: String(threat?.attributes?.active_threat_types || "")
+        .split(",")
+        .filter(Boolean),
+    };
+    return {
+      ...flags,
+      name: this._config.name || threat?.attributes?.region_name || alert.attributes.friendly_name,
+      status: statusOf(flags),
+      title: titleOf(t, flags),
+      threat,
+      level: st(ids.level),
+      started: st(ids.started),
+      updated: st(ids.updated),
+      journal: this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null,
+    };
+  }
+
+  _timerHtml(t, view) {
+    const fmt = this._fmt();
+    if (view.active) {
+      const since = dateOf(known(view.started)?.state);
+      if (!since) return "";
+      return `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, fmt))}</div></div>`;
+    }
+    if (view.noData || view.stale || !view.journal) return "";
+    const cleared = dateOf(view.journal.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at);
+    if (!cleared) return "";
+    const day = Date.now() - cleared > 86400000 ? dayMonth(cleared, fmt) : "";
+    return `<div class="timer quiet"><div class="big">${esc(duration(t, cleared))}</div><div class="small">${esc(t.quietFor)} ${esc(day)} ${esc(hhmm(cleared, fmt))}</div></div>`;
+  }
+
+  _chips(t, view) {
+    if (!view.active) return [];
+    const chips = view.types
+      .slice(1)
+      .map((type) => chip(TYPE_ICONS[type] || TYPE_ICONS.unrecognized, t.types[type] || type));
+    const levelText = t.level[view.air];
+    if (levelText) chips.push(`<span class="chip level ${esc(view.air)}"><span class="dot"></span>${esc(levelText)}</span>`);
+    const coverage = view.threat?.attributes?.coverage;
+    if (coverage === "whole") chips.push(chip("mdi:map", t.whole));
+    if (coverage === "unrecognized") chips.push(chip("mdi:map-search", t.unknownCoverage));
+    if (coverage === "partial") {
+      const areas = (view.threat.attributes.affected_regions || []).map((r) => r.region_name).filter(Boolean);
+      const listed = areas.length > 3 ? `${areas.slice(0, 3).join(", ")}…` : areas.join(", ");
+      chips.push(chip("mdi:map-marker-radius", areas.length ? `${t.partial}: ${listed}` : t.partial));
+    }
+    return chips;
+  }
+
+  _freshness(t, view) {
+    if (view.stale) return t.staleNote;
+    const updated = dateOf(known(view.updated)?.state);
+    return updated ? `${t.fresh} · ${t.updated} ${hhmm(updated, this._fmt())}` : t.fresh;
+  }
+
+  _bodyHtml(t, view) {
+    const chips = this._chips(t, view);
+    const reasons = view.active ? (view.level?.attributes?.reasons || []).join(" · ") : "";
+    const stats = this._statsOn() ? view.journal : null;
+    const parts = [
+      chips.length ? `<div class="chips">${chips.join("")}</div>` : "",
+      reasons ? `<div class="reasons">${esc(reasons)}</div>` : "",
+      stats ? this._statsHtml(t, stats) : "",
+      `<div class="foot">
+            <span class="fresh ${view.stale ? "bad" : "ok"}"><span class="dot"></span>${esc(this._freshness(t, view))}</span>
+          </div>`,
+    ];
+    return `
+          ${parts.join("\n")}`;
+  }
+}
+
+const STATUS_ICONS = {
+  red: "mdi:alarm-light",
+  yellow: "mdi:alarm-light",
+  alert: "mdi:alarm-light",
+  quiet: "mdi:shield-check",
+  stale: "mdi:cloud-off-outline",
+  nodata: "mdi:timer-sand",
+};
+
+const known = (state) => (state && !["unknown", "unavailable"].includes(state.state) ? state : null);
+
+const chip = (icon, text) => `<span class="chip"><ha-icon icon="${icon}"></ha-icon>${esc(text)}</span>`;
+
+function statusOf({ noData, active, stale, air }) {
+  if (noData) return "nodata";
+  if (active) return air === "red" || air === "yellow" ? air : "alert";
+  return stale ? "stale" : "quiet";
+}
+
+function titleOf(t, { noData, active, stale, types }) {
+  if (noData) return t.noData;
+  if (active) return t.types[types[0]] || t.alert;
+  return stale ? t.stale : t.quiet;
+}
+
+// In the compact layout the level sits next to the region name.
+function levelSuffix(t, view) {
+  const text = view.active && t.level[view.air];
+  return text ? ` · <span class="lvl ${esc(view.air)}">${esc(text)}</span>` : "";
 }
 
 const STYLE = `<style>
@@ -506,8 +573,8 @@ const STYLE = `<style>
   ha-card.yellow .status { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
   .timer { text-align: right; flex: none; }
   .timer .big { font-size: 18px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
-  .timer .small { font-size: 12px; color: var(--secondary-text-color); }
-  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .timer .small { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
+  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12px;
     background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); color: var(--primary-text-color); }
   .chip ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
@@ -517,9 +584,8 @@ const STYLE = `<style>
   .chip.level.unrecognized .dot { background: var(--uap-gray); }
   .reasons { position: relative; margin-top: 8px; font-size: 13px; color: var(--secondary-text-color);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .note { position: relative; margin-top: 10px; font-size: 13px; color: var(--secondary-text-color); }
   .foot { position: relative; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
-    margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
+    margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
     font-size: 12px; color: var(--secondary-text-color); }
   .fresh { display: inline-flex; align-items: center; gap: 6px; }
   .fresh.ok .dot { background: var(--uap-green); }
@@ -531,17 +597,8 @@ const STYLE = `<style>
   ha-card.compact .status, ha-card.compact .timer .big { font-size: 17px; }
   .lvl.red { color: var(--uap-red); font-weight: 600; }
   .lvl.yellow { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); font-weight: 600; }
-  /* Narrow card (phone): the timer moves under the title instead of colliding with it. */
-  @container (max-width: 420px) {
-    .head { column-gap: 12px; row-gap: 2px; }
-    .timer { order: 3; flex-basis: 100%; display: flex; align-items: baseline; gap: 8px;
-      text-align: left; padding-left: 56px; }
-    ha-card.compact .timer { padding-left: 52px; }
-    .status { font-size: 17px; }
-    .timer .big { font-size: 16px; }
-  }
   .timer.quiet .big { color: var(--uap-green); }
-  .stats { position: relative; margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .stats { position: relative; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "lbl val" "viz viz"; align-items: center; gap: 3px 10px; }
   .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline { grid-area: viz; }
   .row.plain { display: flex; justify-content: space-between; gap: 10px; }
@@ -562,6 +619,21 @@ const STYLE = `<style>
   @keyframes live { 50% { opacity: .6; } }
   @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
   .hint { font-size: 11px; color: var(--secondary-text-color); }
+  /* The timer keeps the right-hand column; only a very narrow card (a half-width
+     tile on a phone) moves it under the title instead of colliding with it. */
+  @container (max-width: 280px) {
+    .head { column-gap: 12px; row-gap: 2px; }
+    .timer { order: 3; flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px;
+      text-align: left; padding-left: 56px; }
+    ha-card.compact .timer { padding-left: 52px; }
+    .status { font-size: 17px; }
+    .timer .big { font-size: 16px; }
+    .timer .small { white-space: normal; }
+    /* Statistics values wrap under their label instead of being cut off. */
+    .row, .row.plain { display: grid; grid-template-columns: 1fr; grid-template-areas: "lbl" "val" "viz"; }
+    .row.plain { grid-template-areas: "lbl" "val"; }
+    .row b { text-align: left; white-space: normal; }
+  }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
 

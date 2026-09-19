@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,8 +38,15 @@ _FIELDS = (
 )
 
 
+def history_storage_key(entry_id: str) -> str:
+    return f"{DOMAIN}.history.{entry_id}"
+
+
 def _parse(stamp: Any) -> datetime | None:
-    return dt_util.parse_datetime(stamp) if isinstance(stamp, str) else None
+    # Every stamp this journal writes carries its offset; one without it is
+    # damage, and comparing it with an aware time would fail the whole setup.
+    parsed = dt_util.parse_datetime(stamp) if isinstance(stamp, str) else None
+    return parsed if parsed is not None and parsed.tzinfo is not None else None
 
 
 def _valid(episode: Any) -> bool:
@@ -68,6 +77,10 @@ class AlertHistory:
         self._active: dict[str, dict[str, Any]] = {}
         self._completed: list[dict[str, Any]] = []
         self._created_at: str | None = None
+        # When the official history was last merged; drives the next window.
+        self._synced_at: str | None = None
+        # Which regions that merge covered; a region added later has none yet.
+        self._synced_regions: set[str] = set()
         self._version = 0
         self._saved_version = 0
 
@@ -94,6 +107,11 @@ class AlertHistory:
                 ]
             if _parse(stored.get("created_at")) is not None:
                 self._created_at = stored["created_at"]
+            if _parse(stored.get("official_synced_at")) is not None:
+                self._synced_at = stored["official_synced_at"]
+                synced_regions = stored.get("official_synced_regions")
+                if isinstance(synced_regions, list):
+                    self._synced_regions = {str(rid) for rid in synced_regions}
         elif stored is not None:
             _LOGGER.warning("Alert history has an unknown format — starting a new one")
         if self._created_at is None:
@@ -154,11 +172,77 @@ class AlertHistory:
         await self._store.async_save(
             {
                 "created_at": self._created_at,
+                "official_synced_at": self._synced_at,
+                "official_synced_regions": sorted(self._synced_regions),
                 "active": self._active,
                 "episodes": self._completed,
             }
         )
         self._saved_version = version
+
+    def backfill_start(self, now: datetime, region_ids: Iterable[str]) -> datetime:
+        """Where the next official-history window begins.
+
+        The first run covers the whole retention; later runs re-read a couple
+        of days before the last sync, enough to fill any outage since. A region
+        the last sync did not cover (added through Configure) needs it all.
+        """
+        oldest = now - self._max_age
+        synced = _parse(self._synced_at)
+        if synced is None or not set(region_ids) <= self._synced_regions:
+            return oldest
+        return max(oldest, synced - timedelta(days=2))
+
+    def mark_synced(self, now: datetime, region_ids: Iterable[str]) -> None:
+        self._synced_at = now.isoformat()
+        self._synced_regions = set(region_ids)
+        self._version += 1
+
+    def merge_official(
+        self,
+        region_id: str,
+        intervals: list[tuple[datetime, datetime]],
+        *,
+        window_start: datetime,
+    ) -> int:
+        """Add official episodes for periods the journal did not observe.
+
+        What the integration observed wins wherever the two overlap, so a
+        re-run or a slightly different official time never duplicates an
+        episode. Returns how many episodes were added.
+        """
+        now = self._now()
+        known = [
+            (_parse(ep["observed_started_at"]), _parse(ep["observed_cleared_at"]) or now)
+            for ep in (*self._completed, self._active.get(region_id))
+            if ep is not None and ep["region_id"] == region_id
+        ]
+        added = 0
+        for start, end in intervals:
+            if end > now or any(start < k_end and end > k_start for k_start, k_end in known):
+                continue
+            self._completed.append({
+                "episode_id": uuid.uuid4().hex[:12],
+                "region_id": region_id,
+                "observed_started_at": start.isoformat(),
+                "declared_started_at": start.isoformat(),
+                "observed_cleared_at": end.isoformat(),
+                "active_types_seen": ["air"],
+                # The history carries no levels.
+                "maximum_air_level": "none",
+                "had_gap": False,
+                "source_start_known": True,
+                "start_origin": "history",
+            })
+            added += 1
+        created = _parse(self._created_at)
+        if created is None or window_start < created:
+            self._created_at = window_start.isoformat()
+            self._version += 1
+        if added:
+            self._version += 1
+            self._prune()
+        return added
 
     def _prune(self) -> None:
         cutoff = self._now() - self._max_age

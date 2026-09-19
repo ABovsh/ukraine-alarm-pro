@@ -17,7 +17,8 @@
       "single_instance_allowed": "Already configured. Only a single instance is possible."
     },
     "error": {
-      "cannot_connect": "Could not fetch the region list. Submit the form again to retry."
+      "cannot_connect": "Could not fetch the region list. Submit the form again to retry.",
+      "no_regions": "Select at least one region."
     }
   },
   "options": {
@@ -35,12 +36,15 @@
     },
     "abort": {
       "cannot_connect": "Could not fetch the region list"
+    },
+    "error": {
+      "no_regions": "Select at least one region."
     }
   },
   "issues": {
-    "websocket_unavailable": {
-      "title": "Alert WebSocket unavailable",
-      "description": "The push connection to the official alert map failed, so alerts are being polled every 60 seconds instead of arriving as soon as they are published. The integration keeps probing the WebSocket and clears this issue once it is back."
+    "feed_unavailable": {
+      "title": "Alert data unavailable",
+      "description": "No alert data has arrived for 15 minutes from either the official alert map or the fallback source, so the alert state may be out of date. The integration keeps retrying both and clears this issue once data arrives again."
     }
   },
   "entity": {

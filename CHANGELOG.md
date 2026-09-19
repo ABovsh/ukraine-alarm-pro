@@ -3,6 +3,43 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-09-19
+
+### ✨ Added
+
+- **Card statistics and alert history are complete from the first day.** A few minutes
+  after start-up the alert journal is filled with the official alert history from the
+  alert map for the last 90 days, and a daily run fills any period Home Assistant was
+  off. These episodes carry the official start and all-clear times and
+  `start_origin: history`.
+
+### 🐛 Fixed
+
+- **No alert update is lost when the map sends several at once.** The alert server can
+  pack several messages into one WebSocket frame; such a frame was read as a broken
+  connection, its updates were dropped and the WebSocket reconnected. Every message in
+  the frame is now applied.
+- **A damaged saved file no longer stops the integration from loading.** A stored alert
+  map or journal with an unreadable time is ignored instead of failing setup.
+- **Removing the integration deletes its saved alert map and journal** instead of
+  leaving them in `.storage`.
+- **Setup and Configure require at least one region.** An empty choice used to create
+  an entry that monitored nothing.
+
+### 🔧 Changed
+
+- **The card takes less space on a phone.** The duration stays on the right of the
+  region and status instead of taking its own row, and the quiet card no longer repeats
+  «No active alerts» under «All quiet». On a narrow card the statistics wrap instead of
+  being cut off.
+
+  <img src="https://github.com/ABovsh/ukraine-alarm-pro/raw/v0.10.0/docs/images/status-card.jpg" alt="The card in 0.10.0: compact, status only and full layouts" width="420">
+
+- **Repairs no longer warns when the integration falls back to polling.** The
+  «Alert WebSocket unavailable» issue is removed; polling still delivers alerts. The
+  new «Alert data unavailable» issue appears only when neither the WebSocket nor the
+  fallback source has delivered data for 15 minutes, and clears when data arrives.
+
 ## [0.9.0] - 2026-09-15
 
 ### ✨ Added

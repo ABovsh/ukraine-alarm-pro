@@ -9,11 +9,20 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_REGIONS, DOMAIN, RESTORE_MAX_AGE_SECONDS, STALE_AFTER_SECONDS
+from . import backfill
+from .const import (
+    CONF_REGIONS,
+    DOMAIN,
+    ISSUE_FEED_UNAVAILABLE,
+    RESTORE_MAX_AGE_SECONDS,
+    STALE_AFTER_SECONDS,
+)
 from .events import (
     ORIGIN_BOOTSTRAP,
     ORIGIN_LIVE,
@@ -21,7 +30,7 @@ from .events import (
     AlertEventHub,
     RegionState,
 )
-from .history import HISTORY_STORAGE_VERSION, AlertHistory
+from .history import HISTORY_STORAGE_VERSION, AlertHistory, history_storage_key
 from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +55,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         )
         self.supervisor = supervisor
         self.last_push: datetime | None = None
+        self.started_at = dt_util.utcnow()
         self._store = store
         self._saved_active: dict[str, frozenset] | None = None
         self._views: dict[str, RegionView] = {}
@@ -55,7 +65,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             Store(
                 hass,
                 HISTORY_STORAGE_VERSION,
-                f"{DOMAIN}.history.{entry.entry_id}",
+                history_storage_key(entry.entry_id),
             )
         )
 
@@ -72,7 +82,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if not isinstance(stored, dict):
             return
         saved_at = dt_util.parse_datetime(str(stored.get("saved_at", "")))
-        if saved_at is None:
+        # A stamp without an offset was not written by us: ignore it rather
+        # than fail setup comparing it with an aware clock.
+        if saved_at is None or saved_at.tzinfo is None:
             return
         age = (dt_util.utcnow() - saved_at).total_seconds()
         if not 0 <= age <= RESTORE_MAX_AGE_SECONDS:
@@ -151,6 +163,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             # the identical region states, so this costs no region rows.
             self.async_update_listeners()
         self._publish_events(was_stale=was_stale, changed=changed)
+        if was_stale:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
     @callback
     def _publish_events(self, *, was_stale: bool, changed: bool) -> None:
@@ -184,6 +198,56 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 {rid: info["name"] for rid, info in self._regions.items()},
                 observed_at=dt_util.utcnow().isoformat(),
             )
+        self._async_report_feed_health()
+
+    @callback
+    def _async_report_feed_health(self) -> None:
+        """Raise a repair issue only when no source delivers alert data.
+
+        Polling after a WebSocket failure still delivers alerts, so it is no
+        problem for the user. Before the first snapshot, the start-up grace
+        period counts as the window instead of a push that never happened.
+        """
+        reference = self.last_push or self.started_at
+        age = (dt_util.utcnow() - reference).total_seconds()
+        if age > STALE_AFTER_SECONDS:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                ISSUE_FEED_UNAVAILABLE,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_FEED_UNAVAILABLE,
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
+
+    async def async_backfill_history(self, _now: datetime | None = None) -> None:
+        """Merge the official alert history into the journal, best effort."""
+        regions = self._regions
+        if not regions:
+            return
+        now = dt_util.utcnow()
+        start = self.history.backfill_start(now, regions)
+        try:
+            records = await backfill._fetch(
+                async_get_clientsession(self.hass),
+                backfill.root_regions(regions),
+                start,
+                now,
+            )
+        # A missing history must never break the entry or the live alerts.
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Official alert history unavailable: %s", err)
+            return
+        added = sum(
+            self.history.merge_official(
+                rid, backfill.official_intervals(records, rid, info), window_start=start
+            )
+            for rid, info in regions.items()
+        )
+        self.history.mark_synced(now, regions)
+        _LOGGER.debug("Merged %d alert episodes from the official history", added)
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:
         """Persist the journal; a failed write stays pending for the next try."""

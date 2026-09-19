@@ -30,12 +30,13 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.storage import Store
 
 from .api.poll import PollTransport
-from .api.supervisor import MODE_POLL, TransportSupervisor
+from .api.supervisor import TransportSupervisor
 from .api.ws import WsTransport
 from .const import (
     CONF_REGIONS,
     CROSS_CHECK_AFTER_SECONDS,
     DOMAIN,
+    ISSUE_FEED_UNAVAILABLE,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
     SAVE_DELAY_SECONDS,
@@ -43,6 +44,7 @@ from .const import (
     STORAGE_VERSION,
 )
 from .coordinator import AlarmCoordinator
+from .history import HISTORY_STORAGE_VERSION, history_storage_key
 from .models import Snapshot
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,6 +170,9 @@ async def _async_register_card(hass: HomeAssistant) -> None:
 async def async_setup_entry(
     hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
 ) -> bool:
+    # Older versions warned about the polling fallback itself; that is not a
+    # user problem, so drop a leftover issue on upgrade.
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
     session = async_get_clientsession(hass)
     supervisor = TransportSupervisor(
         ws=WsTransport(session),
@@ -193,7 +198,6 @@ async def async_setup_entry(
     @callback
     def _on_mode_change(mode: str) -> None:
         coordinator.handle_mode_change(mode)
-        _async_report_transport_mode(hass, mode)
 
     supervisor.set_mode_listener(_on_mode_change)
 
@@ -239,6 +243,7 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_schedule_descendant_backfill(hass, entry, session)
     _async_schedule_region_cache_refresh(hass, entry)
+    _async_schedule_history_backfill(hass, entry)
     return True
 
 
@@ -250,8 +255,17 @@ async def async_unload_entry(
         await entry.runtime_data.supervisor.stop()
         await entry.runtime_data.async_save_now()
         await entry.runtime_data.async_flush_history()
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
     return ok
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Delete what the entry kept on disk; nothing else ever reads it again."""
+    history = Store(hass, HISTORY_STORAGE_VERSION, history_storage_key(entry.entry_id))
+    await history.async_remove()
+    await Store(hass, STORAGE_VERSION, STORAGE_KEY).async_remove()
 
 
 async def _async_reload_entry(
@@ -289,19 +303,25 @@ def _async_purge_deselected_regions(
 
 
 @callback
-def _async_report_transport_mode(hass: HomeAssistant, mode: str) -> None:
-    """Tell the user when we are stuck on the slower polling fallback."""
-    if mode == MODE_POLL:
-        ir.async_create_issue(
+def _async_schedule_history_backfill(
+    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
+) -> None:
+    """Fill the alert journal from the official history, off the startup path.
+
+    Five minutes after setup (a post-blackout boot has better things to do),
+    then daily, which also fills any outage since the previous run.
+    """
+
+    @callback
+    def _run(_now) -> None:
+        entry.async_create_background_task(
             hass,
-            DOMAIN,
-            ISSUE_WS_UNAVAILABLE,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key=ISSUE_WS_UNAVAILABLE,
+            entry.runtime_data.async_backfill_history(),
+            name="alert-history-backfill",
         )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
+
+    entry.async_on_unload(async_call_later(hass, 300, _run))
+    entry.async_on_unload(async_track_time_interval(hass, _run, timedelta(hours=24)))
 
 
 @callback
