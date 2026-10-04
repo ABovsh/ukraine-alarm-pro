@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.11.0rc2] - 2026-10-05
+
+### 🐛 Fixed
+
+- Backfill completion is saved immediately after the final chunk. A restart after
+  abrupt power loss also recognizes an already-completed cursor, so an old pending
+  marker cannot permanently block the next daily history refresh.
+
 ## [0.11.0rc1] - 2026-10-05
 
 ### ✨ Added

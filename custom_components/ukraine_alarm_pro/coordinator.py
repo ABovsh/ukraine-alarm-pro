@@ -388,6 +388,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 await asyncio.sleep(0)
             else:
                 self.history.finish_backfill(windows)
+                await self.async_flush_history()
         self.async_update_percentages()
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:

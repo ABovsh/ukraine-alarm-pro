@@ -334,7 +334,12 @@ class AlertHistory:
         cursor = self.cursor(region_id, now)
         target = _parse(self._backfill_targets.get(region_id))
         if target is not None:
-            return (cursor, target) if cursor < target else None
+            if cursor < target:
+                return cursor, target
+            # A durable final chunk can precede the completion marker on
+            # disk when power fails. Heal it before the daily-refresh gate.
+            self._backfill_targets.pop(region_id, None)
+            self._version += 1
         if cursor >= now - timedelta(hours=24):
             return None
         return max(now - self._max_age, cursor - timedelta(days=2)), now

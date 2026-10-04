@@ -538,3 +538,33 @@ async def test_staleness_is_published_before_regional_transitions(
     assert changed.index("binary_sensor.uap_data_stale") < changed.index(
         "binary_sensor.uap_31_alert"
     )
+
+
+async def test_completed_backfill_checkpoint_recovers_after_power_loss():
+    store = FakeStore()
+    history, _ = _hist(store, now=T0)
+    await history.async_load()
+    history.begin_backfill(["31"], T0)
+    history.advance_cursor(["31"], T0)
+    # Last chunk is durable, but power disappears before finish_backfill flushes.
+    await history.async_flush()
+    restored, _ = _hist(store, now=T0 + timedelta(days=1, seconds=1))
+    await restored.async_load()
+    window = restored.backfill_window("31", T0 + timedelta(days=1, seconds=1))
+    assert window is not None
+    assert window[1] == T0 + timedelta(days=1, seconds=1)
+    assert "31" not in restored._backfill_targets
+
+
+async def test_finished_backfill_marker_is_immediately_durable(
+    hass, enable_custom_integrations, monkeypatch
+):
+    entry, _ = await _setup(hass)
+    coordinator = entry.runtime_data
+    coordinator.history._store = FakeStore()
+    monkeypatch.setattr(
+        "custom_components.ukraine_alarm_pro.backfill._fetch",
+        AsyncMock(return_value=[]),
+    )
+    await coordinator.async_backfill_history()
+    assert coordinator.history._store.data["backfill_targets"] == {}
