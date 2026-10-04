@@ -69,8 +69,13 @@ class WsTransport:
 
     async def _mint_token(self) -> tuple[str, str]:
         resp = await self._session.get(self._map_url, timeout=aiohttp.ClientTimeout(total=30))
-        resp.raise_for_status()
-        html = await resp.text()
+        try:
+            resp.raise_for_status()
+            html = await resp.text()
+        finally:
+            release = getattr(resp, "release", None)
+            if release is not None:
+                release()
         token_m = _TOKEN_RE.search(html)
         url_m = _URL_RE.search(html)
         if not token_m or not url_m:
@@ -118,6 +123,9 @@ class WsTransport:
             if isinstance(err, TransportError):
                 raise
             raise TransportError(f"ws connect failed: {err}") from err
+        except asyncio.CancelledError:
+            await self.close()
+            raise
 
         try:
             # The live channel serves an empty history in practice; the
@@ -149,6 +157,16 @@ class WsTransport:
             await self.close()
 
     async def close(self) -> None:
-        if self._ws is not None and not self._ws.closed:
-            await self._ws.close()
+        ws = self._ws
         self._ws = None
+        if ws is None:
+            return
+        try:
+            if not ws.closed:
+                await ws.close()
+        finally:
+            # aiohttp 3.14 can reset the heartbeat on its peer's closing frame
+            # after close() cancelled it. Own that final timer too; otherwise
+            # each reload leaves a callback for an already closed socket.
+            if isinstance(ws, aiohttp.ClientWebSocketResponse):
+                ws._cancel_heartbeat()

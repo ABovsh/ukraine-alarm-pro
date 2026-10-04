@@ -6,6 +6,7 @@ alert map every ~2.6 s, and every republish wrote a state row for
 rows/day carrying no information.
 """
 
+import time
 from datetime import timedelta
 from unittest.mock import MagicMock
 
@@ -71,6 +72,7 @@ async def test_repeated_snapshot_still_counts_as_liveness(hass: HomeAssistant):
     coordinator = _coordinator(hass)
     coordinator.handle_snapshot(SNAP)
     coordinator.last_push = dt_util.utcnow() - timedelta(hours=1)
+    coordinator._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - coordinator.last_push).total_seconds()
     assert coordinator.is_stale is True
 
     coordinator.handle_snapshot(SNAP)

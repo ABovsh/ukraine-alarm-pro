@@ -43,6 +43,7 @@ const I18N = {
     ongoing: "триває",
     journalSince: "дані з",
     gaps: "були перерви в даних",
+    incomplete: "Неповна статистика",
     plural: ["тривога", "тривоги", "тривог"],
   },
   en: {
@@ -80,6 +81,7 @@ const I18N = {
     ongoing: "ongoing",
     journalSince: "data since",
     gaps: "data had gaps",
+    incomplete: "Incomplete statistics",
     plural: ["alert", "alerts", "alerts"],
   },
 };
@@ -166,10 +168,64 @@ const dayMonth = (date, hass) =>
   });
 
 const LAYOUTS = new Set(["full", "status", "compact"]);
-const STATS_FRESH_ACTIVE = 60000;
+const STATS_FRESH_ACTIVE = 300000;
 const STATS_FRESH_QUIET = 600000;
 // A failed call (a reconnect, a restart, an older integration) is retried, not final.
 const STATS_RETRY = 120000;
+
+
+// One cache per HA connection: multiple cards share both in-flight calls and
+// answers. It disappears with the connection and never crosses HA instances.
+const requestCaches = new WeakMap();
+function sharedRequest(hass, rid, full, trigger, maxAge) {
+  const owner = hass.connection || hass.callWS;
+  let cache = requestCaches.get(owner);
+  if (!cache) { cache = new Map(); requestCaches.set(owner, cache); }
+  const key = `${rid}|${full ? "full" : "history"}`;
+  const previous = cache.get(key);
+  if (!previous?.failed && previous?.trigger === trigger && Date.now() - previous.fetched < maxAge) return previous.promise;
+  if (previous?.pending && previous.trigger === trigger) return previous.promise;
+  if (previous?.failed && Date.now() - previous.fetched < STATS_RETRY) return previous.promise;
+  const record = { trigger, fetched: Date.now(), pending: true };
+  record.promise = hass.callWS({ type: "call_service", domain: DOMAIN,
+    service: full ? "get_summary" : "get_history", service_data: { region_id: rid, ...(full ? { days: 7 } : { limit: 1 }) },
+    return_response: true }).then(({ response }) => full
+      ? { summary: response, episodes: response.last_episode || [] }
+      : { summary: null, episodes: response.episodes || [] })
+    .catch((error) => { record.failed = true; throw error; })
+    .finally(() => { record.pending = false; record.fetched = Date.now(); });
+  cache.set(key, record);
+  return record.promise;
+}
+
+// Preserve the ha-card (and keyboard focus). Only changed text, attributes
+// and child nodes are patched; timers do not replace the entire shadow DOM.
+function patchDOM(root, html) {
+  if (typeof document === "undefined") { root.innerHTML = html; return; }
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  function patch(parent, incoming) {
+    const next = [...incoming.childNodes];
+    for (let i = 0; i < next.length; i++) {
+      let old = parent.childNodes[i];
+      const node = next[i];
+      if (!old || old.nodeType !== node.nodeType || old.nodeName !== node.nodeName) {
+        const replacement = node.cloneNode(true);
+        if (old) parent.replaceChild(replacement, old); else parent.appendChild(replacement);
+        continue;
+      }
+      if (node.nodeType === 3) {
+        if (old.nodeValue !== node.nodeValue) old.nodeValue = node.nodeValue;
+      } else if (node.nodeType === 1) {
+        for (const attr of [...old.attributes]) if (!node.hasAttribute(attr.name)) old.removeAttribute(attr.name);
+        for (const attr of [...node.attributes]) if (old.getAttribute(attr.name) !== attr.value) old.setAttribute(attr.name, attr.value);
+        patch(old, node);
+      }
+    }
+    while (parent.childNodes.length > next.length) parent.lastChild.remove();
+  }
+  patch(root, template.content);
+}
 
 const hhmm = (date, hass) =>
   date.toLocaleTimeString(hass?.locale?.language || undefined, {
@@ -234,6 +290,8 @@ class UkraineAlarmProCard extends HTMLElement {
     this._config = { ...config, layout: LAYOUTS.has(config.layout) ? config.layout : "full" };
     this._stats = null;
     this._key = null;
+    this._generation = (this._generation || 0) + 1;
+    this._entityCache = null;
     if (this._hass) this._render();
   }
 
@@ -248,15 +306,33 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   connectedCallback() {
-    // Durations tick locally; state writes stay untouched.
-    this._timer = setInterval(() => {
+    this._inView = typeof IntersectionObserver === "undefined";
+    const tick = () => {
+      if (!this._visible()) return;
       this._maybeRefresh();
       this._render();
-    }, 30000);
+    };
+    this._visibility = tick;
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", tick);
+    if (typeof IntersectionObserver !== "undefined") {
+      this._observer = new IntersectionObserver(([entry]) => { this._inView = entry.isIntersecting; tick(); });
+      this._observer.observe(this);
+    }
+    clearInterval(this._timer);
+    this._timer = setInterval(tick, 30000);
+    tick();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    this._observer?.disconnect();
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this._visibility);
+    this._generation = (this._generation || 0) + 1;
+    this._loading = false;
+  }
+
+  _visible() {
+    return this.isConnected && this._inView !== false && (typeof document === "undefined" || document.visibilityState !== "hidden");
   }
 
   getCardSize() {
@@ -274,43 +350,47 @@ class UkraineAlarmProCard extends HTMLElement {
   // Statistics come from the journal services: fetched again after every alert
   // event, and on a timer so ongoing durations and the 24 h window move.
   _maybeRefresh() {
-    // Every layout needs the journal for the time since the last all clear.
-    if (!this._hass || !this._config || this._loading || !this.isConnected) return;
+    if (!this._hass || !this._config || this._loading || !this._visible()) return;
     const ids = this._entities();
     const rid = ids && regionIdOf(this._hass, ids.alert);
     if (!rid) return;
+    const full = this._statsOn();
+    // An active compact/status card gets its start time directly from states.
+    if (!full && this._hass.states[ids.alert].state === "on") return;
     if (this._statsFailed?.rid === rid && Date.now() - this._statsFailed.at < STATS_RETRY) return;
     const event = ids.event ? this._hass.states[ids.event] : undefined;
-    const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}`;
+    const percentages = [ids.percentage24h, ids.percentage7d].map((id) => this._hass.states[id]?.last_updated).join("|");
+    const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}|${percentages}`;
     const age = this._stats ? Date.now() - this._stats.fetched : Infinity;
     const maxAge = this._hass.states[ids.alert].state === "on" ? STATS_FRESH_ACTIVE : STATS_FRESH_QUIET;
     if (this._stats?.trigger === trigger && age < maxAge) return;
+    const generation = this._generation;
     this._loading = true;
-    const call = (service, data) =>
-      this._hass
-        .callWS({ type: "call_service", domain: DOMAIN, service, service_data: { region_id: rid, ...data }, return_response: true })
-        .then((result) => result.response);
-    Promise.all([call("get_summary", { days: 7 }), call("get_history", { limit: 50 })])
-      .then(([summary, history]) => {
-        this._stats = { rid, trigger, fetched: Date.now(), summary, episodes: history.episodes || [] };
+    sharedRequest(this._hass, rid, full, trigger, maxAge)
+      .then((result) => {
+        if (generation !== this._generation) return;
+        this._stats = { rid, trigger, fetched: Date.now(), ...result };
         this._statsFailed = null;
       })
       .catch(() => {
-        // The card works without statistics until a later attempt succeeds.
-        this._statsFailed = { rid, at: Date.now() };
+        if (generation === this._generation) this._statsFailed = { rid, at: Date.now() };
       })
       .finally(() => {
+        if (generation !== this._generation) return;
         this._loading = false;
-        this._render();
+        if (this._visible()) this._render();
       });
   }
 
   _entities() {
     const hass = this._hass;
+    const cached = this._entityCache;
+    if (cached && cached.registry === hass.entities && cached.configured === this._config.entity &&
+        Object.values(cached.ids).filter(Boolean).every((id) => hass.states[id])) return cached.ids;
     const alert = this._config.entity || alertEntities(hass)[0];
     if (!alert || !hass.states[alert]) return null;
     const rid = regionIdOf(hass, alert);
-    return {
+    const ids = {
       alert,
       threat: sibling(hass, "threat", rid),
       level: sibling(hass, "air_alert_level", rid),
@@ -318,7 +398,11 @@ class UkraineAlarmProCard extends HTMLElement {
       event: sibling(hass, "event", rid),
       stale: hub(hass, "data_stale"),
       updated: hub(hass, "last_update"),
+      percentage24h: sibling(hass, "alert_percentage_24h", rid),
+      percentage7d: sibling(hass, "alert_percentage_7d", rid),
     };
+    this._entityCache = { registry: hass.entities, configured: this._config.entity, ids };
+    return ids;
   }
 
   _stateKey() {
@@ -339,62 +423,45 @@ class UkraineAlarmProCard extends HTMLElement {
 
   _statsHtml(t, stats) {
     const fmt = this._fmt();
-    const now = Date.now();
-    const dayAgo = now - 86400000;
     const { summary } = stats;
-    const journalStart = dateOf(summary?.coverage_start)?.getTime() ?? 0;
-    const episodes = stats.episodes
-      .map((ep) => ({ ...ep, start: dateOf(ep.observed_started_at), end: dateOf(ep.observed_cleared_at) }))
-      .filter((ep) => ep.start);
-    // Share of the time the journal actually covered, not of time it did not exist.
-    const share = (seconds, from) => {
-      const covered = (now - Math.max(from, journalStart)) / 1000;
-      if (covered <= 0) return "";
-      const pct = Math.min((seconds / covered) * 100, 100);
-      return pct.toLocaleString(fmt.locale.language, { maximumFractionDigits: pct < 10 ? 1 : 0 }) + (t === I18N.en ? "%" : " %");
+    const ids = this._entities();
+    const current = (result, id) => {
+      const state = id && this._hass.states[id];
+      if (!state) return result;
+      const numeric = known(state) && Number.isFinite(Number(state.state));
+      return { ...result, percentage: numeric ? Number(state.state) : null,
+        coverage_complete: numeric && (state.attributes.coverage_complete ?? result?.coverage_complete ?? false),
+        quality: state.attributes.quality || result?.quality };
     };
-    const line = (count, seconds, from) =>
-      count ? [alerts(t, count), span(t, seconds), share(seconds, from)].filter(Boolean).join(" · ") : t.noAlerts;
-
-    // Rolling 24 h: absolute times, so the browser's zone does not matter.
-    const recent = episodes.filter((ep) => (ep.end ? ep.end.getTime() : now) > dayAgo);
-    const recentSeconds = recent.reduce(
-      (sum, ep) => sum + Math.max(0, ((ep.end ? ep.end.getTime() : now) - Math.max(ep.start.getTime(), dayAgo)) / 1000),
-      0,
-    );
-    const segments = recent
-      .map((ep) => {
-        const from = Math.max(ep.start.getTime(), dayAgo);
-        const to = ep.end ? ep.end.getTime() : now;
-        const left = ((from - dayAgo) / 86400000) * 100;
-        const width = Math.max(((to - from) / 86400000) * 100, 0.8);
-        const level = ["red", "yellow"].includes(ep.maximum_air_level) ? ep.maximum_air_level : "other";
-        const title = `${hhmm(new Date(from), fmt)}–${ep.end ? hhmm(ep.end, fmt) : t.now} · ${span(t, (to - from) / 1000)}`;
-        return `<span class="seg ${level}${ep.end ? "" : " live"}${ep.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
-      })
-      .join("");
-    const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h / 24) * 100}%"></span>`).join("");
-
-    // 7 calendar days from the server, in Home Assistant's own time zone.
-    const weekCount = summary?.count ?? 0;
-    const periodStart = dateOf(summary?.period_start)?.getTime() ?? now - 7 * 86400000;
-
-    const extras = [];
-    if (weekCount) {
-      extras.push(
-        `${t.longest} ${span(t, summary.longest_duration_seconds || 0)}`,
-        `${t.average} ${span(t, (summary.observed_duration_seconds || 0) / weekCount)}`,
-      );
-    }
-    if (journalStart > now - 7 * 86400000) {
-      extras.push(`${t.journalSince} ${dayMonth(new Date(journalStart), fmt)}`);
-    }
-    if (summary?.has_gaps || recent.some((ep) => ep.had_gap)) extras.push(t.gaps);
-
+    const day = current(summary?.rolling_24h, ids?.percentage24h);
+    const week = current(summary?.rolling_7d, ids?.percentage7d);
+    const line = (result) => {
+      if (!result?.coverage_complete || result.percentage === null) return result?.count
+        ? `${t.incomplete} · ${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)}` : t.incomplete;
+      const pct = result.percentage.toLocaleString(fmt.locale.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      return `${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)} · ${pct}${t === I18N.en ? "%" : " %"}`;
+    };
+    // Complete 24 h union supplied by the same calculation as the sensors.
+    const intervals = day?.intervals || [];
+    const hi = dateOf(summary?.rolling_calculated_at)?.getTime() || Date.now();
+    const lo = hi - 86400000;
+    const segments = intervals.map((interval) => {
+      const from = Math.max(dateOf(interval.start)?.getTime() || lo, lo);
+      const to = Math.min(dateOf(interval.end)?.getTime() || hi, hi);
+      const left = ((from - lo) / 86400000) * 100;
+      const width = Math.max(((to - from) / 86400000) * 100, 0.2);
+      const title = `${hhmm(new Date(from), fmt)}–${hhmm(new Date(to), fmt)} · ${span(t, (to-from)/1000)}`;
+      const level = ["red", "yellow"].includes(interval.maximum_air_level) ? interval.maximum_air_level : "other";
+      return `<span class="seg ${level}${interval.ongoing ? " live" : ""}${interval.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
+    }).join("");
+    const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h/24)*100}%"></span>`).join("");
+    const incomplete = !day?.coverage_complete || !week?.coverage_complete;
+    const extras = week?.count ? `${t.longest} ${span(t, week.longest_duration_seconds || 0)} · ${t.average} ${span(t, week.observed_duration_seconds / week.count)}` : "";
     return `<div class="stats">
-      <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline">${ticks}${segments}</div><b>${esc(line(recent.length, recentSeconds, dayAgo))}</b></div>
-      ${summary ? `<div class="row plain"><span class="lbl">${esc(t.week)}</span><b>${esc(line(weekCount, summary.observed_duration_seconds, periodStart))}</b></div>` : ""}
-      ${extras.length ? `<div class="hint">${extras.map(esc).join(" · ")}</div>` : ""}
+      <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline${incomplete ? " incomplete" : ""}">${ticks}${segments}</div><b>${esc(line(day))}</b></div>
+      <div class="row plain"><span class="lbl">${esc(t.week)}</span><b>${esc(line(week))}</b></div>
+      ${extras ? `<div class="hint">${esc(extras)}</div>` : ""}
+      ${incomplete ? `<div class="hint">${esc(t.incomplete)}${day?.quality === "gaps" || week?.quality === "gaps" ? ` · ${esc(t.gaps)}` : ""}</div>` : ""}
     </div>`;
   }
 
@@ -408,15 +475,15 @@ class UkraineAlarmProCard extends HTMLElement {
     const t = lang(this._hass, this._config.language);
     const ids = this._entities();
     if (!ids) {
-      this.shadowRoot.innerHTML = `${STYLE}<ha-card><div class="empty">${esc(t.notFound)}</div></ha-card>`;
+      patchDOM(this.shadowRoot, `${STYLE}<ha-card><div class="empty">${esc(t.notFound)}</div></ha-card>`);
       return;
     }
     const view = this._view(t, ids);
     const compact = this._config.layout === "compact";
     const region = compact ? `${esc(view.name)}${levelSuffix(t, view)}` : esc(view.name);
     const body = compact ? "" : this._bodyHtml(t, view);
-    this.shadowRoot.innerHTML = `${STYLE}
-      <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0">
+    patchDOM(this.shadowRoot, `${STYLE}
+      <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0" role="button" aria-label="${esc(view.name)}: ${esc(view.title)}">
         <div class="glow"></div>
         <div class="head">
           <div class="badge"><span class="pulse"></span><ha-icon icon="${STATUS_ICONS[view.status]}"></ha-icon></div>
@@ -427,9 +494,16 @@ class UkraineAlarmProCard extends HTMLElement {
           ${this._timerHtml(t, view)}
         </div>
         ${body}
-      </ha-card>`;
+      </ha-card>`);
     const card = this.shadowRoot.querySelector("ha-card");
-    card.addEventListener("click", () => this._moreInfo(ids.alert));
+    if (this._eventCard !== card) {
+      this._eventCard = card;
+      const open = () => { const id = this._entities()?.alert; if (id) this._moreInfo(id); };
+      card.addEventListener("click", open);
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+    }
   }
 
   // Everything the markup needs, read once from the entities.
@@ -609,6 +683,8 @@ const STYLE = `<style>
   .row b { font-size: 12px; font-weight: 600; color: var(--primary-text-color); white-space: nowrap;
     font-variant-numeric: tabular-nums; text-align: right; }
   .timeline { position: relative; height: 12px; border-radius: 4px; overflow: hidden; }
+  .timeline.incomplete { background: repeating-linear-gradient(45deg, rgba(127,127,127,.16) 0 4px, transparent 4px 8px); }
+  ha-card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
   .timeline { background: color-mix(in srgb, var(--uap-green) 18%, transparent); }
   .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 12%, transparent); }
   .seg { position: absolute; top: 0; bottom: 0; background: var(--uap-red); }

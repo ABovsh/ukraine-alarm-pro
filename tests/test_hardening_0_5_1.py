@@ -79,8 +79,8 @@ async def test_tick_writes_when_the_feed_goes_stale(hass: HomeAssistant):
 
             gone = dt_util.utcnow() + timedelta(seconds=STALE_AFTER_SECONDS + 60)
             with patch(
-                "custom_components.ukraine_alarm_pro.coordinator.dt_util.utcnow",
-                return_value=gone,
+                "custom_components.ukraine_alarm_pro.coordinator.time.monotonic",
+                return_value=coordinator._last_push_monotonic + STALE_AFTER_SECONDS + 60,
             ):
                 assert coordinator.is_stale is True
                 entity._async_tick(gone)

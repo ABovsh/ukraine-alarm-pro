@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
 from .coordinator import AlarmCoordinator
 
-# Staleness is a function of wall-clock time, not of incoming data, so the
+# Staleness advances with elapsed time even without incoming data, so the
 # entities that expose it need their own tick.
 STALENESS_TICK = timedelta(seconds=60)
 
@@ -36,6 +36,14 @@ class UapEntity(CoordinatorEntity[AlarmCoordinator]):
         # Keep last known state on transport loss; staleness is a diagnostic.
         return self.coordinator.data is not None
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        rid = getattr(self, "_region_id", None)
+        changed = self.coordinator.changed_regions
+        if rid is not None and changed is not None and rid not in changed:
+            return
+        super()._handle_coordinator_update()
+
 
 class UapDiagnosticEntity(UapEntity):
     """Diagnostic entity: must report even before the first snapshot."""
@@ -56,16 +64,14 @@ class UapStalenessEntity(UapDiagnosticEntity):
 
     @callback
     def _publish_key(self) -> object:
-        """What has to change before a tick is worth a recorder row.
-
-        The staleness verdict by default: the feed republishes the same alert
-        map every couple of seconds, and writing state on every tick stored
-        ~34k rows/day per entity without carrying any new information.
-        """
+        """State/attribute key worth publishing; HA still compares actual states."""
         return self.coordinator.is_stale
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.add_health_listener(self._handle_coordinator_update)
+        )
         self.async_on_remove(
             async_track_time_interval(self.hass, self._async_tick, STALENESS_TICK)
         )
@@ -75,7 +81,10 @@ class UapStalenessEntity(UapDiagnosticEntity):
         # A push writes state through this path, so the tick's baseline has to
         # follow it — otherwise a recovery leaves the tick comparing against a
         # verdict two transitions old and it never publishes going stale again.
-        self._published = self._publish_key()
+        key = self._publish_key()
+        if key == self._published:
+            return
+        self._published = key
         super()._handle_coordinator_update()
 
     @callback

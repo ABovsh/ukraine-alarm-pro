@@ -1,9 +1,11 @@
 """0.7.0: declaring-region identity, alert start time, restore across restarts."""
 
+import time
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
@@ -66,6 +68,19 @@ RAW = {
         },
     ]
 }
+
+@pytest.fixture(autouse=True)
+def _mock_unrelated_history_network(monkeypatch):
+    """Clock-driven entity/storage tests must not contact unrelated endpoints."""
+    monkeypatch.setattr(
+        "custom_components.ukraine_alarm_pro.backfill._fetch",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "custom_components.ukraine_alarm_pro.regions.async_refresh_region_cache",
+        AsyncMock(),
+    )
+
 
 # 20 = the oblast; 122 and 1313 are its descendants.
 ENTRY_DATA = {
@@ -205,8 +220,12 @@ async def test_ignores_a_stale_stored_snapshot(
 
 
 async def test_stores_the_snapshot_for_the_next_start(
-    hass: HomeAssistant, enable_custom_integrations, hass_storage
+    hass: HomeAssistant, enable_custom_integrations, hass_storage, monkeypatch
 ):
+    monkeypatch.setattr(
+        "custom_components.ukraine_alarm_pro.backfill._fetch",
+        AsyncMock(return_value=[]),
+    )
     _, push = await _setup(hass)
     push(parse_alert_payload(RAW))
     await hass.async_block_till_done()
@@ -230,8 +249,16 @@ async def test_deselecting_a_region_also_removes_its_start_sensor(
     registry = er.async_get(hass)
     assert registry.async_get("sensor.uap_20_alert_started") is not None
 
-    hass.config_entries.async_update_entry(entry, data={"regions": {}})
-    await hass.async_block_till_done()
+    supervisor = AsyncMock()
+    supervisor.mode = "websocket"
+    supervisor.set_listener = MagicMock()
+    supervisor.set_mode_listener = MagicMock()
+    with patch(
+        "custom_components.ukraine_alarm_pro.TransportSupervisor",
+        return_value=supervisor,
+    ):
+        hass.config_entries.async_update_entry(entry, data={"regions": {}})
+        await hass.async_block_till_done()
     assert registry.async_get("sensor.uap_20_alert_started") is None
 
 
@@ -321,6 +348,9 @@ async def test_blueprint_stays_silent_while_the_feed_is_stale(
     coordinator = entry.runtime_data
     coordinator.last_push = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 60
+    )
+    coordinator._last_push_monotonic = (
+        time.monotonic() - (dt_util.utcnow() - coordinator.last_push).total_seconds()
     )
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()

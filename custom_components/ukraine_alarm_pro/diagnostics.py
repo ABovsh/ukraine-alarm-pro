@@ -18,6 +18,9 @@ async def async_get_config_entry_diagnostics(
     snapshot = coordinator.data
     return {
         "transport": {
+            "last_received_at": coordinator.last_push.isoformat() if coordinator.last_push else None,
+            "last_snapshot_saved_at": coordinator.last_saved_at.isoformat() if coordinator.last_saved_at else None,
+            "snapshot_write_pending_after_error": coordinator._save_failed,
             "mode": coordinator.supervisor.mode,
             "seconds_since_update": coordinator.seconds_since_push,
             "stale": coordinator.is_stale,

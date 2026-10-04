@@ -1,5 +1,6 @@
 """Air-level transitions, persistence and actual HA state-event cost."""
 
+import time
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -197,8 +198,13 @@ async def test_level_entity_removed_when_region_deselected(
     entry, _ = await _setup(hass)
     registry = er.async_get(hass)
     assert registry.async_get(ENTITY) is not None
-    hass.config_entries.async_update_entry(entry, data={"regions": {}})
-    await hass.async_block_till_done()
+    # Registry-only reload: keep both the initial and reloaded transport fake.
+    supervisor = AsyncMock(mode="websocket")
+    supervisor.set_listener = MagicMock()
+    supervisor.set_mode_listener = MagicMock()
+    with patch("custom_components.ukraine_alarm_pro.TransportSupervisor", return_value=supervisor):
+        hass.config_entries.async_update_entry(entry, data={"regions": {}})
+        await hass.async_block_till_done()
     assert registry.async_get(ENTITY) is None
 
 
@@ -278,6 +284,7 @@ async def test_blueprint_does_not_escalate_stale_or_initial_red(
     push(parse_alert_payload(payload("Yellow")))
     await hass.async_block_till_done()
     entry.runtime_data.last_push = dt_util.utcnow() - timedelta(hours=1)
+    entry.runtime_data._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.last_push).total_seconds()
     entry.runtime_data.async_set_updated_data(parse_alert_payload(payload("Red")))
     await hass.async_block_till_done()
     assert events == []

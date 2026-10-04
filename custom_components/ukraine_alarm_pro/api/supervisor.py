@@ -86,6 +86,12 @@ class TransportSupervisor:
         self._poll_task: asyncio.Task | None = None
         self._watchdog_task: asyncio.Task | None = None
         self._seed_task: asyncio.Task | None = None
+        self._http_task: asyncio.Task | None = None
+        self._http_revision = 0
+        self._poll_failures = 0
+        self._poll_retry_after = 0.0
+        self._last_poll_warning: float | None = None
+        self._last_ws_exception: tuple[type, float] | None = None
         self._task_factory: TaskFactory = _default_task_factory
         # Monotonic clocks, kept apart on purpose: only accepted data counts as
         # a success; a cross-check attempt merely rate-limits the next one.
@@ -132,9 +138,7 @@ class TransportSupervisor:
         self._running = True
         self._started_at = time.monotonic()
         self._task = self._task_factory(self._run(), f"{MODE_WS}-supervisor")
-        self._watchdog_task = self._task_factory(
-            self._watchdog(), "transport-watchdog"
-        )
+        self._watchdog_task = self._task_factory(self._watchdog(), "transport-watchdog")
         self._seed_task = self._task_factory(self._seed(), "initial-seed")
 
     async def _seed(self) -> None:
@@ -160,16 +164,36 @@ class TransportSupervisor:
             attempt += 1
 
     def _next_seed_delay(self, attempt: int) -> float:
-        return min(self._seed_retry_interval * 2**attempt, self._seed_retry_max)
+        return max(
+            min(
+                self._seed_retry_interval * 2 ** min(attempt, 16), self._seed_retry_max
+            ),
+            self._poll_retry_after,
+        )
 
     async def _fetch_poll(self, context: str) -> Snapshot | None:
+        if self._http_task is None or self._http_task.done():
+            self._http_revision = self.snapshot_revision
+            self._http_task = asyncio.create_task(
+                self._poll.fetch(), name="uap-http-snapshot"
+            )
+        task = self._http_task
+        revision = self._http_revision
         try:
-            return await self._poll.fetch()
+            snap = await asyncio.shield(task)
+            self._poll_retry_after = 0.0
+            if revision != self.snapshot_revision:
+                return None
+            return snap
         except asyncio.CancelledError:
             raise
         # Best effort only: a failing cross-check must never kill the caller.
         except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("%s: %s", context, err)
+            self._poll_retry_after = getattr(err, "retry_after", 0.0)
+            now = time.monotonic()
+            if self._last_poll_warning is None or now - self._last_poll_warning >= 300:
+                _LOGGER.warning("%s: %s", context, err)
+                self._last_poll_warning = now
             return None
 
     async def stop(self) -> None:
@@ -182,6 +206,7 @@ class TransportSupervisor:
                 self._poll_task,
                 self._watchdog_task,
                 self._seed_task,
+                self._http_task,
             )
             if task is not None
         ]
@@ -193,6 +218,7 @@ class TransportSupervisor:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._task = self._poll_task = self._watchdog_task = None
         self._seed_task = None
+        self._http_task = None
         await self._ws.close()
 
     async def _run(self) -> None:
@@ -206,19 +232,33 @@ class TransportSupervisor:
                     self._emit(snap)
             except TransportError as err:
                 failures = self._count_failure(failures, started)
-                _LOGGER.debug("WS failure %s/%s: %s", failures, self._max_ws_failures, err)
+                _LOGGER.debug(
+                    "WS failure %s/%s: %s", failures, self._max_ws_failures, err
+                )
             except asyncio.CancelledError:
                 raise
-            except Exception:  # the transport task must never die silently
+            except Exception as err:  # the transport task must never die silently
                 failures = self._count_failure(failures, started)
-                _LOGGER.exception(
-                    "Unexpected WS transport error (%s/%s)", failures, self._max_ws_failures
-                )
+                now = time.monotonic()
+                if (
+                    self._last_ws_exception is None
+                    or self._last_ws_exception[0] is not type(err)
+                    or now - self._last_ws_exception[1] >= 300
+                ):
+                    _LOGGER.exception(
+                        "Unexpected WS transport error (%s/%s)",
+                        failures,
+                        self._max_ws_failures,
+                    )
+                    self._last_ws_exception = (type(err), now)
             if failures >= self._max_ws_failures:
                 self._set_mode(MODE_POLL)
                 delay = self._ws_probe_interval
             else:
-                delay = self._ws_retry_delay * (2 ** max(failures - 1, 0))
+                delay = min(
+                    self._ws_retry_delay * (2 ** min(max(failures - 1, 0), 16)),
+                    self._ws_probe_interval,
+                )
             await asyncio.sleep(delay * (1 + _RNG.random() * 0.2))
 
     def _count_failure(self, failures: int, started: float) -> int:
@@ -249,17 +289,23 @@ class TransportSupervisor:
     async def _poll_loop(self) -> None:
         while True:
             revision = self.snapshot_revision
-            try:
-                snap = await self._poll.fetch()
-            except TransportError as err:
-                _LOGGER.warning("Poll fallback failed: %s", err)
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # the poll loop must never die silently
-                _LOGGER.exception("Unexpected poll fallback error")
-            else:
+            snap = await self._fetch_poll("Poll fallback failed")
+            if snap is not None:
+                self._poll_failures = 0
                 self._emit_if_current(snap, revision)
-            await asyncio.sleep(self._poll_interval)
+            else:
+                self._poll_failures += 1
+            delay = (
+                self._poll_interval
+                if not self._poll_failures
+                else min(
+                    self._poll_interval
+                    * 2 ** min(self._poll_failures - 1, 4)
+                    * (1 + _RNG.random() * 0.2),
+                    300.0,
+                )
+            )
+            await asyncio.sleep(max(delay, self._poll_retry_after))
 
     @property
     def seconds_since_snapshot(self) -> float | None:
@@ -290,7 +336,13 @@ class TransportSupervisor:
         while True:
             await asyncio.sleep(self._watchdog_interval)
             now = time.monotonic()
-            reference = self._last_success or self._started_at or now
+            reference = (
+                self._last_success
+                if self._last_success is not None
+                else self._started_at
+            )
+            if reference is None:
+                reference = now
             age = now - reference
             if age < self._stale_after:
                 continue
@@ -328,7 +380,7 @@ class TransportSupervisor:
                 continue
             if snap is not None:
                 self._emit_if_current(snap, revision)
-                if previous is not None and snap.active == previous.active:
+                if previous is not None and snap.signature == previous.signature:
                     _LOGGER.debug(
                         "No alert data for %.0fs, but the feed agrees with the "
                         "last push — the alert map simply did not change",

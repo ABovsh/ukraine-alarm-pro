@@ -5,6 +5,7 @@ at most a minute late. A warning under Repairs for that alarmed users about a
 problem they could not fix and that did not affect them.
 """
 
+import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -51,6 +52,7 @@ async def test_no_data_from_any_source_raises_the_issue_and_data_clears_it(
     entry.runtime_data.last_push = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 60
     )
+    entry.runtime_data._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.last_push).total_seconds()
     await _tick(hass)
     assert _issue(hass, ISSUE_FEED_UNAVAILABLE) is not None
 
@@ -74,6 +76,7 @@ async def test_no_data_for_the_whole_stale_window_after_start_raises_the_issue(
     entry.runtime_data.started_at = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 60
     )
+    entry.runtime_data._started_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.started_at).total_seconds()
     await _tick(hass)
     assert _issue(hass, ISSUE_FEED_UNAVAILABLE) is not None
 
@@ -100,6 +103,7 @@ async def test_unload_clears_the_issue(
     entry.runtime_data.started_at = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 60
     )
+    entry.runtime_data._started_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.started_at).total_seconds()
     await _tick(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert _issue(hass, ISSUE_FEED_UNAVAILABLE) is None

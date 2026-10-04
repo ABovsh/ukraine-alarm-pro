@@ -1,5 +1,6 @@
 """Event-driven notification blueprint and the test script (UAP-05)."""
 
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -118,6 +119,7 @@ async def test_stale_and_recovery_never_claim_an_all_clear(
     events = async_capture_events(hass, "uap_test")
 
     entry.runtime_data.last_push = dt_util.utcnow() - timedelta(hours=1)
+    entry.runtime_data._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.last_push).total_seconds()
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()
     push(CLEAR)  # the alert ended somewhere inside the gap

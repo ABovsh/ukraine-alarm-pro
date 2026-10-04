@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -168,6 +169,7 @@ async def test_coordinator_reports_staleness(hass: HomeAssistant):
     coordinator.last_push = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 1
     )
+    coordinator._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - coordinator.last_push).total_seconds()
     assert coordinator.is_stale is True
 
 
@@ -462,6 +464,7 @@ async def test_staleness_entities_tick_without_new_data(
     entry.runtime_data.last_push = dt_util.utcnow() - timedelta(
         seconds=STALE_AFTER_SECONDS + 120
     )
+    entry.runtime_data._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.last_push).total_seconds()
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.uap_data_stale").state == "on"

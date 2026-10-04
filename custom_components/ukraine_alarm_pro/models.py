@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum
+from functools import cached_property
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,7 +120,7 @@ class Snapshot:
     def active_region_count(self) -> int:
         return sum(1 for alerts in self.regions.values() if alerts)
 
-    @property
+    @cached_property
     def active(self) -> dict[str, frozenset[Alert]]:
         """Comparable view of what is actually in alert.
 
@@ -129,6 +130,15 @@ class Snapshot:
         """
         return {
             rid: frozenset(alerts) for rid, alerts in self.regions.items() if alerts
+        }
+
+    @cached_property
+    def signature(self) -> dict[str, frozenset[tuple]]:
+        """Content only, computed once: receipt/level clocks are diagnostics."""
+        return {
+            rid: frozenset((a.type, (declared_at(a) or _UNDATED).isoformat(), a.region_id, a.region_type,
+                            tuple(sorted({(level.level, level.reason) for level in a.levels}))) for a in alerts)
+            for rid, alerts in self.regions.items() if alerts
         }
 
 

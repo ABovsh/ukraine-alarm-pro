@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import aiohttp
 from homeassistant.util import dt as dt_util
@@ -23,6 +25,7 @@ MAP_URL = "https://map.ukrainealarm.com/"
 RANGED_URL = MAP_URL + "api/v2/data/mapGetRangedAlerts"
 _TOKEN_RE = re.compile(r'id="api-token"[^>]*value="([^"]+)"')
 _TIMEOUT = aiohttp.ClientTimeout(total=60)
+_TOKENS: WeakKeyDictionary = WeakKeyDictionary()
 
 type Record = tuple[str, datetime, datetime]
 
@@ -96,23 +99,42 @@ async def async_fetch_official_history(
 ) -> list[Record]:
     """Finished alerts of the given top-level regions between two moments."""
     try:
-        page = await session.get(MAP_URL, timeout=_TIMEOUT)
-        page.raise_for_status()
-        match = _TOKEN_RE.search(await page.text())
-        if match is None:
-            raise TransportError("map page has no api token (page changed?)")
+        cached = _TOKENS.get(session)
+        if cached is None or time.monotonic() - cached[0] >= 1800:
+            page = await session.get(MAP_URL, timeout=_TIMEOUT)
+            try:
+                page.raise_for_status()
+                match = _TOKEN_RE.search(await page.text())
+                if match is None:
+                    raise TransportError("map page has no api token (page changed?)")
+                token = match.group(1)
+                _TOKENS[session] = (time.monotonic(), token)
+            finally:
+                release = getattr(page, "release", None)
+                if release is not None:
+                    release()
+        else:
+            token = cached[1]
         records: list[Record] = []
         for root in roots:
             resp = await session.get(
                 f"{RANGED_URL}?startDate={start:%Y%m%d}"
                 f"&endDate={end + timedelta(days=1):%Y%m%d}"
-                f"&regionId={root}&apiToken={match.group(1)}",
+                f"&regionId={root}&apiToken={token}",
                 timeout=_TIMEOUT,
             )
-            resp.raise_for_status()
-            records += parse_ranged_alerts(await resp.text())
+            try:
+                resp.raise_for_status()
+                records += parse_ranged_alerts(await resp.text())
+            finally:
+                release = getattr(resp, "release", None)
+                if release is not None:
+                    release()
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
-        raise TransportError(f"alert history fetch failed: {err}") from err
+        if isinstance(err, aiohttp.ClientResponseError) and err.status in (401, 403):
+            _TOKENS.pop(session, None)
+        # The anonymous page token travels in the query; omit the URL from logs.
+        raise TransportError(f"alert history fetch failed: {type(err).__name__}") from err
     return records
 
 
