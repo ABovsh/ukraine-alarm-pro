@@ -334,10 +334,13 @@ recorder:
 Use current IDs for renamed entities. The integration never edits recorder configuration.
 Keeping data-staleness and regional event history helps explain outages and alert transitions.
 
-The new percentage sensors have `state_class: measurement`. With complete coverage,
-each may create about 288 five-minute and 24 hourly statistics rows per day, even
-when its value is unchanged: about 624 statistics rows per region for both sensors,
-in addition to state history. `unknown` produces no numeric statistics.
+Percentage sensors have no `state_class`: recorder stores value and data-quality
+changes, but does not create scheduled five-minute or hourly statistics.
+Recalculating an unchanged percentage and quality does not create a new state row.
+Card statistics come from the integration's own 90-day journal.
+For `0.11.0rc1` and `0.11.0rc2` users: these sensors no longer accumulate long-term
+statistics; existing records remain. IDs, current values and ordinary state-change
+history are preserved.
 `sensor.uap_active_regions` retains its previous statistics for compatibility.
 
 ## Help

@@ -1,12 +1,16 @@
 """Adversarial RC regressions: clocks, retention and card lifecycle."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp import WSMessage, WSMsgType
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_capture_events
 from test_alert_history import FakeStore, _hist, _payload
 from test_card_browser import page as browser_page_fixture
+from test_entities import _setup
 
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
 from custom_components.ukraine_alarm_pro.api.ws import WsTransport
@@ -18,6 +22,35 @@ from custom_components.ukraine_alarm_pro.models import (
 
 T0 = datetime(2026, 10, 5, 12, tzinfo=UTC)
 page = browser_page_fixture
+
+
+async def test_percentage_zero_remains_numeric_without_statistics_or_duplicate_events(
+    hass, enable_custom_integrations
+):
+    entry, push = await _setup(hass)
+    push(Snapshot())
+    await hass.async_block_till_done()
+    history = entry.runtime_data.history
+    now = dt_util.utcnow()
+    history._live_since["31"] = (now - timedelta(days=8)).isoformat()
+    history.confirm(["31"], now)
+    captured = async_capture_events(hass, EVENT_STATE_CHANGED)
+    with patch.object(dt_util, "utcnow", return_value=now):
+        for _ in range(20):
+            entry.runtime_data.async_update_percentages()
+        await hass.async_block_till_done()
+    for window in ("24h", "7d"):
+        entity_id = f"sensor.uap_31_alert_percentage_{window}"
+        state = hass.states.get(entity_id)
+        assert float(state.state) == 0.0
+        assert state.attributes["coverage_complete"] is True
+        assert "state_class" not in state.attributes
+        assert len([e for e in captured if e.data["entity_id"] == entity_id]) == 1
+    # The released country-wide series keeps its statistics contract.
+    assert (
+        hass.states.get("sensor.uap_active_regions").attributes["state_class"]
+        == "measurement"
+    )
 
 
 @pytest.mark.parametrize("event_type", ["cleared", "updated"])
@@ -78,6 +111,7 @@ async def test_card_reconfiguration_releases_old_inflight_request(page):
       hass.callWS=(request)=>{calls.push(request); return new Promise(resolve=>pending.push(resolve));};
       window.c=makeCard(hass,'status');""")
     await page.clock.run_for(200)
+    await page.wait_for_function("pending.length===1")
     assert await page.evaluate("calls.length") == 1
     await page.evaluate("c.setConfig({entity:'binary_sensor.uap_31_alert',layout:'full'})")
     await page.clock.run_for(30000)
@@ -104,6 +138,9 @@ async def test_card_connection_change_cannot_accept_the_old_connection_reply(pag
       first.callWS=(request)=>{calls.push(request); return new Promise(resolve=>oldReply=resolve);};
       window.c=makeCard(first);""")
     await page.clock.run_for(200)
+    # IntersectionObserver delivery is asynchronous even with the fake clock.
+    # Establish the old in-flight request before replacing its connection.
+    await page.wait_for_function("calls.length===1 && typeof oldReply==='function'")
     await page.evaluate("window.second=makeHass(); second.connection={}; c.hass=second")
     await page.clock.run_for(200)
     assert await page.evaluate("calls.length") == 2

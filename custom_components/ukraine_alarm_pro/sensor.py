@@ -247,10 +247,13 @@ class LastUpdateSensor(UapStalenessEntity, SensorEntity):
 
 
 class AlertPercentageSensor(RegionSensor):
-    """Time under any alert, from one shared in-memory rolling calculation."""
+    """Rolling alert-time aggregate, recorded only when its value or quality changes.
+
+    No state_class: the journal already supplies history for this aggregate;
+    scheduled recorder statistics would add 312 rows per sensor per day.
+    """
 
     _attr_native_unit_of_measurement = "%"
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
 
     def __init__(self, coordinator, entry_id, region_id, info, seconds, suffix):

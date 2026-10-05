@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ⚠️ Breaking
+
+- For users of `0.11.0rc1` and `0.11.0rc2`, `alert_percentage_24h` and
+  `alert_percentage_7d` no longer have `state_class: measurement`, so future
+  long-term statistics stop accumulating. Existing records, entity IDs, live
+  values and ordinary state-change history are preserved. The card continues
+  to use the integration's own alert journal. These sensors were not present
+  in the stable `0.10.0` release.
+
 ## [0.11.0rc2] - 2026-10-05
 
 ### 🐛 Fixed

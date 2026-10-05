@@ -217,7 +217,7 @@ async def test_percentage_entities_exist_and_report_unknown(
         assert state is not None
         assert state.state == "unknown"
         assert state.attributes["unit_of_measurement"] == "%"
-        assert state.attributes["state_class"] == "measurement"
+        assert "state_class" not in state.attributes
         assert state.attributes["coverage_complete"] is False
 
 
@@ -408,6 +408,7 @@ async def test_sensor_service_equality_and_no_duplicate_state_events(
             len([event for event in captured if event.data["entity_id"] == entity]) == 1
         )
         assert "calculated_at" not in state.attributes
+        assert "state_class" not in state.attributes
 
 
 async def test_one_shared_percentage_timer(
