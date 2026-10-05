@@ -14,6 +14,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   to use the integration's own alert journal. These sensors were not present
   in the stable `0.10.0` release.
 
+### 🐛 Fixed
+
+- Alert notifications read the updated threat, declared start time and air-alert
+  level even when Home Assistant registers binary sensors before other sensors.
+  Region details are published before the alert transition that triggers an action.
+
 ## [0.11.0rc2] - 2026-10-05
 
 ### 🐛 Fixed

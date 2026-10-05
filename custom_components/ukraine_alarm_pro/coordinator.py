@@ -80,6 +80,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.percentages: dict[tuple[str, int], dict[str, Any]] = {}
         self._percentage_listeners: list = []
         self._health_listeners: list = []
+        self._region_detail_listeners: list = []
         self._backfill_lock = asyncio.Lock()
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
@@ -454,10 +455,16 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._health_listeners.append(listener)
         return lambda: self._health_listeners.remove(listener)
 
+    def add_region_detail_listener(self, listener):
+        self._region_detail_listeners.append(listener)
+        return lambda: self._region_detail_listeners.remove(listener)
+
     @callback
     def async_update_listeners(self) -> None:
-        """Publish freshness first, so automation conditions see this update."""
+        """Publish freshness and region details before alert-triggered actions."""
         for listener in tuple(self._health_listeners):
+            listener()
+        for listener in tuple(self._region_detail_listeners):
             listener()
         super().async_update_listeners()
 

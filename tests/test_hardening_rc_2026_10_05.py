@@ -8,6 +8,7 @@ from aiohttp import WSMessage, WSMsgType
 from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_capture_events
+from test_air_alert_levels import payload as air_payload
 from test_alert_history import FakeStore, _hist, _payload
 from test_card_browser import page as browser_page_fixture
 from test_entities import _setup
@@ -17,11 +18,49 @@ from custom_components.ukraine_alarm_pro.api.ws import WsTransport
 from custom_components.ukraine_alarm_pro.models import (
     Alert,
     Snapshot,
+    parse_alert_payload,
     region_view,
 )
 
 T0 = datetime(2026, 10, 5, 12, tzinfo=UTC)
 page = browser_page_fixture
+
+
+@pytest.mark.parametrize("clearing", [False, True])
+async def test_region_details_precede_binary_alert_transitions_in_any_platform_order(
+    hass, enable_custom_integrations, clearing, monkeypatch
+):
+    entry, push = await _setup(hass)
+    active = parse_alert_payload(air_payload("Red", region="31", reason="Missile risk"))
+    push(active if clearing else Snapshot())
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    # Reproduce the CI platform order: binary sensors registered before sensors.
+    coordinator._listeners = dict(sorted(
+        coordinator._listeners.items(),
+        key=lambda item: (
+            type(getattr(item[1][0], "__self__", None)).__name__
+            != "RegionAlertBinarySensor"
+        ),
+    ))
+    writes = {}
+    for listener, _ in coordinator._listeners.values():
+        entity = getattr(listener, "__self__", None)
+        if type(entity).__name__ in {
+            "RegionThreatSensor", "AlertStartedSensor", "AirAlertLevelSensor"
+        } and entity._region_id == "31":
+            writes[entity.entity_id] = MagicMock(wraps=entity.async_write_ha_state)
+            monkeypatch.setattr(entity, "async_write_ha_state", writes[entity.entity_id])
+    captured = async_capture_events(hass, EVENT_STATE_CHANGED)
+    push(Snapshot() if clearing else active)
+    await hass.async_block_till_done()
+    changed = [event.data["entity_id"] for event in captured]
+    alert_index = changed.index("binary_sensor.uap_31_alert")
+    for suffix in ("threat", "alert_started", "air_alert_level"):
+        entity_id = f"sensor.uap_31_{suffix}"
+        assert changed.index(entity_id) < alert_index
+        assert changed.count(entity_id) == 1
+        assert writes[entity_id].call_count == 1
 
 
 async def test_percentage_zero_remains_numeric_without_statistics_or_duplicate_events(

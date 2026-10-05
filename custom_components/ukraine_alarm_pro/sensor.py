@@ -55,6 +55,24 @@ class RegionSensor(UapEntity, SensorEntity):
         # The region name comes from the feed; only the suffix is translated.
         self._region_name = info["name"]
         self._attr_translation_placeholders = {"region": info["name"]}
+        self._published_view = object()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.add_region_detail_listener(self._handle_coordinator_update)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        # State-triggered actions can run eagerly, before the next ordinary
+        # coordinator listener. Publish details in the preceding phase; this
+        # view identity gate suppresses the subsequent ordinary callback.
+        view = self._view()
+        if view is self._published_view:
+            return
+        self._published_view = view
+        super()._handle_coordinator_update()
 
     def _view(self) -> RegionView | None:
         return self.coordinator.region_view(
