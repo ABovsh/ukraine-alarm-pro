@@ -200,31 +200,45 @@ function sharedRequest(hass, rid, full, trigger, maxAge) {
 
 // Preserve the ha-card (and keyboard focus). Only changed text, attributes
 // and child nodes are patched; timers do not replace the entire shadow DOM.
+function patchAttributes(old, node) {
+  // Attribute removal mutates a live NamedNodeMap; snapshot the names first.
+  for (const name of old.getAttributeNames()) {
+    if (!node.hasAttribute(name)) old.removeAttribute(name);
+  }
+  for (const attr of node.attributes) {
+    if (old.getAttribute(attr.name) !== attr.value) old.setAttribute(attr.name, attr.value);
+  }
+}
+
+function patchNode(old, node) {
+  if (node.nodeType === 3) {
+    if (old.nodeValue !== node.nodeValue) old.nodeValue = node.nodeValue;
+  } else if (node.nodeType === 1) {
+    patchAttributes(old, node);
+    patchChildren(old, node);
+  }
+}
+
+function patchChildren(parent, incoming) {
+  const next = [...incoming.childNodes];
+  for (let i = 0; i < next.length; i++) {
+    const old = parent.childNodes[i];
+    const node = next[i];
+    if (!old || old.nodeType !== node.nodeType || old.nodeName !== node.nodeName) {
+      const replacement = node.cloneNode(true);
+      if (old) old.replaceWith(replacement); else parent.appendChild(replacement);
+      continue;
+    }
+    patchNode(old, node);
+  }
+  while (parent.childNodes.length > next.length) parent.lastChild.remove();
+}
+
 function patchDOM(root, html) {
   if (typeof document === "undefined") { root.innerHTML = html; return; }
   const template = document.createElement("template");
   template.innerHTML = html;
-  function patch(parent, incoming) {
-    const next = [...incoming.childNodes];
-    for (let i = 0; i < next.length; i++) {
-      let old = parent.childNodes[i];
-      const node = next[i];
-      if (!old || old.nodeType !== node.nodeType || old.nodeName !== node.nodeName) {
-        const replacement = node.cloneNode(true);
-        if (old) parent.replaceChild(replacement, old); else parent.appendChild(replacement);
-        continue;
-      }
-      if (node.nodeType === 3) {
-        if (old.nodeValue !== node.nodeValue) old.nodeValue = node.nodeValue;
-      } else if (node.nodeType === 1) {
-        for (const attr of [...old.attributes]) if (!node.hasAttribute(attr.name)) old.removeAttribute(attr.name);
-        for (const attr of [...node.attributes]) if (old.getAttribute(attr.name) !== attr.value) old.setAttribute(attr.name, attr.value);
-        patch(old, node);
-      }
-    }
-    while (parent.childNodes.length > next.length) parent.lastChild.remove();
-  }
-  patch(root, template.content);
+  patchChildren(root, template.content);
 }
 
 const hhmm = (date, hass) =>
@@ -469,11 +483,18 @@ class UkraineAlarmProCard extends HTMLElement {
     const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h/24)*100}%"></span>`).join("");
     const incomplete = !day?.coverage_complete || !week?.coverage_complete;
     const extras = week?.count ? `${t.longest} ${span(t, week.longest_duration_seconds || 0)} · ${t.average} ${span(t, week.observed_duration_seconds / week.count)}` : "";
+    const extrasHint = extras ? `<div class="hint">${esc(extras)}</div>` : "";
+    let qualityHint = "";
+    if (incomplete) {
+      let reason = t.incomplete;
+      if (day?.quality === "gaps" || week?.quality === "gaps") reason += ` · ${t.gaps}`;
+      qualityHint = `<div class="hint">${esc(reason)}</div>`;
+    }
     return `<div class="stats">
       <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline${incomplete ? " incomplete" : ""}">${ticks}${segments}</div><b>${esc(line(day))}</b></div>
       <div class="row plain"><span class="lbl">${esc(t.week)}</span><b>${esc(line(week))}</b></div>
-      ${extras ? `<div class="hint">${esc(extras)}</div>` : ""}
-      ${incomplete ? `<div class="hint">${esc(t.incomplete)}${day?.quality === "gaps" || week?.quality === "gaps" ? ` · ${esc(t.gaps)}` : ""}</div>` : ""}
+      ${extrasHint}
+      ${qualityHint}
     </div>`;
   }
 

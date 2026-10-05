@@ -235,7 +235,8 @@ async def test_stop_cancels_every_task():
     assert all(task is not None for task in tasks)
     await sup.stop()
     assert all(task.cancelled() or task.done() for task in tasks)
-    assert sup._task is None and sup._poll_task is None
+    assert sup._task is None
+    assert sup._poll_task is None
     assert sup._watchdog_task is None
 
 

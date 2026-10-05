@@ -29,18 +29,26 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     entities: list[SensorEntity] = []
     for rid, info in entry.data[CONF_REGIONS].items():
-        entities.append(RegionThreatSensor(coordinator, entry.entry_id, rid, info))
-        entities.append(AlertStartedSensor(coordinator, entry.entry_id, rid, info))
-        entities.append(AirAlertLevelSensor(coordinator, entry.entry_id, rid, info))
+        entities.extend(
+            [
+                RegionThreatSensor(coordinator, entry.entry_id, rid, info),
+                AlertStartedSensor(coordinator, entry.entry_id, rid, info),
+                AirAlertLevelSensor(coordinator, entry.entry_id, rid, info),
+            ]
+        )
         for seconds, suffix in ((86400, "24h"), (604800, "7d")):
             entities.append(
                 AlertPercentageSensor(
                     coordinator, entry.entry_id, rid, info, seconds, suffix
                 )
             )
-    entities.append(TransportSensor(coordinator, entry.entry_id))
-    entities.append(ActiveRegionsSensor(coordinator, entry.entry_id))
-    entities.append(LastUpdateSensor(coordinator, entry.entry_id))
+    entities.extend(
+        [
+            TransportSensor(coordinator, entry.entry_id),
+            ActiveRegionsSensor(coordinator, entry.entry_id),
+            LastUpdateSensor(coordinator, entry.entry_id),
+        ]
+    )
     async_add_entities(entities)
 
 

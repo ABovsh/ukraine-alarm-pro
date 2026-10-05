@@ -115,11 +115,14 @@ async def test_keyboard_and_focus_survive_dom_updates(page):
     await page.keyboard.press("Enter")
     await page.clock.run_for(30000)
     await page.evaluate(
+        "button.setAttribute('data-old-a','a'); button.setAttribute('data-old-b','b'); "
         "hass.states['sensor.uap_31_threat'].attributes.region_name='Renamed Kyiv'; c.hass={...hass}"
     )
     assert await page.evaluate(
         "c.shadowRoot.querySelector('ha-card')===button && c.shadowRoot.activeElement===button"
     )
+    assert not await page.evaluate("button.hasAttribute('data-old-a')")
+    assert not await page.evaluate("button.hasAttribute('data-old-b')")
     await page.keyboard.press("Space")
     assert await page.evaluate("opened") == ["binary_sensor.uap_31_alert"] * 2
 
