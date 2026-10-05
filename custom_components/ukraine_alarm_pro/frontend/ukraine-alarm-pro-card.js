@@ -291,11 +291,23 @@ class UkraineAlarmProCard extends HTMLElement {
     this._stats = null;
     this._key = null;
     this._generation = (this._generation || 0) + 1;
+    this._loading = false;
+    this._statsFailed = null;
     this._entityCache = null;
     if (this._hass) this._render();
   }
 
   set hass(hass) {
+    const owner = hass?.connection || hass?.callWS;
+    if (this._connectionOwner !== owner) {
+      this._connectionOwner = owner;
+      this._generation = (this._generation || 0) + 1;
+      this._loading = false;
+      this._stats = null;
+      this._statsFailed = null;
+      this._entityCache = null;
+      this._key = null;
+    }
     this._hass = hass;
     const key = this._stateKey();
     if (key !== this._key) {
@@ -386,7 +398,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const hass = this._hass;
     const cached = this._entityCache;
     if (cached && cached.registry === hass.entities && cached.configured === this._config.entity &&
-        Object.values(cached.ids).filter(Boolean).every((id) => hass.states[id])) return cached.ids;
+        Object.values(cached.ids).every((id) => id && hass.states[id])) return cached.ids;
     const alert = this._config.entity || alertEntities(hass)[0];
     if (!alert || !hass.states[alert]) return null;
     const rid = regionIdOf(hass, alert);

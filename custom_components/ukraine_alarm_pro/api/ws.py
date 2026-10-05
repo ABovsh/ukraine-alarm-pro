@@ -51,7 +51,7 @@ def _replies(data: str) -> list[dict]:
             continue
         try:
             reply = json.loads(line)
-        except ValueError as err:
+        except (ValueError, RecursionError) as err:
             raise TransportError(f"malformed ws frame: {err}") from err
         if not isinstance(reply, dict):
             raise TransportError(f"unexpected ws reply: {type(reply).__name__}")

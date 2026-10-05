@@ -96,8 +96,8 @@ for (const [name, [h, config, stats]] of Object.entries(scenarios)) {
   Object.defineProperty(card, "isConnected", { value: false });
   card.setConfig(config);
   const hs = hass(h);
-  if (stats) card._stats = { rid: "31", trigger: "x", fetched: NOW, ...stats };
   card.hass = hs;
+  if (stats) card._stats = { rid: "31", trigger: "x", fetched: NOW, ...stats };
   card._render();
   out[name] = card.shadowRoot.innerHTML.split("</style>").pop().replace(/\s+/g, " ").trim();
 }

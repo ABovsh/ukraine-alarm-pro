@@ -246,6 +246,13 @@ class AlertHistory:
         else:
             self.confirm([region_id], _parse(at))
         episode = self._active.get(region_id)
+        if episode is not None and _parse(at) < _parse(episode["observed_started_at"]):
+            # UTC can move backwards while an episode is open. Its old start
+            # belongs to an uncertain clock: retain the episode without a
+            # negative interval that the next restore would discard.
+            episode["observed_started_at"] = at
+            episode["had_gap"] = True
+            episode["source_start_known"] = False
         if current["active"]:
             if episode is None:
                 episode = self._active[region_id] = {
@@ -465,7 +472,8 @@ class AlertHistory:
             dropped = episodes[: -self._max_episodes]
             if dropped:
                 self._retained_from[rid] = max(
-                    _parse(ep["observed_cleared_at"]) for ep in dropped
+                    _parse(self._retained_from.get(rid)) or cutoff,
+                    max(_parse(ep["observed_cleared_at"]) for ep in dropped),
                 ).isoformat()
             kept = episodes[-self._max_episodes :]
             self._index[rid] = kept
@@ -475,7 +483,10 @@ class AlertHistory:
                 for rid, spans in target.items():
                     remaining = [(lo, hi) for lo, hi in spans if _parse(hi) >= cutoff]
                     if len(remaining) > self._max_episodes:
-                        self._retained_from[rid] = remaining[-self._max_episodes - 1][1]
+                        self._retained_from[rid] = max(
+                            _parse(self._retained_from.get(rid)) or cutoff,
+                            max(_parse(hi) for _lo, hi in remaining[: -self._max_episodes]),
+                        ).isoformat()
                         remaining = remaining[-self._max_episodes :]
                     changed |= len(remaining) != len(spans)
                     target[rid] = remaining
