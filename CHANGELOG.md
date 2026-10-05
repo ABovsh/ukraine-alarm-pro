@@ -3,6 +3,76 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ⚠️ Breaking
+
+- For users of `0.11.0rc1` and `0.11.0rc2`, `alert_percentage_24h` and
+  `alert_percentage_7d` no longer have `state_class: measurement`, so future
+  long-term statistics stop accumulating. Existing records, entity IDs, live
+  values and ordinary state-change history are preserved. The card continues
+  to use the integration's own alert journal. These sensors were not present
+  in the stable `0.10.0` release.
+
+### 🐛 Fixed
+
+- Alert notifications read the updated threat, declared start time and air-alert
+  level even when Home Assistant registers binary sensors before other sensors.
+  Region details are published before the alert transition that triggers an action.
+
+## [0.11.0rc2] - 2026-10-05
+
+### 🐛 Fixed
+
+- Backfill completion is saved immediately after the final chunk. A restart after
+  abrupt power loss also recognizes an already-completed cursor, so an old pending
+  marker cannot permanently block the next daily history refresh.
+
+## [0.11.0rc1] - 2026-10-05
+
+### ✨ Added
+
+- Two time-under-alert sensors for each region: `alert_percentage_24h` and
+  `alert_percentage_7d`. They use exactly 86,400 and 604,800 seconds, merge overlapping
+  intervals, include ongoing alerts and round the value to 0.1%. Their scope matches
+  the existing binary sensor, including all threat types and administrative levels.
+  Incomplete coverage produces `unknown` with quality metadata.
+- A shared percentage calculation for sensors and the card. The card uses the entire
+  journal, including more than 50 episodes in a day, and marks incomplete statistics
+  separately from stale data and partial geographical coverage.
+- Keyboard activation of the card with Enter or Space, with focus preserved on updates.
+
+### 🐛 Fixed
+
+- Failed snapshot writes remain pending for retry. Unreadable caches no longer prevent
+  startup. Periodic checkpoints preserve confirmations of unchanged maps; shutdown
+  cannot renew the age of old data. Concurrent snapshot and journal writes are serialized.
+- Journal coverage and exact data gaps are tracked per region, including quiet periods
+  and restarts. Air-only official history no longer implies complete all-threat coverage.
+  Existing episodes are preserved during migration; a full percentage window must
+  accumulate valid coverage after upgrading.
+- HTTP seed, fallback and watchdog requests share an in-flight request and retain its
+  original revision, preventing a late response from overwriting newer WebSocket data.
+- HTTP 429 and `Retry-After` use bounded retry delays. Healthy fallback still polls every
+  60 seconds; failing retries back off with jitter. WebSocket cancellation closes the
+  socket and clears its heartbeat timer, including with newer aiohttp versions.
+- Transport freshness uses a monotonic clock; system time changes produce explicit
+  statistical uncertainty. Local calendar summaries correctly handle 23- and 25-hour days.
+
+### 🔧 Changed
+
+- Unaffected region views are retained and their entities skip unrelated updates.
+  Receipt-only metadata changes do not trigger alert transitions. Alert starts,
+  escalations and clears remain immediate.
+- Last-update state is rounded to a minute on every publication path; exact reception
+  and disk write times remain in diagnostics. Large threat attributes remain live but
+  are omitted from new recorder payloads. Optional recorder exclusions are documented.
+- Completed history is capped at 10,000 episodes per region instead of a shared 1,000;
+  truncation is explicit. Official backfill uses persisted seven-day chunks and resumes
+  failed parts without re-fetching successful parts.
+- Cards share cached requests, fetch only needed data for compact/status layouts,
+  suspend requests while hidden or offscreen, and update existing DOM nodes.
+
 ## [0.10.0] - 2026-09-19
 
 ### ✨ Added

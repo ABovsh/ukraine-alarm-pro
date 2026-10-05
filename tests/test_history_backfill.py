@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -49,7 +49,9 @@ def test_parse_accepts_the_double_encoded_answer_and_skips_ongoing_alerts():
     ]
 
 
-@pytest.mark.parametrize("body", ["not json", json.dumps({"a": 1}), json.dumps(json.dumps(5))])
+@pytest.mark.parametrize(
+    "body", ["not json", json.dumps({"a": 1}), json.dumps(json.dumps(5))]
+)
 def test_parse_rejects_an_unusable_envelope(body):
     with pytest.raises(ValueError):
         parse_ranged_alerts(body)
@@ -85,11 +87,22 @@ async def test_merge_adds_only_periods_the_journal_did_not_observe():
     history, _ = _hist(FakeStore())
     await history.async_load()
     # Observed live: 09:00:10 – 09:20.
-    history.handle_event("started", _payload("started", T0 - timedelta(minutes=59, seconds=50), active=True))
-    history.handle_event("cleared", _payload("cleared", T0 - timedelta(minutes=40), active=False))
+    history.handle_event(
+        "started",
+        _payload("started", T0 - timedelta(minutes=59, seconds=50), active=True),
+    )
+    history.handle_event(
+        "cleared", _payload("cleared", T0 - timedelta(minutes=40), active=False)
+    )
     official = [
-        (T0 - timedelta(hours=1), T0 - timedelta(minutes=41)),  # the same alert, official times
-        (T0 - timedelta(days=2), T0 - timedelta(days=2) + timedelta(minutes=30)),  # before install
+        (
+            T0 - timedelta(hours=1),
+            T0 - timedelta(minutes=41),
+        ),  # the same alert, official times
+        (
+            T0 - timedelta(days=2),
+            T0 - timedelta(days=2) + timedelta(minutes=30),
+        ),  # before install
     ]
     added = history.merge_official("31", official, window_start=T0 - timedelta(days=90))
     assert added == 1
@@ -100,7 +113,10 @@ async def test_merge_adds_only_periods_the_journal_did_not_observe():
     assert old["observed_duration_seconds"] == 1800
     assert old["had_gap"] is False
     assert old["source_start_known"] is True
-    assert history.summary("31", 7)["coverage_start"] == (T0 - timedelta(days=90)).isoformat()
+    assert (
+        history.summary("31", 7)["coverage_start"]
+        == (T0 - timedelta(days=90)).isoformat()
+    )
 
 
 async def test_merge_is_idempotent_and_persisted():
@@ -108,8 +124,14 @@ async def test_merge_is_idempotent_and_persisted():
     history, _ = _hist(store)
     await history.async_load()
     official = [(T0 - timedelta(days=1), T0 - timedelta(days=1, minutes=-20))]
-    assert history.merge_official("31", official, window_start=T0 - timedelta(days=90)) == 1
-    assert history.merge_official("31", official, window_start=T0 - timedelta(days=90)) == 0
+    assert (
+        history.merge_official("31", official, window_start=T0 - timedelta(days=90))
+        == 1
+    )
+    assert (
+        history.merge_official("31", official, window_start=T0 - timedelta(days=90))
+        == 0
+    )
     await history.async_flush()
     reloaded, _ = _hist(FakeStore(store.data))
     await reloaded.async_load()
@@ -119,9 +141,19 @@ async def test_merge_is_idempotent_and_persisted():
 async def test_merge_never_extends_coverage_forward_and_skips_the_active_period():
     history, _ = _hist(FakeStore())
     await history.async_load()
-    history.handle_event("resynced", _payload("resynced", T0 - timedelta(minutes=5), active=True, origin="bootstrap"))
+    history.handle_event(
+        "resynced",
+        _payload(
+            "resynced", T0 - timedelta(minutes=5), active=True, origin="bootstrap"
+        ),
+    )
     ongoing_overlap = [(T0 - timedelta(minutes=30), T0 - timedelta(minutes=2))]
-    assert history.merge_official("31", ongoing_overlap, window_start=T0 + timedelta(days=1)) == 0
+    assert (
+        history.merge_official(
+            "31", ongoing_overlap, window_start=T0 + timedelta(days=1)
+        )
+        == 0
+    )
     assert history.summary("31", 1)["coverage_start"] == T0.isoformat()
 
 
@@ -159,7 +191,9 @@ class _Resp:
 
     def raise_for_status(self):
         if self.status >= 400:
-            raise __import__("aiohttp").ClientResponseError(MagicMock(), (), status=self.status)
+            raise __import__("aiohttp").ClientResponseError(
+                MagicMock(), (), status=self.status
+            )
 
     async def text(self):
         return self._text
@@ -167,7 +201,9 @@ class _Resp:
 
 async def test_fetch_uses_the_map_page_token_and_one_request_per_root():
     page = '<input id="api-token" type="hidden" value="tok123" />'
-    body = json.dumps(json.dumps([_rec("31", "2026-09-14T06:00:00Z", "2026-09-14T06:10:00Z")]))
+    body = json.dumps(
+        json.dumps([_rec("31", "2026-09-14T06:00:00Z", "2026-09-14T06:10:00Z")])
+    )
     session = MagicMock()
     session.get = AsyncMock(side_effect=[_Resp(page), _Resp(body)])
     records = await async_fetch_official_history(
@@ -175,7 +211,12 @@ async def test_fetch_uses_the_map_page_token_and_one_request_per_root():
     )
     assert len(records) == 1
     url = session.get.call_args_list[1].args[0]
-    for part in ("regionId=31", "apiToken=tok123", "startDate=20260617", "endDate=20260916"):
+    for part in (
+        "regionId=31",
+        "apiToken=tok123",
+        "startDate=20260617",
+        "endDate=20260916",
+    ):
         assert part in url
 
 
@@ -184,6 +225,17 @@ async def test_fetch_without_a_token_is_a_transport_error():
     session.get = AsyncMock(return_value=_Resp("<html></html>"))
     with pytest.raises(TransportError):
         await async_fetch_official_history(session, ["31"], T0 - timedelta(days=1), T0)
+
+
+async def test_fetch_reuses_page_token_across_history_chunks():
+    page = '<input id="api-token" type="hidden" value="anonymous-test-token" />'
+    session = MagicMock()
+    session.get = AsyncMock(side_effect=[_Resp(page), _Resp("[]"), _Resp("[]")])
+    await async_fetch_official_history(
+        session, ["31"], T0 - timedelta(days=14), T0 - timedelta(days=7)
+    )
+    await async_fetch_official_history(session, ["31"], T0 - timedelta(days=7), T0)
+    assert session.get.await_count == 3
 
 
 async def test_setup_backfills_the_journal_in_the_background(
@@ -211,14 +263,24 @@ async def test_backfill_runs_five_minutes_after_setup_and_then_daily(
 
     fetch = AsyncMock(return_value=[])
     monkeypatch.setattr("custom_components.ukraine_alarm_pro.backfill._fetch", fetch)
+    monkeypatch.setattr(
+        "custom_components.ukraine_alarm_pro.regions.async_refresh_region_cache",
+        AsyncMock(),
+    )
     await _setup(hass)
     now = dt_util.utcnow()
     async_fire_time_changed(hass, now + timedelta(seconds=299))
     await hass.async_block_till_done()
     assert fetch.await_count == 0
     async_fire_time_changed(hass, now + timedelta(seconds=301))
-    await hass.async_block_till_done()
-    assert fetch.await_count == 1
-    async_fire_time_changed(hass, now + timedelta(hours=24, seconds=5))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert fetch.await_count == 26  # 90 days: 13 chunks for each of two roots
+    fetch.reset_mock()
+    future = now + timedelta(hours=24, seconds=5)
+    with patch(
+        "custom_components.ukraine_alarm_pro.coordinator.dt_util.utcnow",
+        return_value=future,
+    ):
+        async_fire_time_changed(hass, future)
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert fetch.await_count == 2

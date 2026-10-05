@@ -161,6 +161,6 @@ def test_card_retries_statistics_after_a_failed_call(tmp_path):
         check=True,
     )
     result = json.loads(out.stdout.strip().splitlines()[-1])
-    assert result["afterFailure"] == 2  # get_summary + get_history
+    assert result["afterFailure"] == 1  # compact: newest history entry only
     assert result["immediate"] == result["afterFailure"]
     assert result["afterRetry"] > result["afterFailure"]

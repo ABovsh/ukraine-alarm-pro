@@ -22,15 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Floor: oldest HA + test-helper pair whose cleanup checks know about
-          # HA's safe-shutdown thread (phcc < 0.13.260 false-fails on it, so
-          # HA lines older than 2025.7 can't be tested cleanly even though the
-          # declared minimum stays 2025.1).
+          # Test the declared floor. pycares 4.5 predates its process-wide
+          # shutdown thread, which this historical test-helper cannot exempt.
           - python-version: "3.13"
-            ha-pin: "homeassistant==2025.7.0 pytest-homeassistant-custom-component==0.13.260 pycares<5"
+            ha-pin: "homeassistant==2025.1.0 pytest-homeassistant-custom-component==0.13.201 pycares==4.5.0"
             ha-label: "min"
           # Ceiling: latest HA + deps on a current Python.
-          - python-version: "3.13"
+          - python-version: "3.14"
             ha-pin: ""
             ha-label: "latest"
     steps:
@@ -49,10 +47,11 @@ jobs:
         env:
           HA_PIN: "${{ matrix.ha-pin }}"
         run: |
-          python -m pip install -r requirements_test.txt
           if [ -n "$HA_PIN" ]; then
             # shellcheck disable=SC2086 — intentional word-split of pin list
-            python -m pip install $HA_PIN
+            python -m pip install -r requirements_test.txt $HA_PIN
+          else
+            python -m pip install -r requirements_test.txt
           fi
           python -c "from homeassistant.const import __version__; print('HA', __version__)"
 
@@ -68,6 +67,9 @@ jobs:
 
       - name: Lint
         run: "python -m ruff check custom_components/ukraine_alarm_pro tests"
+
+      - name: Install browser
+        run: "python -m playwright install --with-deps chromium"
 
       - name: Run tests
         run: "python -m pytest tests -q --cov=custom_components/ukraine_alarm_pro --cov-report=xml"

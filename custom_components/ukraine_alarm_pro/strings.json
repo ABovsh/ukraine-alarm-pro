@@ -81,6 +81,12 @@
           "red": "Red",
           "unrecognized": "Level unspecified"
         }
+      },
+      "alert_percentage_24h": {
+        "name": "{region} time under alert — 24 hours"
+      },
+      "alert_percentage_7d": {
+        "name": "{region} time under alert — 7 days"
       }
     },
     "binary_sensor": {

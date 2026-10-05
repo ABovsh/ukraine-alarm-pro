@@ -75,7 +75,15 @@ _SUMMARY_SCHEMA = vol.Schema(
 )
 
 # Unique-id suffixes of the per-region entities, for the deselection purge.
-REGION_ENTITY_KINDS = ("threat", "alert", "started", "level", "event")
+REGION_ENTITY_KINDS = (
+    "threat",
+    "alert",
+    "started",
+    "level",
+    "event",
+    "percentage_24h",
+    "percentage_7d",
+)
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -92,9 +100,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     def _coordinator(region_id: str) -> AlarmCoordinator:
         for entry in hass.config_entries.async_entries(DOMAIN):
-            if (
-                entry.state is ConfigEntryState.LOADED
-                and region_id in entry.data.get(CONF_REGIONS, {})
+            if entry.state is ConfigEntryState.LOADED and region_id in entry.data.get(
+                CONF_REGIONS, {}
             ):
                 return entry.runtime_data
         raise ServiceValidationError(
@@ -110,7 +117,22 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     async def _get_summary(call: ServiceCall) -> ServiceResponse:
         region_id = call.data["region_id"]
-        return _coordinator(region_id).history.summary(region_id, call.data["days"])
+        coordinator = _coordinator(region_id)
+        result = coordinator.history.summary(region_id, call.data["days"])
+        result["rolling_24h"] = coordinator.percentages.get((region_id, 86400))
+        result["rolling_calculated_at"] = (
+            result["rolling_24h"].get("calculated_at")
+            if result["rolling_24h"]
+            else None
+        )
+        week = coordinator.percentages.get((region_id, 604800))
+        result["rolling_7d"] = (
+            {key: value for key, value in week.items() if key != "intervals"}
+            if week
+            else None
+        )
+        result["last_episode"] = coordinator.history.history(region_id, 1)
+        return result
 
     hass.services.async_register(
         DOMAIN,
@@ -156,7 +178,8 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         return
     await resources.async_get_info()  # loads the collection on first use
     ours = [
-        item for item in resources.async_items()
+        item
+        for item in resources.async_items()
         if str(item.get("url", "")).split("?")[0] == CARD_URL
     ]
     if not ours:
@@ -207,9 +230,13 @@ async def async_setup_entry(
         # for them at shutdown instead of leaving orphaned loop tasks behind.
         return entry.async_create_background_task(hass, coro, name=name)
 
-    await supervisor.start(_create_task)
-
     entry.runtime_data = coordinator
+    coordinator.async_update_percentages()
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass, coordinator.async_update_percentages, timedelta(minutes=5)
+        )
+    )
     entry.async_on_unload(
         async_track_time_interval(
             hass,
@@ -229,9 +256,11 @@ async def async_setup_entry(
             timedelta(seconds=SAVE_DELAY_SECONDS),
         )
     )
+
     async def _async_save_on_stop(_event) -> None:
         # A restart does not unload entries: without this the last few minutes
         # of the map and the journal were lost on every restart.
+        await supervisor.stop()
         await coordinator.async_save_now()
         await coordinator.async_flush_history()
 
@@ -241,6 +270,7 @@ async def async_setup_entry(
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     _async_purge_deselected_regions(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await supervisor.start(_create_task)
     _async_schedule_descendant_backfill(hass, entry, session)
     _async_schedule_region_cache_refresh(hass, entry)
     _async_schedule_history_backfill(hass, entry)
@@ -290,10 +320,20 @@ def _async_purge_deselected_regions(
     for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         # Region unique ids are "<entry_id>_<region_id>_<kind>"; the hub
         # diagnostics never match, so new ones can be added without a whitelist.
-        region_id, _, kind = reg_entry.unique_id.removeprefix(
-            f"{entry.entry_id}_"
-        ).rpartition("_")
-        if region_id and kind in REGION_ENTITY_KINDS and region_id not in regions:
+        suffix = next(
+            (
+                kind
+                for kind in REGION_ENTITY_KINDS
+                if reg_entry.unique_id.endswith(f"_{kind}")
+            ),
+            None,
+        )
+        if suffix is None:
+            continue
+        region_id = reg_entry.unique_id.removeprefix(f"{entry.entry_id}_").removesuffix(
+            f"_{suffix}"
+        )
+        if region_id and region_id not in regions:
             _LOGGER.info(
                 "Removing %s: region %s is no longer monitored",
                 reg_entry.entity_id,
@@ -321,7 +361,9 @@ def _async_schedule_history_backfill(
         )
 
     entry.async_on_unload(async_call_later(hass, 300, _run))
-    entry.async_on_unload(async_track_time_interval(hass, _run, timedelta(hours=24)))
+    # Complete roots are skipped until their daily refresh; interrupted roots
+    # resume their persisted chunk cursor on this hourly retry.
+    entry.async_on_unload(async_track_time_interval(hass, _run, timedelta(hours=1)))
 
 
 @callback
@@ -347,9 +389,7 @@ def _async_schedule_region_cache_refresh(
         )
 
     entry.async_on_unload(async_call_later(hass, 600, _refresh))
-    entry.async_on_unload(
-        async_track_time_interval(hass, _refresh, timedelta(hours=1))
-    )
+    entry.async_on_unload(async_track_time_interval(hass, _refresh, timedelta(hours=1)))
 
 
 @callback

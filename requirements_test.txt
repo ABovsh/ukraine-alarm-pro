@@ -5,3 +5,4 @@ pytest-asyncio
 pytest-homeassistant-custom-component>=0.13.108
 ruff
 pytest-cov
+playwright>=1.49.0

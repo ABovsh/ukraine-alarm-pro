@@ -1,61 +1,65 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.10.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.11.0rc2-orange?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
 
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ABovsh_ukraine-alarm-pro)
-[![Reliability](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=reliability_rating)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=reliability_rating)
-[![Security](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=security_rating)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=security_rating)
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=ABovsh_ukraine-alarm-pro&metric=sqale_rating)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=sqale_rating)
-[![Coverage](https://img.shields.io/sonar/coverage/ABovsh_ukraine-alarm-pro?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarcloud&label=coverage)](https://sonarcloud.io/component_measures?id=ABovsh_ukraine-alarm-pro&metric=coverage)
 
 🇺🇦 [Українська](README.md) · **English**
 
-Air-raid alerts for Home Assistant. The data comes from the official
-[alert map](https://map.ukrainealarm.com/) over a WebSocket — as soon as it is published,
-without an API key.
+Air-raid alerts for Home Assistant from the official [alert map](https://map.ukrainealarm.com/).
+Updates arrive over WebSocket without an API key; fresh data requires an internet connection.
 
-## How it differs from `ukraine_alarm`
+[Installation](#installation) · [Card](#dashboard-card) · [Notifications](#notifications) ·
+[Entities](#entities) · [Help](#help) · [Updating](#updating) · [Changelog](CHANGELOG.md)
 
-[`ukraine_alarm`](https://www.home-assistant.io/integrations/ukraine_alarm/) ships with
-Home Assistant and gets its data from the same source through siren.pp.ua.
-What this integration has:
+<a id="how-it-differs-from-ukraine_alarm"></a>
 
-- **Alerts from every administrative level.** An oblast, raion or hromada takes the
-  alerts of the regions above it and inside it into account. `ukraine_alarm` shows the
-  selected region only.
-- **A dashboard card.** State, alert duration or time since the all clear, statistics for
-  24 hours and 7 days. `ukraine_alarm` has no card.
-- **A 90-day alert journal**, filled with the official history right after installation.
-  `ukraine_alarm` has no journal.
-- **Events and ready-made notifications** for an alert start, a level rise, the all clear
-  and gaps in the data. `ukraine_alarm` creates state binary sensors only.
-- **Air alert level with its reason** — yellow or red. In the `ukraine_alarm` `dev`
-  branch the levels were added as two binary sensors, without reasons.
-- **The last state is kept** through a lost connection and a restart, and a separate
-  sensor marks stale data. In `ukraine_alarm` a failed poll makes the entities
-  `unavailable`.
-- **One connection for all regions**, with no limit on their number. `ukraine_alarm`
-  polls the proxy separately for each region and allows up to five regions.
+## Features
 
-This comparison was checked against [Home Assistant 2026.9.2 source](https://github.com/home-assistant/core/tree/2026.9.2/homeassistant/components/ukraine_alarm)
-and the `dev` branch as of 2026-09-15.
+- **Alerts for an oblast, raion or hromada.** Each selected region includes alerts
+  from its administrative ancestors and the regions within it. Coverage shows
+  whether an alert affects the whole region or only part of it.
+- **Dashboard card.** Current state, alert duration or time since the all clear,
+  statistics for 24 hours and 7 days, and three layouts.
+- **Up to 90 days of history.** Local observations are supplemented with official
+  air-alert history. That source has no alert levels or alerts declared for an individual hromada.
+- **Events and notification blueprints.** Alert start, escalation, new threats,
+  all clear and data gaps, with messages in Ukrainian or English.
+- **Air alert level and reason.** Yellow or red and the reason, when supplied by
+  the source; other threat types are available separately.
+- **Last known state during outages.** The saved alert map is restored after a
+  restart; a separate sensor and the card indicate stale data.
+- **One shared connection for selected regions.** The integration does not limit
+  their number and switches to a fallback source after repeated WebSocket failures.
 
 ## Installation
 
-HACS → custom repository → `ABovsh/ukraine-alarm-pro` → install → add the integration →
-pick the regions. The whole tree is available, down to hromadas.
+You need **Home Assistant 2025.1 or newer**, internet access and a configured **HACS**.
 
-To change the regions later: **Settings → Devices & services → Ukraine Alarm Pro →
-Configure**. Entities of removed regions are deleted automatically.
+1. In HACS, open **⋮ → Custom repositories**, add
+   `https://github.com/ABovsh/ukraine-alarm-pro` with type **Integration**
+   ([HACS instructions](https://www.hacs.xyz/docs/faq/custom_repositories/)).
+2. Find **Ukraine Alarm Pro** in HACS, download the integration and restart Home Assistant.
+3. Open **Settings → Devices & services → Add integration** and find **Ukraine Alarm Pro**.
+4. In **Regions to monitor**, select at least one region and save.
+   The full tree is available, down to hromadas.
+5. Add a [dashboard card](#adding-the-card). Wait for fresh data:
+   `binary_sensor.uap_data_stale` should be `off`. Then set up
+   [event notifications](#notifications-from-events) if needed.
 
-The integration keeps a copy of the region list and refreshes it once a day. If the
-proxy is unavailable, the options show the saved copy with its date. A selected region
-missing from the current list stays selected with a ⚠ mark and is not removed. A first
-installation without network and without a saved copy is not possible: the form offers
-a retry.
+### Changing regions
+
+**Settings → Devices & services → Ukraine Alarm Pro → Configure**.
+Entities of removed regions are deleted automatically; check any automations and cards
+that use them.
+
+The region list is saved locally and refreshed daily. If the proxy is unavailable,
+the form uses the saved copy and shows its date. A selected region missing from the
+current list stays selected with a ⚠ mark. First-time setup without a saved copy
+requires the region-list source to be available.
 
 ## Dashboard card
 
@@ -77,20 +81,17 @@ Tapping the card opens the alert sensor with its history.
 
 ### Adding the card
 
-1. Install the integration and restart Home Assistant.
-2. Reload the browser page. In the Home Assistant app: **Settings → Companion app →
-   Troubleshooting → Reset frontend cache**, then restart the app.
-3. Open a dashboard and press the pencil, **Edit dashboard**.
-4. Press **Add card**, search for **Ukraine Alarm Pro** and pick the card.
-5. In **Region / Регіон** pick your region's alert sensor. With a single region the card
-   picks it on its own.
-6. In **Layout / Вигляд** choose full, status only or compact. Optionally set
-   **Name / Назва** (for example "Home") and **Language / Мова**.
-7. Press **Save**. Add one card per region.
+1. After installing the integration, reload Home Assistant in your browser or app.
+2. On a dashboard, choose **Edit dashboard → Add card** and find **Ukraine Alarm Pro**.
+3. In **Region / Регіон**, pick your region's alert sensor.
+   With a single region, the card selects it automatically.
+4. In **Layout / Вигляд**, choose a layout. Optionally set **Name / Назва**
+   (for example, "Home") and **Language / Мова**.
+5. Press **Save**. Add one card per region.
 
-If you see "Custom element doesn't exist" or "Configuration error" instead of the card,
-the browser still has the old page: repeat step 2. For YAML-mode dashboards add the
-resource yourself: `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
+For YAML-mode dashboards, add the resource manually:
+`/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
+If the card does not appear, see [Help](#help).
 
 ### Card in YAML
 
@@ -102,10 +103,13 @@ layout: full                        # full, status (status only) or compact
 language: auto                      # auto (Home Assistant language), uk or en
 ```
 
-Statistics come from the alert journal (see "Alert history"). A few minutes after
-installation the journal is filled with 90 days of official history.
-The card creates no entities and no database rows. Entities may be renamed: the card finds
-them by region.
+Statistics come from the [alert journal](#alert-history). Fetching official history
+starts five minutes after startup and depends on the source being available.
+Percentages match the [time-under-alert sensors](#time-under-alert). Incomplete
+statistics, stale data and partial geographical coverage have separate indicators.
+Cards for the same region share requests and pause them in a hidden tab or offscreen.
+Active compact/status cards do not request the journal. The card creates no database
+rows. Entities may be renamed: the card finds them by region.
 
 ## Notifications
 
@@ -115,6 +119,14 @@ The [event notification blueprint](https://my.home-assistant.io/redirect/bluepri
 sends ready-made messages in Ukrainian or English, for example
 "м. Київ: air raid alert since 14:32. Level: red. Reason: …" or
 "м. Київ: all clear. Observed duration: 1 h 12 min."
+
+To get started:
+
+1. Import the blueprint linked above and create an automation from it.
+2. In **Alert events**, select your region's `event.uap_<id>_event`, then choose
+   **Message language**.
+3. For each event you want reported, add a notification action with `{{ message }}`
+   as its message and save the automation.
 
 Separate actions cover the start, a raised level or a new threat, the all clear, stale
 data and restored data; an empty action sends nothing. The first data after a Home
@@ -142,9 +154,12 @@ condition:
     state: "off"
 ```
 
-Imported blueprints are updated separately: HACS installs only the integration.
+See [Updating](#updating) for imported blueprint updates.
 
 ## Entities
+
+`<id>` is the numeric region ID (for example, `31`). These are the initial entity IDs;
+if you rename them, use your own IDs in automations.
 
 | Entity | Type | Description |
 | --- | --- | --- |
@@ -152,15 +167,49 @@ Imported blueprints are updated separately: HACS installs only the integration.
 | `sensor.uap_<id>_threat` | enum | highest active threat: `none`, `air`, `artillery`, `urban_fights`, `chemical`, `nuclear`, `unrecognized` |
 | `sensor.uap_<id>_air_alert_level` | enum | air alert level: `none`, `yellow`, `red`, `unrecognized` |
 | `sensor.uap_<id>_alert_started` | timestamp | when the oldest active alert was declared; `unknown` while the region is quiet |
+| `sensor.uap_<id>_alert_percentage_24h` | % | time under alert over the last 86,400 seconds |
+| `sensor.uap_<id>_alert_percentage_7d` | % | time under alert over the last 604,800 seconds |
 | `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
-| `sensor.uap_last_update` | diagnostic | time of the last data received |
+| `sensor.uap_last_update` | diagnostic | last data received, rounded to a minute |
 | `sensor.uap_active_regions` | diagnostic | how many regions are in alert country-wide |
 | `binary_sensor.uap_data_stale` | diagnostic | on when no data has arrived for 15 minutes |
 
 `sensor.uap_<id>_threat` carries an `active_alerts` attribute — the active alerts with the
 name of the region that declared each one (at most 25 entries, the full number is in
 `active_alert_count`). The complete list is in the diagnostics.
+
+### Time under alert
+
+Each selected region gets `alert_percentage_24h` and `alert_percentage_7d` sensors.
+An alert means the same thing as `binary_sensor.uap_<id>_alert`: any active threat
+(`air`, `artillery`, `urban_fights`, `chemical`, `nuclear` or `unrecognized`) in the
+region, an ancestor, or part of the region.
+
+These rolling windows span exactly 86,400 and 604,800 seconds, regardless of midnight
+or daylight saving time. Percentage is `100 × alert duration inside the window / window duration`.
+The current alert is included. Intervals are clipped to the window and overlapping
+administrative declarations are counted once. One hour out of 24 is **4.2%**; the
+native value is rounded to 0.1%.
+
+Incomplete coverage produces `unknown`. `quality` and `coverage_complete` describe
+it: `complete` means a fully covered window, `incomplete` means observation began
+inside the window, `gaps` means a recorded outage, `stale` means an ongoing outage
+or waiting for confirmation after startup, `truncated` means the retention cap
+removed needed history, and `clock_jump` means a system clock change.
+`window_seconds` and `threat_scope: any_alert` describe the measurement.
+
+After upgrading, a full window requires 24 hours or seven days of continuous coverage.
+Restarts and lost data leave an exact gap from the last confirmation to recovery.
+A percentage becomes available again when that gap leaves its window. Official
+history adds known air alerts; it cannot prove the absence of other threats or close
+all-threat coverage gaps.
+
+One shared calculation runs about every five minutes and after journal changes.
+Sensors publish only a changed rounded value or quality; the card reads those same
+values. Calculation uses the in-memory journal, without recorder queries.
+
+### Alert coverage
 
 The `coverage` attribute tells whether the alert covers the whole region:
 
@@ -177,6 +226,8 @@ declared active alerts; `affected_region_count` is the full number of such regio
 is not the number of hromadas in alert or a share of the area. Coverage does not change
 `binary_sensor.uap_<id>_alert`: a partial alert is still an alert.
 
+### Level and reasons
+
 The air alert level covers the same region and its ancestors and descendants.
 If yellow and red are active together, the sensor reports `red`; `active_levels`
 contains both. `unrecognized` means an air alert exists but the source supplied no
@@ -185,9 +236,8 @@ recognized level. `none` means no air alert; other threat types remain on `threa
 The `reasons` attribute contains up to 25 source reasons, each limited to 256 characters;
 `reason_count` is the full count of distinct nonempty reasons. An empty reason does
 not imply a weapon type. Full reasons and each level's declaration time are available
-in diagnostics. The sensor has no long-term statistics: history is written only when
-its state or attributes change. Repeated publications and changes in unrelated regions
-produce no additional history rows for this sensor.
+in diagnostics. The sensor has no long-term statistics; repeated publications without changes
+do not add history rows.
 
 ### Alert events
 
@@ -241,30 +291,102 @@ data; `declared_started_at` is the declaration time from the source. If data was
 interrupted or an alert was already active at startup, `had_gap` is `true` and
 `source_start_known` is `false`.
 
-Five minutes after startup and then once a day, the integration adds the official alert
-history from the map to the journal: 90 days on the first run, the last few days after
-that. This also fills the periods when Home Assistant was off. Such episodes have
+Five minutes after startup and then once a day, the integration requests official alert
+history from the map: 90 days on the first run, the last few days after
+that. When the source is available, this also supplements periods when Home Assistant
+was off. Such episodes have
 `start_origin: history`, the official start and all-clear times and the type `air`: the
 history has no levels. It holds alerts of oblasts, raions and cities; alerts declared
-for a single hromada are not in it. Episodes the integration received itself are never
-replaced. `coverage_start` shows the date the journal has data from.
+for a single hromada are not in it. Observed boundaries are preserved; official history may refine an unknown air-alert
+start. Overlaps do not create duplicate episodes. `coverage_start` identifies the
+region's available history, not complete coverage of every threat type.
 
-Completed episodes are kept for up to 90 days and at most 1000 in total; current
-episodes are never removed. Recorder history is not affected.
+History is fetched in chunks of up to seven days, with persisted progress per region.
+Failed chunks resume on the hourly retry; successful chunks are not requested again.
+Completed downloads refresh daily.
 
-## What to know about the data
+Completed episodes are kept for up to 90 days and at most 10,000 **per region**; current
+episodes are preserved. Needed history removed by the cap is reported as `truncated`.
+Recorder history is not affected.
 
-- `sensor.uap_active_regions` never reaches zero: the occupied territories carry
-  permanently active alerts in the source, going back to 2022.
+Calendar fields in `get_summary` remain compatible. Additional `rolling_24h`,
+`rolling_7d` and `rolling_calculated_at` contain the shared sensor/card calculation.
+Statistics use the region's entire journal, independently of the `get_history` limit.
+
+## Recorder
+
+Live `active_alerts`, `affected_regions` and `coverage_by_type` attributes remain
+available to cards and automations but are omitted from new recorder attributes.
+This reduces payload bytes; state row counts depend on Home Assistant changes to
+both state and attributes. Existing records are retained.
+
+You may add this optional profile for country-wide diagnostics to your configuration:
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - sensor.uap_last_update
+      - sensor.uap_transport
+      - sensor.uap_active_regions
+```
+
+Use current IDs for renamed entities. The integration never edits recorder configuration.
+Keeping data-staleness and regional event history helps explain outages and alert transitions.
+
+Percentage sensors have no `state_class`: recorder stores value and data-quality
+changes, but does not create scheduled five-minute or hourly statistics.
+Recalculating an unchanged percentage and quality does not create a new state row.
+Card statistics come from the integration's own 90-day journal.
+For `0.11.0rc1` and `0.11.0rc2` users: these sensors no longer accumulate long-term
+statistics; existing records remain. IDs, current values and ordinary state-change
+history are preserved.
+`sensor.uap_active_regions` retains its previous statistics for compatibility.
+
+## Help
+
+- **Card will not load.** For "Custom element doesn't exist", first reload the page
+  or clear the app's frontend cache. Check that Home Assistant was restarted after
+  installation and that YAML-mode dashboards have the card resource. For
+  "Configuration error", also check `type`, `entity`, `layout` and `language` against the example above.
+- **No fresh data.** Check access to the [data sources](#data-sources) and
+  `sensor.uap_last_update`. A saved state does not confirm a current alert or all clear.
+- **No notifications.** Check the selected event entity and automation actions.
+  Empty actions send nothing; the test script helps check delivery.
+
+### What to know about the data
+
+- `sensor.uap_active_regions` may stay above zero because the source carries
+  permanent alerts for occupied territories.
 - For the same reason `sensor.uap_<id>_alert_started` shows an old date for an oblast that
   contains such a region. Pick your own raion or hromada.
 - An alert type the integration does not know is reported as `unrecognized` and logged once.
 
 ## Diagnostics
 
-**Settings → Devices & services → Ukraine Alarm Pro → Diagnostics** — the data channel, the
-age of the last data, the selected regions and every active alert. There is nothing to
-redact: the integration is fully anonymous.
+Download diagnostics from the integration menu under
+**Settings → Devices & services → Ukraine Alarm Pro**. The file includes the data channel,
+age of the last data, exact reception time and separate snapshot write time, selected
+regions and active alerts with full reasons.
+There are no API keys, but the selected regions may reveal places you are interested in;
+review the file before publishing it.
+
+If the problem persists, [open an issue](https://github.com/ABovsh/ukraine-alarm-pro/issues)
+with your integration and Home Assistant versions, a description and relevant diagnostics.
+
+## Updating
+
+Version **0.11.0rc2** is a prerelease for validation. Enable prereleases in HACS and
+select this version. Back up Home Assistant first. To roll back, choose the earlier
+version in HACS and restart HA.
+
+Update through HACS, restart Home Assistant and reload the page containing the card.
+Journal migration preserves existing episodes, entity IDs and automations. Full
+coverage for new percentages starts accumulating after the upgrade, as described above.
+Read the [changelog](CHANGELOG.md) and
+[release notes](https://github.com/ABovsh/ukraine-alarm-pro/releases) before updating.
+Update imported notification blueprints separately; the earlier sensor-based blueprint
+remains available for existing automations.
 
 ## Data sources
 
@@ -273,7 +395,16 @@ redact: the integration is fully anonymous.
 - Alert history for the journal — from the [alert map](https://map.ukrainealarm.com/).
 
 After repeated WebSocket failures, the integration switches to polling siren.pp.ua
-with a 60-second pause between requests. It periodically retries the WebSocket and
+with a 60-second pause between successful requests. Failures use bounded backoff;
+429 responses and `Retry-After` are respected. Concurrent maintenance requests share
+one HTTP request. It periodically retries the WebSocket and
 switches back after receiving data. The data channel and the time of the last data
 received are visible in the diagnostic entities. An issue appears under Repairs only when
 neither the WebSocket nor the fallback source has delivered data for 15 minutes.
+
+Confirmed state is checkpointed at most once every five minutes for an unchanged map
+and at shutdown. Failed writes remain pending for retry. Restored maps expire six
+hours after their last reception, independently of disk write time. Shutting down
+with stale data does not renew that expiry.
+
+License: [MIT](LICENSE).

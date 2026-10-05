@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -21,6 +23,7 @@ from .const import (
     DOMAIN,
     ISSUE_FEED_UNAVAILABLE,
     RESTORE_MAX_AGE_SECONDS,
+    SAVE_DELAY_SECONDS,
     STALE_AFTER_SECONDS,
 )
 from .events import (
@@ -56,8 +59,29 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.supervisor = supervisor
         self.last_push: datetime | None = None
         self.started_at = dt_util.utcnow()
+        self._started_monotonic = time.monotonic()
+        self._last_push_monotonic: float | None = None
         self._store = store
-        self._saved_active: dict[str, frozenset] | None = None
+        self._saved_active: tuple | None = None
+        self._saved_confirmed: datetime | None = None
+        self.last_saved_at: datetime | None = None
+        self._save_lock = asyncio.Lock()
+        self._save_failed = False
+        self._history_save_failed = False
+        self.changed_regions: set[str] | None = None
+        self._dependents: dict[str, set[str]] = {}
+        for rid, info in self._regions.items():
+            for source in (
+                rid,
+                *info.get("ancestors", []),
+                *info.get("descendants", []),
+            ):
+                self._dependents.setdefault(source, set()).add(rid)
+        self.percentages: dict[tuple[str, int], dict[str, Any]] = {}
+        self._percentage_listeners: list = []
+        self._health_listeners: list = []
+        self._region_detail_listeners: list = []
+        self._backfill_lock = asyncio.Lock()
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
         self.events = AlertEventHub()
@@ -78,10 +102,21 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         last known state instead of `unavailable`, which is what an automation
         reading them during a post-blackout restart needs.
         """
-        stored = await self._store.async_load()
+        try:
+            stored = await self._store.async_load()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Alert snapshot unreadable — starting without cache: %s", err
+            )
+            return
         if not isinstance(stored, dict):
             return
-        saved_at = dt_util.parse_datetime(str(stored.get("saved_at", "")))
+        written = dt_util.parse_datetime(str(stored.get("saved_at", "")))
+        if written is not None and written.tzinfo is not None:
+            self.last_saved_at = written
+        saved_at = dt_util.parse_datetime(
+            str(stored.get("confirmed_at", stored.get("saved_at", "")))
+        )
         # A stamp without an offset was not written by us: ignore it rather
         # than fail setup comparing it with an aware clock.
         if saved_at is None or saved_at.tzinfo is None:
@@ -97,10 +132,13 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.async_set_updated_data(snap)
 
     @callback
-    def _store_data(self) -> dict[str, Any]:
-        snap = self.data
+    def _store_data(
+        self, snap: Snapshot | None = None, confirmed: datetime | None = None
+    ) -> dict[str, Any]:
+        snap = snap or self.data
         return {
             "saved_at": dt_util.utcnow().isoformat(),
+            "confirmed_at": (confirmed or self.last_push).isoformat(),
             "regions": {
                 rid: [asdict(alert) for alert in alerts]
                 for rid, alerts in snap.regions.items()
@@ -112,7 +150,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         }
 
     async def async_save_now(self, _now: datetime | None = None) -> None:
-        """Persist the alert map if it changed since the last write.
+        """Persist changed content or a new five-minute confirmation checkpoint.
 
         Driven by a fixed interval and by unload — deliberately NOT by the push
         path. `Store.async_delay_save` is a trailing debounce: every call moves
@@ -126,14 +164,31 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         uplink that stays down would keep re-stamping the same pre-outage map
         every interval, and `RESTORE_MAX_AGE_SECONDS` would never expire it.
         """
-        snap = self.data
-        if snap is None or self.last_push is None:
-            return
-        active = snap.active
-        if active == self._saved_active:
-            return
-        self._saved_active = active
-        await self._store.async_save(self._store_data())
+        async with self._save_lock:
+            snap = self.data
+            confirmed = self.last_push
+            if snap is None or confirmed is None:
+                return
+            active = (snap.signature, snap.names)
+            if (
+                active == self._saved_active
+                and self._saved_confirmed is not None
+                and 0
+                <= (confirmed - self._saved_confirmed).total_seconds()
+                < SAVE_DELAY_SECONDS
+            ):
+                return
+            try:
+                await self._store.async_save(self._store_data(snap, confirmed))
+            except Exception as err:  # noqa: BLE001
+                log = _LOGGER.debug if self._save_failed else _LOGGER.warning
+                log("Could not save alert snapshot; will retry: %s", err)
+                self._save_failed = True
+                return
+            self._saved_active = active
+            self._saved_confirmed = confirmed
+            self.last_saved_at = dt_util.utcnow()
+            self._save_failed = False
 
     async def _async_update_data(self) -> Snapshot:
         """Serve the pushed snapshot back.
@@ -147,22 +202,68 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         return self.data
 
     def handle_snapshot(self, snap: Snapshot) -> None:
-        # The feed republishes the same alert map every few seconds. Only the
-        # liveness clock moves then — pushing the identical snapshot at the
-        # entities wrote a recorder row per repeat (65k rows/day, measured
-        # 2026-08-07) without carrying any new information. Staleness has its
-        # own tick in entity.py, so it keeps working without these writes.
+        # Unchanged maps move liveness and journal confirmation only. HA
+        # compares state AND attributes before emitting state_changed; skipping
+        # callbacks also avoids aggregation/serialization work before that check.
         was_stale = self.is_stale
-        self.last_push = dt_util.utcnow()
-        changed = self.data is None or snap.active != self.data.active
+        if was_stale:
+            self.history.mark_gap(self._regions)
+        now = dt_util.utcnow()
+        monotonic = time.monotonic()
+        clock_jump = (
+            self.last_push is not None
+            and self._last_push_monotonic is not None
+            and abs(
+                (now - self.last_push).total_seconds()
+                - (monotonic - self._last_push_monotonic)
+            )
+            > 60
+        )
+        if clock_jump:
+            self.history.mark_gap(self._regions)
+        self.last_push = now
+        self._last_push_monotonic = monotonic
+        old = self.data
+        sources = set(snap.signature) | set(old.signature if old else {})
+        changed_sources = {
+            rid
+            for rid in sources
+            if old is None or snap.signature.get(rid) != old.signature.get(rid)
+        }
+        names = set(snap.names) | set(old.names if old else {})
+        changed_sources.update(
+            rid
+            for rid in names
+            if old is None or snap.names.get(rid) != old.names.get(rid)
+        )
+        affected = (
+            set(self._regions)
+            if old is None or was_stale
+            else set().union(
+                *(self._dependents.get(rid, set()) for rid in changed_sources)
+            )
+        )
+        changed = old is None or bool(changed_sources)
+        self.history.confirm(self._regions, self.last_push)
+        for rid in affected:
+            self._views.pop(rid, None)
+        self._views_of = snap
+        self.changed_regions = None if was_stale else affected
         if changed:
             self.async_set_updated_data(snap)
-        elif was_stale:
+        else:
+            # Keep precise service fields for diagnostics/storage, without
+            # invalidating unaffected RegionViews or notifying entities.
+            self.data = snap
+        if was_stale and not changed:
             # Regaining freshness is news even when the map is unchanged: the
             # health entities must not wait for their minute tick. HA drops
             # the identical region states, so this costs no region rows.
             self.async_update_listeners()
         self._publish_events(was_stale=was_stale, changed=changed)
+        if clock_jump or affected:
+            self.async_update_percentages(region_ids=None if clock_jump else affected)
+        self.changed_regions = None
         if was_stale:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
@@ -183,6 +284,12 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             return
         states = {}
         for rid, info in self._regions.items():
+            if (
+                origin == ORIGIN_LIVE
+                and self.changed_regions is not None
+                and rid not in self.changed_regions
+            ):
+                continue
             view = self.region_view(rid, info["ancestors"], info.get("descendants", []))
             if view is not None:
                 states[rid] = (info["name"], RegionState.from_view(view))
@@ -193,12 +300,16 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
     @callback
     def async_check_stale(self, _now: datetime | None = None) -> None:
         """Announce once that the data went stale; the alert state is kept."""
+        before = self.history.version
         if self.is_stale:
+            self.history.mark_gap(self._regions)
             self.events.announce_stale(
                 {rid: info["name"] for rid, info in self._regions.items()},
                 observed_at=dt_util.utcnow().isoformat(),
             )
         self._async_report_feed_health()
+        if self.history.version != before:
+            self.async_update_percentages()
 
     @callback
     def _async_report_feed_health(self) -> None:
@@ -208,8 +319,12 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         problem for the user. Before the first snapshot, the start-up grace
         period counts as the window instead of a push that never happened.
         """
-        reference = self.last_push or self.started_at
-        age = (dt_util.utcnow() - reference).total_seconds()
+        reference = (
+            self._last_push_monotonic
+            if self._last_push_monotonic is not None
+            else self._started_monotonic
+        )
+        age = time.monotonic() - reference
         if age > STALE_AFTER_SECONDS:
             ir.async_create_issue(
                 self.hass,
@@ -223,31 +338,59 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
     async def async_backfill_history(self, _now: datetime | None = None) -> None:
-        """Merge the official alert history into the journal, best effort."""
+        """One root and seven UTC days at a time; resume failed chunks only."""
+        if self._backfill_lock.locked():
+            return
+        async with self._backfill_lock:
+            await self._async_backfill_chunks()
+
+    async def _async_backfill_chunks(self) -> None:
         regions = self._regions
         if not regions:
             return
         now = dt_util.utcnow()
-        start = self.history.backfill_start(now, regions)
-        try:
-            records = await backfill._fetch(
-                async_get_clientsession(self.hass),
-                backfill.root_regions(regions),
-                start,
-                now,
-            )
-        # A missing history must never break the entry or the live alerts.
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Official alert history unavailable: %s", err)
-            return
-        added = sum(
-            self.history.merge_official(
-                rid, backfill.official_intervals(records, rid, info), window_start=start
-            )
-            for rid, info in regions.items()
-        )
-        self.history.mark_synced(now, regions)
-        _LOGGER.debug("Merged %d alert episodes from the official history", added)
+        for root in backfill.root_regions(regions):
+            windows = {
+                rid: window
+                for rid, info in regions.items()
+                if (info.get("ancestors") or [rid])[-1] == root
+                and (window := self.history.backfill_window(rid, now)) is not None
+            }
+            if not windows:
+                continue
+            start = min(lo for lo, _hi in windows.values())
+            target = max(hi for _lo, hi in windows.values())
+            self.history.begin_backfill(windows, target)
+            while start < target:
+                end = min(start + timedelta(days=7), target)
+                try:
+                    records = await backfill._fetch(
+                        async_get_clientsession(self.hass), [root], start, end
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Official history root %s will resume at %s: %s",
+                        root,
+                        start.isoformat(),
+                        err,
+                    )
+                    break
+                for rid in windows:
+                    self.history.merge_official(
+                        rid,
+                        backfill.official_intervals(records, rid, regions[rid]),
+                        window_start=start,
+                    )
+                self.history.advance_cursor(windows, end)
+                # Persist progress per chunk. Disk errors leave it dirty, while
+                # cancellation/restart can resume the last successful checkpoint.
+                await self.async_flush_history()
+                start = end
+                await asyncio.sleep(0)
+            else:
+                self.history.finish_backfill(windows)
+                await self.async_flush_history()
+        self.async_update_percentages()
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:
         """Persist the journal; a failed write stays pending for the next try."""
@@ -255,15 +398,17 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             await self.history.async_flush()
         # Disk trouble must not break the periodic timer or unload.
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Could not save the alert history: %s", err)
+            log = _LOGGER.debug if self._history_save_failed else _LOGGER.warning
+            log("Could not save the alert history; will retry: %s", err)
+            self._history_save_failed = True
+        else:
+            self._history_save_failed = False
 
     @property
     def _regions(self) -> dict[str, dict[str, Any]]:
         return self.config_entry.data.get(CONF_REGIONS, {})
 
-    def region_view(
-        self, region_id: str, ancestors, descendants
-    ) -> RegionView | None:
+    def region_view(self, region_id: str, ancestors, descendants) -> RegionView | None:
         """The region's aggregated alerts, computed once per accepted map.
 
         Six entities per region read it on every update; aggregating in each
@@ -292,13 +437,50 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         """Age of the newest snapshot, or None if nothing arrived yet."""
         if self.last_push is None:
             return None
-        return (dt_util.utcnow() - self.last_push).total_seconds()
+        if self._last_push_monotonic is None:
+            return None
+        return max(0, time.monotonic() - self._last_push_monotonic)
 
     @property
     def is_stale(self) -> bool:
         """True when the feed went quiet — displayed state can't be trusted."""
         age = self.seconds_since_push
         return age is None or age > STALE_AFTER_SECONDS
+
+    def add_percentage_listener(self, listener):
+        self._percentage_listeners.append(listener)
+        return lambda: self._percentage_listeners.remove(listener)
+
+    def add_health_listener(self, listener):
+        self._health_listeners.append(listener)
+        return lambda: self._health_listeners.remove(listener)
+
+    def add_region_detail_listener(self, listener):
+        self._region_detail_listeners.append(listener)
+        return lambda: self._region_detail_listeners.remove(listener)
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Publish freshness and region details before alert-triggered actions."""
+        for listener in tuple(self._health_listeners):
+            listener()
+        for listener in tuple(self._region_detail_listeners):
+            listener()
+        super().async_update_listeners()
+
+    @callback
+    def async_update_percentages(
+        self, _now: datetime | None = None, *, region_ids=None
+    ) -> None:
+        now = dt_util.utcnow()
+        for rid in self._regions if region_ids is None else region_ids:
+            for seconds in (86400, 604800):
+                self.percentages[(rid, seconds)] = self.history.rolling(
+                    rid, seconds, now=now
+                )
+                self.percentages[(rid, seconds)]["calculated_at"] = now.isoformat()
+        for listener in tuple(self._percentage_listeners):
+            listener()
 
 
 def _snapshot_from_store(stored: dict[str, Any]) -> Snapshot | None:

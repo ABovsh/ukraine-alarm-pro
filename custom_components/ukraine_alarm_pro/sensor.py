@@ -17,8 +17,7 @@ from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
 from .models import AIR_LEVEL_OPTIONS, RegionView, ThreatLevel
 
-# Attributes land in the recorder on every state write, so the per-region
-# breakdown is capped; the full picture stays available in diagnostics.
+# Keep live lists bounded; recorder separately omits selected large attributes.
 MAX_LISTED_ALERTS = 25
 
 
@@ -33,6 +32,12 @@ async def async_setup_entry(
         entities.append(RegionThreatSensor(coordinator, entry.entry_id, rid, info))
         entities.append(AlertStartedSensor(coordinator, entry.entry_id, rid, info))
         entities.append(AirAlertLevelSensor(coordinator, entry.entry_id, rid, info))
+        for seconds, suffix in ((86400, "24h"), (604800, "7d")):
+            entities.append(
+                AlertPercentageSensor(
+                    coordinator, entry.entry_id, rid, info, seconds, suffix
+                )
+            )
     entities.append(TransportSensor(coordinator, entry.entry_id))
     entities.append(ActiveRegionsSensor(coordinator, entry.entry_id))
     entities.append(LastUpdateSensor(coordinator, entry.entry_id))
@@ -50,6 +55,24 @@ class RegionSensor(UapEntity, SensorEntity):
         # The region name comes from the feed; only the suffix is translated.
         self._region_name = info["name"]
         self._attr_translation_placeholders = {"region": info["name"]}
+        self._published_view = object()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.add_region_detail_listener(self._handle_coordinator_update)
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        # State-triggered actions can run eagerly, before the next ordinary
+        # coordinator listener. Publish details in the preceding phase; this
+        # view identity gate suppresses the subsequent ordinary callback.
+        view = self._view()
+        if view is self._published_view:
+            return
+        self._published_view = view
+        super()._handle_coordinator_update()
 
     def _view(self) -> RegionView | None:
         return self.coordinator.region_view(
@@ -63,6 +86,9 @@ class RegionThreatSensor(RegionSensor):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options: ClassVar[list[str]] = [level.value for level in ThreatLevel]
     _attr_translation_key = "threat"
+    _unrecorded_attributes = frozenset(
+        {"active_alerts", "affected_regions", "coverage_by_type"}
+    )
 
     def __init__(self, coordinator, entry_id, region_id, info) -> None:
         super().__init__(coordinator, entry_id, region_id, info)
@@ -207,7 +233,6 @@ class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):
         return self.coordinator.data.active_region_count
 
 
-
 class LastUpdateSensor(UapStalenessEntity, SensorEntity):
     """Timestamp of the last received snapshot — staleness indicator."""
 
@@ -235,4 +260,67 @@ class LastUpdateSensor(UapStalenessEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.coordinator.last_push
+        push = self.coordinator.last_push
+        return push.replace(second=0, microsecond=0) if push is not None else None
+
+
+class AlertPercentageSensor(RegionSensor):
+    """Rolling alert-time aggregate, recorded only when its value or quality changes.
+
+    No state_class: the journal already supplies history for this aggregate;
+    scheduled recorder statistics would add 312 rows per sensor per day.
+    """
+
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator, entry_id, region_id, info, seconds, suffix):
+        super().__init__(coordinator, entry_id, region_id, info)
+        self._seconds = seconds
+        self._attr_unique_id = f"{entry_id}_{region_id}_percentage_{suffix}"
+        self._attr_translation_key = f"alert_percentage_{suffix}"
+        self.entity_id = f"sensor.uap_{region_id}_alert_percentage_{suffix}"
+        self._published = None
+
+    @property
+    def available(self):
+        return True
+
+    @property
+    def native_value(self):
+        return self._result().get("percentage")
+
+    def _result(self):
+        return self.coordinator.percentages.get((self._region_id, self._seconds), {})
+
+    @property
+    def extra_state_attributes(self):
+        result = self._result()
+        return {
+            "region_id": self._region_id,
+            "window_seconds": self._seconds,
+            "threat_scope": "any_alert",
+            "coverage_complete": result.get("coverage_complete", False),
+            "quality": result.get("quality", "incomplete"),
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._published = (self.native_value, self.extra_state_attributes)
+        self.async_on_remove(
+            self.coordinator.add_percentage_listener(self._percentage_changed)
+        )
+
+    @callback
+    def _handle_coordinator_update(self):
+        # Alert callbacks precede journal transitions; the dedicated listener
+        # runs after that transaction and publishes only meaningful changes.
+        return
+
+    @callback
+    def _percentage_changed(self):
+        key = (self.native_value, self.extra_state_attributes)
+        if key == self._published:
+            return
+        self._published = key
+        self.async_write_ha_state()

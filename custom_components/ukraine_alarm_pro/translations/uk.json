@@ -81,6 +81,12 @@
           "red": "Червоний",
           "unrecognized": "Рівень невідомий"
         }
+      },
+      "alert_percentage_24h": {
+        "name": "{region} час під тривогою — 24 години"
+      },
+      "alert_percentage_7d": {
+        "name": "{region} час під тривогою — 7 днів"
       }
     },
     "binary_sensor": {

@@ -7,6 +7,7 @@ the older answer.
 """
 
 import asyncio
+import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -196,6 +197,7 @@ async def test_identical_snapshot_after_staleness_refreshes_health_immediately(
 
     coordinator = entry.runtime_data
     coordinator.last_push = dt_util.utcnow() - timedelta(hours=1)
+    coordinator._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - coordinator.last_push).total_seconds()
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.uap_data_stale").state == "on"

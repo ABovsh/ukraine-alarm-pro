@@ -6,7 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import UkraineAlarmProConfigEntry
@@ -75,6 +75,10 @@ class DataStaleBinarySensor(UapStalenessEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return self.coordinator.is_stale
+
+    @callback
+    def _publish_key(self):
+        return (self.coordinator.is_stale, self.coordinator.supervisor.mode)
 
     @property
     def extra_state_attributes(self):

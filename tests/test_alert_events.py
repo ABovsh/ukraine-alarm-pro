@@ -1,5 +1,6 @@
 """Alert events: one coherent payload per accepted change per region (UAP-03)."""
 
+import time
 from datetime import timedelta
 
 import pytest
@@ -142,6 +143,7 @@ async def test_staleness_is_announced_once_and_recovery_resyncs(
 
     coordinator = entry.runtime_data
     coordinator.last_push = dt_util.utcnow() - timedelta(hours=1)
+    coordinator._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - coordinator.last_push).total_seconds()
     for minutes in (1, 2, 3):
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=minutes))
         await hass.async_block_till_done()
@@ -164,6 +166,7 @@ async def test_recovery_into_clear_is_a_resync_not_a_cleared(
     await hass.async_block_till_done()
     events = await _events(hass)
     entry.runtime_data.last_push = dt_util.utcnow() - timedelta(hours=1)
+    entry.runtime_data._last_push_monotonic = time.monotonic() - (dt_util.utcnow() - entry.runtime_data.last_push).total_seconds()
     push(CLEAR)
     await hass.async_block_till_done()
     assert [e["event_type"] for e in events] == ["resynced"]
