@@ -3,22 +3,74 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.11.0] - 2026-10-05
+
+### ✨ Added
+
+- Two time-under-alert sensors per region: `alert_percentage_24h` and
+  `alert_percentage_7d`. They use exact rolling windows, merge overlapping
+  intervals, include ongoing alerts and round values to 0.1%. Their scope matches
+  the existing binary sensor, including all threat types and administrative levels.
+  Incomplete coverage produces `unknown` with data-quality metadata.
+- Sensors and the card share percentage calculations over the entire regional
+  journal, including more than 50 episodes in a day. The card distinguishes
+  incomplete statistics, stale data and partial geographical coverage.
+- Keyboard activation of the card with Enter or Space, with focus preserved on updates.
+
+### 🐛 Fixed
+
+- Failed snapshot and journal writes remain pending for retry, and concurrent writes
+  are serialized. Unreadable caches no longer prevent startup. Checkpoints preserve
+  confirmations of unchanged maps; shutdown cannot renew the age of old data.
+- Journal coverage and data gaps are tracked per region, including quiet periods
+  and restarts. Air-only official history no longer implies complete all-threat
+  coverage. Local calendar summaries handle 23- and 25-hour days correctly.
+- Backfill completion is saved after the final chunk and recognized after abrupt
+  power loss, so an old pending marker cannot block daily history refreshes.
+- HTTP seed, fallback and watchdog requests share an in-flight request and preserve
+  its original revision, preventing late responses from overwriting newer push data.
+- HTTP 429 and `Retry-After` use bounded delays; failed retries back off with jitter.
+  WebSocket cancellation closes the socket and clears its heartbeat timer.
+- Freshness uses a monotonic clock; system time changes produce explicit
+  statistical uncertainty. Equivalent declaration timestamps no longer create
+  duplicate alert changes.
+- Alert notifications read the updated threat, declared start time and air-alert
+  level even when Home Assistant registers binary sensors first. Regional details
+  are published before the alert transition that triggers an action.
+- Changing the card's region while a request is pending no longer leaves it loading.
+  Periodic requests pause while the card is hidden or offscreen and resume when needed.
+
+### 🔧 Changed
+
+- Unaffected region views skip unrelated updates. Receipt-only metadata does not
+  trigger alert transitions; starts, escalations and clears remain immediate.
+- Percentage sensors publish only changed values or quality metadata and have no
+  scheduled recorder statistics. The card uses the integration's own journal.
+- Last-update state is rounded to a minute on every publication path. Exact
+  reception and disk-write times remain in diagnostics. Detailed threat attributes
+  stay live but are omitted from new recorder payloads; existing records remain.
+- History retains up to 10,000 completed episodes per region for 90 days, with
+  explicit truncation status. Official backfill uses persisted seven-day chunks
+  and resumes failed parts without re-fetching successful parts.
+- Cards share cached requests, fetch only needed data for compact/status layouts
+  and update existing DOM nodes.
 
 ### ⚠️ Breaking
 
 - For users of `0.11.0rc1` and `0.11.0rc2`, `alert_percentage_24h` and
   `alert_percentage_7d` no longer have `state_class: measurement`, so future
   long-term statistics stop accumulating. Existing records, entity IDs, live
-  values and ordinary state-change history are preserved. The card continues
-  to use the integration's own alert journal. These sensors were not present
-  in the stable `0.10.0` release.
+  values and ordinary state-change history are preserved. These sensors were
+  not present in stable `0.10.0`.
 
-### 🐛 Fixed
+### Updating
 
-- Alert notifications read the updated threat, declared start time and air-alert
-  level even when Home Assistant registers binary sensors before other sensors.
-  Region details are published before the alert transition that triggers an action.
+Update through HACS, restart Home Assistant and reload the dashboard page.
+Journal migration preserves existing episodes, entity IDs and automations.
+The new percentage windows need complete coverage after the upgrade: values
+remain `unknown` while coverage is incomplete; official AIR-only history cannot
+prove the absence of every threat type. Update imported notification blueprints
+separately if needed.
 
 ## [0.11.0rc2] - 2026-10-05
 

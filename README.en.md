@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.11.0rc2-orange?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.11.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
 
@@ -376,9 +376,8 @@ with your integration and Home Assistant versions, a description and relevant di
 
 ## Updating
 
-Version **0.11.0rc2** is a prerelease for validation. Enable prereleases in HACS and
-select this version. Back up Home Assistant first. To roll back, choose the earlier
-version in HACS and restart HA.
+Version **0.11.0** is a stable release. Back up Home Assistant first. To roll back,
+choose the earlier version in HACS and restart HA.
 
 Update through HACS, restart Home Assistant and reload the page containing the card.
 Journal migration preserves existing episodes, entity IDs and automations. Full

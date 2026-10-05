@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
-![Version](https://img.shields.io/badge/version-0.11.0rc2-orange?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.11.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
 
@@ -385,8 +385,7 @@ API-ключів немає, але перелік обраних регіоні
 
 ## Оновлення
 
-Версія **0.11.0rc2** — попередній випуск для перевірки. У HACS увімкніть показ
-попередніх випусків і оберіть цю версію. Перед встановленням зробіть резервну копію
+Версія **0.11.0** — стабільний випуск. Перед встановленням зробіть резервну копію
 Home Assistant. Для відкату оберіть попередню версію в HACS і перезапустіть HA.
 
 Оновіть інтеграцію через HACS, перезапустіть Home Assistant і оновіть сторінку з карткою.
