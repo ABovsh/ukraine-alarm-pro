@@ -118,7 +118,7 @@ class WsTransport:
                 json.dumps({"id": 3, "method": _METHOD_HISTORY, "params": {"channel": CHANNEL}})
             )
             history = await self._recv_id(ws, 3, pending)
-        except (aiohttp.ClientError, asyncio.TimeoutError, TransportError) as err:
+        except (TimeoutError, aiohttp.ClientError, TransportError) as err:
             await self.close()
             if isinstance(err, TransportError):
                 raise
@@ -151,7 +151,7 @@ class WsTransport:
                 for frame in _replies(msg.data):
                     if (snap := _publication(frame)) is not None:
                         yield snap
-        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        except (TimeoutError, aiohttp.ClientError) as err:
             raise TransportError(f"ws stream failed: {err}") from err
         finally:
             await self.close()

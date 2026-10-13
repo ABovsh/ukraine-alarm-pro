@@ -67,7 +67,9 @@ def test_root_regions_are_the_top_ancestors():
 
 
 def test_intervals_include_ancestors_and_descendants_and_merge_overlaps():
-    h = lambda hh, mm: datetime(2026, 9, 14, hh, mm, tzinfo=UTC)
+    def h(hh, mm):
+        return datetime(2026, 9, 14, hh, mm, tzinfo=UTC)
+
     records = [
         ("77", h(6, 0), h(6, 30)),
         ("14", h(6, 20), h(7, 0)),  # overlaps the raion alert: one episode

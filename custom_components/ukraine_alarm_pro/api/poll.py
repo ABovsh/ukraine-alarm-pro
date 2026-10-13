@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import math
 import time
 from datetime import UTC, datetime
@@ -48,7 +47,7 @@ class PollTransport:
                 raise RateLimited(retry)
             resp.raise_for_status()
             return parse_alert_payload(await resp.json())
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        except (TimeoutError, aiohttp.ClientError, ValueError) as err:
             raise TransportError(f"poll failed: {err}") from err
         finally:
             if resp is not None:
