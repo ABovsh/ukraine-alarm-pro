@@ -388,9 +388,14 @@ class TransportSupervisor:
                     )
                     continue
                 _LOGGER.warning(
-                    "The WebSocket missed alert updates for %.0fs — reconnecting",
+                    "The WebSocket missed alert updates for %.0fs — polling "
+                    "until it publishes again",
                     age,
                 )
+                # A reconnect alone can land on another silent socket, leaving
+                # the map refreshed only by this check (2026-10-18: three in a
+                # row). Poll now; the first WS publication makes it primary again.
+                self._set_mode(MODE_POLL)
             else:
                 _LOGGER.warning(
                     "No alert data for %.0fs and the fallback is unreachable — "

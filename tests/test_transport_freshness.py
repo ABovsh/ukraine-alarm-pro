@@ -223,3 +223,60 @@ async def test_diagnostics_keep_success_and_check_attempts_apart(
     assert dump["transport"]["seconds_since_accepted_snapshot"] is None
     assert dump["transport"]["seconds_since_cross_check"] == 4.0
     assert dump["transport"]["snapshot_revision"] == 0
+
+
+# --- A proven WS miss: poll at once instead of waiting for the next check ----
+
+
+class QueueWs:
+    """Connects, stays silent, and publishes only what the test puts in."""
+
+    def __init__(self):
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self.closed = 0
+
+    async def stream(self):
+        while True:
+            yield await self.queue.get()
+
+    async def close(self):
+        self.closed += 1
+
+
+async def test_a_proven_websocket_miss_switches_to_polling_at_once():
+    """2026-10-18 14:42/14:55/15:08: three cross-checks in a row found the
+    reconnected WS silent and behind. Only reconnecting it left the map
+    refreshed every ~13 min by the watchdog alone; the poll fallback now
+    takes over right after the first proven miss."""
+    poll = ScriptedPoll(CLEAR, AIR)
+    ws = QueueWs()
+    sup = _sup(ws, poll, seed_delay=0, stale_after=0.03, watchdog_interval=0.01, poll_interval=0.02)
+    seen = []
+    sup.set_listener(seen.append)
+    await sup.start()
+    try:
+        await _until(lambda: sup.mode == MODE_POLL)
+        assert ws.closed >= 1
+        fetched = poll.fetches
+        await _until(lambda: poll.fetches >= fetched + 2, timeout=0.5)
+        # A publication proves the WS alive again: it is primary once more.
+        ws.queue.put_nowait(CLEAR)
+        await _until(lambda: sup.mode != MODE_POLL)
+        assert sup._poll_task is None
+    finally:
+        await sup.stop()
+
+
+async def test_a_cross_check_that_agrees_keeps_the_websocket():
+    poll = ScriptedPoll(CLEAR)
+    ws = QueueWs()
+    sup = _sup(ws, poll, seed_delay=0, stale_after=0.03, watchdog_interval=0.01, poll_interval=0.02)
+    sup.set_listener(lambda snap: None)
+    await sup.start()
+    try:
+        await _until(lambda: poll.fetches >= 2)
+        await asyncio.sleep(0.03)
+        assert sup.mode != MODE_POLL
+        assert ws.closed == 0
+    finally:
+        await sup.stop()
