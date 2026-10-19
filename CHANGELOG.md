@@ -29,14 +29,14 @@ This project follows [Semantic Versioning](https://semver.org/).
   share of time as the headline, and a tinted card during an alert.
 - A card without statistics sections reads the time since the all clear from
   `alert_cleared` and makes no journal requests.
+- Saved `layout: compact|status|full` cards keep working and open as the matching
+  sections; the card editor replaces `layout` with `sections` on the first edit.
 
 ### ⚠️ Breaking
 
 - `sensor.uap_active_regions` no longer has `state_class: measurement`. Its state and
   history remain; long-term statistics stop, existing rows are kept. Statistics
   graphs that use it stop receiving new data.
-- Saved `layout: compact|status|full` cards keep working and open as the matching
-  sections; the card editor replaces `layout` with `sections` on the first edit.
 
 ## [0.11.0] - 2026-10-05
 
