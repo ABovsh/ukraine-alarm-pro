@@ -395,7 +395,8 @@ class UkraineAlarmProCard extends HTMLElement {
     const full = this._statsOn();
     // Without statistics the journal only supplies "quiet since" for the timer;
     // an active alert gets its start time directly from states.
-    if (!full && (this._hass.states[ids.alert].state === "on" || !this._shows("status", "timer"))) return;
+    // The alert_cleared sensor (0.12+) supplies "quiet since" without a call.
+    if (!full && (this._hass.states[ids.alert].state === "on" || !this._shows("status", "timer") || ids.cleared)) return;
     if (this._statsFailed?.rid === rid && Date.now() - this._statsFailed.at < STATS_RETRY) return;
     const event = ids.event ? this._hass.states[ids.event] : undefined;
     const percentages = [ids.percentage24h, ids.percentage7d].map((id) => this._hass.states[id]?.last_updated).join("|");
@@ -434,6 +435,7 @@ class UkraineAlarmProCard extends HTMLElement {
       threat: sibling(hass, "threat", rid),
       level: sibling(hass, "air_alert_level", rid),
       started: sibling(hass, "alert_started", rid),
+      cleared: sibling(hass, "alert_cleared", rid),
       event: sibling(hass, "event", rid),
       stale: hub(hass, "data_stale"),
       updated: hub(hass, "last_update"),
@@ -597,6 +599,7 @@ class UkraineAlarmProCard extends HTMLElement {
       threat,
       level: st(ids.level),
       started: st(ids.started),
+      cleared: st(ids.cleared),
       updated: st(ids.updated),
       journal: this._stats?.rid === regionIdOf(hass, ids.alert) ? this._stats : null,
     };
@@ -609,8 +612,9 @@ class UkraineAlarmProCard extends HTMLElement {
       if (!since) return "";
       return `<div class="timer"><div class="big">${esc(duration(t, since))}</div><div class="small">${esc(t.since)} ${esc(hhmm(since, fmt))}</div></div>`;
     }
-    if (view.noData || view.stale || !view.journal) return "";
-    const cleared = dateOf(view.journal.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at);
+    if (view.noData || view.stale) return "";
+    const cleared = dateOf(known(view.cleared)?.state)
+      || dateOf(view.journal?.episodes.find((ep) => ep.observed_cleared_at)?.observed_cleared_at);
     if (!cleared) return "";
     const day = Date.now() - cleared > 86400000 ? dayMonth(cleared, fmt) : "";
     return `<div class="timer quiet"><div class="big">${esc(duration(t, cleared))}</div><div class="small">${esc(t.quietFor)} ${esc(day)} ${esc(hhmm(cleared, fmt))}</div></div>`;

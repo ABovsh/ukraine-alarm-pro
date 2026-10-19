@@ -201,3 +201,18 @@ async def test_editor_picks_hides_and_reorders_sections(page):
     )
     assert await page.evaluate("changes.at(-1).sections") == ["status"]
     assert await page.evaluate("ed.querySelector('[data-toggle=status]').disabled")
+
+
+async def test_quiet_timer_reads_the_cleared_sensor_without_journal_calls(page):
+    """With `alert_cleared` published, a card without statistics needs no
+    journal request at all; older integrations still get the service call."""
+    await page.evaluate("""window.hass = makeHass();
+      hass.states['sensor.uap_31_alert_cleared'] = { state: new Date(Date.now() - 5400000).toISOString(),
+        attributes: { region_id: '31' }, last_updated: 'a' };
+      hass.entities['sensor.uap_31_alert_cleared'] = { platform: 'ukraine_alarm_pro', translation_key: 'alert_cleared' };
+      window.c = makeCard(hass, 'status');""")
+    await page.clock.run_for(700000)
+    assert await page.evaluate("calls.length") == 0
+    text = await page.evaluate("c.shadowRoot.textContent")
+    assert "no alerts since" in text
+    assert "h" in text

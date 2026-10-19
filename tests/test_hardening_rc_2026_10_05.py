@@ -85,11 +85,8 @@ async def test_percentage_zero_remains_numeric_without_statistics_or_duplicate_e
         assert state.attributes["coverage_complete"] is True
         assert "state_class" not in state.attributes
         assert len([e for e in captured if e.data["entity_id"] == entity_id]) == 1
-    # The released country-wide series keeps its statistics contract.
-    assert (
-        hass.states.get("sensor.uap_active_regions").attributes["state_class"]
-        == "measurement"
-    )
+    # 0.12 dropped statistics for the country-wide count (states stay).
+    assert "state_class" not in hass.states.get("sensor.uap_active_regions").attributes
 
 
 @pytest.mark.parametrize("event_type", ["cleared", "updated"])

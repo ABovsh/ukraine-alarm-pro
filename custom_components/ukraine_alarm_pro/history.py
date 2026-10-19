@@ -502,6 +502,13 @@ class AlertHistory:
                 ep for episodes in self._index.values() for ep in episodes
             ]
 
+    def last_cleared(self, region_id: str) -> datetime | None:
+        """When the latest finished alert in the region ended, journal or official."""
+        ends = [_parse(ep["observed_cleared_at"]) for ep in self._episodes(region_id)]
+        ends.extend(_parse(end) for _start, end in self._official_spans.get(region_id, []))
+        now = self._now()
+        return max((end for end in ends if end is not None and end <= now), default=None)
+
     def history(self, region_id: str, limit: int) -> list[dict[str, Any]]:
         """Newest first, the ongoing episode included."""
         episodes = self._episodes(region_id)

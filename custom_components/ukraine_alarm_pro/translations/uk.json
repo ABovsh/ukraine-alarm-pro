@@ -64,6 +64,9 @@
       "alert_started": {
         "name": "{region}: початок тривоги"
       },
+      "alert_cleared": {
+        "name": "{region}: відбій тривоги"
+      },
       "transport": {
         "name": "Канал даних"
       },

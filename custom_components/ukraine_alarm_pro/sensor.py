@@ -7,7 +7,6 @@ from typing import ClassVar
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
-    SensorStateClass,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -36,6 +35,7 @@ async def async_setup_entry(
                 AirAlertLevelSensor(coordinator, entry.entry_id, rid, info),
             ]
         )
+        entities.append(AlertClearedSensor(coordinator, entry.entry_id, rid, info))
         for seconds, suffix in ((86400, "24h"), (604800, "7d")):
             entities.append(
                 AlertPercentageSensor(
@@ -224,9 +224,12 @@ class TransportSensor(UapDiagnosticEntity, SensorEntity):
 
 
 class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):
-    """Country-wide count of regions with any active alert."""
+    """Country-wide count of regions with any active alert.
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    No state_class: the count moves with every map change (~780 states a
+    day); five-minute statistics on top cost ~290 more rows for no use.
+    """
+
     _attr_translation_key = "active_regions"
 
     def __init__(self, coordinator, entry_id) -> None:
@@ -331,4 +334,55 @@ class AlertPercentageSensor(RegionSensor):
         if key == self._published:
             return
         self._published = key
+        self.async_write_ha_state()
+
+
+class AlertClearedSensor(RegionSensor):
+    """When the last alert affecting the region ended.
+
+    Read from the journal, so it survives a restart and covers alerts seen
+    only in the official history. Written once per clear: no state_class,
+    no attributes that move.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_translation_key = "alert_cleared"
+
+    def __init__(self, coordinator, entry_id, region_id, info) -> None:
+        super().__init__(coordinator, entry_id, region_id, info)
+        self._attr_unique_id = f"{entry_id}_{region_id}_cleared"
+        self.entity_id = f"sensor.uap_{region_id}_alert_cleared"
+        self._published = None
+
+    @property
+    def available(self):
+        return True
+
+    @property
+    def native_value(self):
+        return self.coordinator.history.last_cleared(self._region_id)
+
+    @property
+    def extra_state_attributes(self):
+        return {"region_id": self._region_id}
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        self._published = self.native_value
+        # The journal records a clear after the alert callbacks; its listener
+        # runs once that transaction is complete.
+        self.async_on_remove(
+            self.coordinator.add_percentage_listener(self._journal_changed)
+        )
+
+    @callback
+    def _handle_coordinator_update(self):
+        return
+
+    @callback
+    def _journal_changed(self):
+        value = self.native_value
+        if value == self._published:
+            return
+        self._published = value
         self.async_write_ha_state()

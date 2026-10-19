@@ -79,6 +79,7 @@ REGION_ENTITY_KINDS = (
     "threat",
     "alert",
     "started",
+    "cleared",
     "level",
     "event",
     "percentage_24h",

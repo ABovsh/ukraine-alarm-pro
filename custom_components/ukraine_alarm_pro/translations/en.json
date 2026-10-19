@@ -64,6 +64,9 @@
       "alert_started": {
         "name": "{region} alert started"
       },
+      "alert_cleared": {
+        "name": "{region} alert cleared"
+      },
       "transport": {
         "name": "Transport"
       },
