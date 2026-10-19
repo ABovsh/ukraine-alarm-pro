@@ -1,6 +1,6 @@
 # Ukraine Alarm Pro
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/default)
 ![Version](https://img.shields.io/badge/version-0.11.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
@@ -39,10 +39,13 @@
 
 Потрібні **Home Assistant 2025.1 або новіший**, інтернет і налаштований **HACS**.
 
-1. У HACS відкрийте меню **⋮ → Custom repositories**, додайте
-   `https://github.com/ABovsh/ukraine-alarm-pro` з типом **Integration**
-   ([інструкція HACS](https://www.hacs.xyz/docs/faq/custom_repositories/)).
-2. Знайдіть **Ukraine Alarm Pro** у HACS, завантажте інтеграцію й перезапустіть Home Assistant.
+Інтеграція є у **стандартному каталозі HACS**, додавати власний репозиторій не
+потрібно.
+
+[![Відкрити репозиторій у HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ABovsh&repository=ukraine-alarm-pro&category=integration)
+
+1. Відкрийте **HACS** і знайдіть **Ukraine Alarm Pro**.
+2. Завантажте інтеграцію й перезапустіть Home Assistant.
 3. Відкрийте **Налаштування → Пристрої та сервіси → Додати інтеграцію** та знайдіть
    **Ukraine Alarm Pro**.
 4. У полі **Регіони для стеження** оберіть принаймні один регіон і збережіть.

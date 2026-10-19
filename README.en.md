@@ -1,6 +1,6 @@
 # Ukraine Alarm Pro
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/default)
 ![Version](https://img.shields.io/badge/version-0.11.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
@@ -39,10 +39,12 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
 
 You need **Home Assistant 2025.1 or newer**, internet access and a configured **HACS**.
 
-1. In HACS, open **⋮ → Custom repositories**, add
-   `https://github.com/ABovsh/ukraine-alarm-pro` with type **Integration**
-   ([HACS instructions](https://www.hacs.xyz/docs/faq/custom_repositories/)).
-2. Find **Ukraine Alarm Pro** in HACS, download the integration and restart Home Assistant.
+The integration is in the **HACS default store**; no custom repository is needed.
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ABovsh&repository=ukraine-alarm-pro&category=integration)
+
+1. Open **HACS** and search for **Ukraine Alarm Pro**.
+2. Download the integration and restart Home Assistant.
 3. Open **Settings → Devices & services → Add integration** and find **Ukraine Alarm Pro**.
 4. In **Regions to monitor**, select at least one region and save.
    The full tree is available, down to hromadas.
