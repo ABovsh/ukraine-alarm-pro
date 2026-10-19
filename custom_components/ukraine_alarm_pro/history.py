@@ -41,6 +41,12 @@ _FIELDS = (
 )
 
 
+# A gap this short with no alert edge at or across it hides nothing.
+BRIDGEABLE_GAP_SECONDS = 300
+# The first snapshot after a gap stamps any transition at the gap's end.
+_EDGE_TOLERANCE = timedelta(seconds=60)
+
+
 def history_storage_key(entry_id: str) -> str:
     return f"{DOMAIN}.history.{entry_id}"
 
@@ -565,8 +571,8 @@ class AlertHistory:
                 bucket["observed_duration_seconds"]
             )
         has_gaps |= any(
-            _parse(start) < now and _parse(end) > period_start
-            for start, end in self._gaps.get(region_id, [])
+            start < now and end > period_start
+            for start, end in self._unbridged_gaps(region_id)
         )
         has_gaps |= region_id in self._open_gaps or region_id in self._resync
         return {
@@ -608,7 +614,7 @@ class AlertHistory:
             ]
         )
         duration = sum((end - start).total_seconds() for start, end in intervals)
-        gaps = [(_parse(a), _parse(b)) for a, b in self._gaps.get(region_id, [])]
+        gaps = self._unbridged_gaps(region_id)
         opened = _parse(self._open_gaps.get(region_id))
         if opened is not None:
             gaps.append((opened, now))
@@ -681,6 +687,33 @@ class AlertHistory:
             ),
             "intervals": rendered,
         }
+
+    def _unbridged_gaps(self, region_id: str) -> list[tuple[datetime, datetime]]:
+        """Closed gaps that may hide an alert transition.
+
+        A restart leaves a gap of seconds. When it is short and no alert
+        started or ended at or across it, the state on both sides was the
+        same and nothing is missing; counting it as unknown hid the 24 h
+        share for a day and the 7 d share for a week after every restart.
+        """
+        edges = []
+        for ep in self._episodes(region_id):
+            edges.append(_parse(ep["observed_started_at"]))
+            edges.append(_parse(ep["observed_cleared_at"]))
+        for start, end in self._official_spans.get(region_id, []):
+            edges.extend((_parse(start), _parse(end)))
+        edges = [edge for edge in edges if edge is not None]
+        result = []
+        for start, end in ((_parse(a), _parse(b)) for a, b in self._gaps.get(region_id, [])):
+            bridged = (
+                start is not None
+                and end is not None
+                and (end - start).total_seconds() <= BRIDGEABLE_GAP_SECONDS
+                and not any(start <= edge <= end + _EDGE_TOLERANCE for edge in edges)
+            )
+            if not bridged:
+                result.append((start, end))
+        return result
 
     @staticmethod
     def _overlaps(
