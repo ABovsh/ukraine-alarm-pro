@@ -14,7 +14,6 @@ const I18N = {
     noData: "Даних ще немає",
     stale: "Немає свіжих даних",
     staleNote: "Дані застаріли — стан може бути неактуальним",
-    fresh: "Дані актуальні",
     since: "з",
     d: "дн",
     h: "год",
@@ -52,7 +51,6 @@ const I18N = {
     noData: "No data yet",
     stale: "No fresh data",
     staleNote: "Data is stale — the state may be outdated",
-    fresh: "Data is current",
     since: "since",
     d: "d",
     h: "h",
@@ -167,7 +165,38 @@ const dayMonth = (date, hass) =>
     timeZone: hass?.config?.time_zone || undefined,
   });
 
-const LAYOUTS = new Set(["full", "status", "compact"]);
+// The card is built from sections the user picks and orders in the editor.
+const SECTIONS = ["status", "details", "timeline", "stats", "records"];
+// What each section is made of. `hide: [section.item]` drops an item; the ids are part of saved configs.
+const ITEMS = {
+  status: ["timer", "updated"],
+  details: ["level", "types", "coverage", "reason"],
+  stats: ["day", "week"],
+};
+// The 0.11 card's `layout` values, as the sections that show the same things.
+const LEGACY_LAYOUTS = {
+  compact: { sections: ["status"], hide: ["status.updated"] },
+  status: { sections: ["status", "details"], hide: [] },
+  full: { sections: SECTIONS, hide: [] },
+};
+// Sections drawn from the journal's 24 h / 7 d summary.
+const JOURNAL_SECTIONS = ["timeline", "stats", "records"];
+const validItem = (id) => {
+  const [section, item] = String(id).split(".");
+  return Boolean(ITEMS[section]?.includes(item));
+};
+
+// A saved `layout:` opens as its sections; an unknown one as the full card.
+function normalizeConfig(config) {
+  const { layout, ...rest } = config || {};
+  const legacy = rest.sections === undefined ? LEGACY_LAYOUTS[layout] || LEGACY_LAYOUTS.full : null;
+  const sections = rest.sections ?? legacy.sections;
+  if (!Array.isArray(sections) || !sections.length || sections.some((section) => !SECTIONS.includes(section))) {
+    throw new Error(`sections: choose from ${SECTIONS.join(", ")}`);
+  }
+  const hide = [...new Set([...(Array.isArray(rest.hide) ? rest.hide : []), ...(legacy?.hide || [])])].filter(validItem);
+  return { ...rest, sections: [...new Set(sections)], hide };
+}
 const STATS_FRESH_ACTIVE = 300000;
 const STATS_FRESH_QUIET = 600000;
 // A failed call (a reconnect, a restart, an older integration) is retried, not final.
@@ -241,6 +270,22 @@ function patchDOM(root, html) {
   patchChildren(root, template.content);
 }
 
+// Positions of the local 00/06/12/18 o'clock hours inside a [lo, hi) window.
+function clockMarks(lo, hi, timeZone) {
+  let hourOf;
+  try {
+    hourOf = new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: timeZone || undefined });
+  } catch {
+    hourOf = new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23" });
+  }
+  const marks = [];
+  for (let at = Math.ceil(lo / 3600000) * 3600000; at < hi; at += 3600000) {
+    const hour = Number(hourOf.format(new Date(at)));
+    if (hour % 6 === 0) marks.push({ hour, left: ((at - lo) / (hi - lo)) * 100 });
+  }
+  return marks;
+}
+
 const hhmm = (date, hass) =>
   date.toLocaleTimeString(hass?.locale?.language || undefined, {
     hour: "2-digit",
@@ -249,59 +294,17 @@ const hhmm = (date, hass) =>
   });
 
 class UkraineAlarmProCard extends HTMLElement {
-  static getConfigForm() {
-    return {
-      schema: [
-        {
-          name: "entity",
-          selector: { entity: { filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } },
-        },
-        { name: "name", selector: { text: {} } },
-        {
-          name: "layout",
-          selector: {
-            select: {
-              mode: "list",
-              options: [
-                { value: "full", label: "Full: status and statistics / Повний: стан і статистика" },
-                { value: "status", label: "Status only / Лише стан" },
-                { value: "compact", label: "Compact: one row / Компактний: один рядок" },
-              ],
-            },
-          },
-        },
-        {
-          name: "language",
-          selector: {
-            select: {
-              mode: "dropdown",
-              options: [
-                { value: "auto", label: "Auto / Як у Home Assistant" },
-                { value: "uk", label: "Українська" },
-                { value: "en", label: "English" },
-              ],
-            },
-          },
-        },
-      ],
-      computeLabel: (schema) =>
-        ({
-          entity: "Region / Регіон",
-          name: "Name / Назва",
-          layout: "Layout / Вигляд",
-          language: "Language / Мова",
-        })[schema.name],
-    };
+  static getConfigElement() {
+    return document.createElement(`${CARD}-editor`);
   }
 
   static getStubConfig(hass) {
     const [first] = alertEntities(hass);
-    return first ? { entity: first } : {};
+    return first ? { entity: first, sections: [...SECTIONS] } : { sections: [...SECTIONS] };
   }
 
   setConfig(config) {
-    // One layout choice instead of switches that can contradict each other.
-    this._config = { ...config, layout: LAYOUTS.has(config.layout) ? config.layout : "full" };
+    this._config = normalizeConfig(config);
     this._stats = null;
     this._key = null;
     this._generation = (this._generation || 0) + 1;
@@ -362,15 +365,24 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getCardSize() {
-    return { compact: 1, status: 3, full: 4 }[this._config?.layout] ?? 4;
+    const weight = { status: 1, details: 1, timeline: 0.5, stats: 1.5, records: 0.5 };
+    return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section], 0)));
   }
 
   getGridOptions() {
     return { columns: 12, min_columns: 6, rows: "auto" };
   }
 
+  _on(section) {
+    return this._config.sections.includes(section);
+  }
+
+  _shows(section, item) {
+    return this._on(section) && !this._config.hide.includes(`${section}.${item}`);
+  }
+
   _statsOn() {
-    return this._config.layout === "full";
+    return JOURNAL_SECTIONS.some((section) => this._on(section));
   }
 
   // Statistics come from the journal services: fetched again after every alert
@@ -381,8 +393,9 @@ class UkraineAlarmProCard extends HTMLElement {
     const rid = ids && regionIdOf(this._hass, ids.alert);
     if (!rid) return;
     const full = this._statsOn();
-    // An active compact/status card gets its start time directly from states.
-    if (!full && this._hass.states[ids.alert].state === "on") return;
+    // Without statistics the journal only supplies "quiet since" for the timer;
+    // an active alert gets its start time directly from states.
+    if (!full && (this._hass.states[ids.alert].state === "on" || !this._shows("status", "timer"))) return;
     if (this._statsFailed?.rid === rid && Date.now() - this._statsFailed.at < STATS_RETRY) return;
     const event = ids.event ? this._hass.states[ids.event] : undefined;
     const percentages = [ids.percentage24h, ids.percentage7d].map((id) => this._hass.states[id]?.last_updated).join("|");
@@ -447,8 +460,8 @@ class UkraineAlarmProCard extends HTMLElement {
     return { locale: { language: languageOf(this._hass, this._config.language) }, config: this._hass.config };
   }
 
-  _statsHtml(t, stats) {
-    const fmt = this._fmt();
+  // The 24 h and 7 d results, with the live percentage sensors taking precedence.
+  _rolling(stats) {
     const { summary } = stats;
     const ids = this._entities();
     const current = (result, id) => {
@@ -461,41 +474,66 @@ class UkraineAlarmProCard extends HTMLElement {
     };
     const day = current(summary?.rolling_24h, ids?.percentage24h);
     const week = current(summary?.rolling_7d, ids?.percentage7d);
-    const line = (result) => {
-      if (!result?.coverage_complete || result.percentage === null) return result?.count
-        ? `${t.incomplete} · ${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)}` : t.incomplete;
-      const pct = result.percentage.toLocaleString(fmt.locale.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-      return `${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)} · ${pct}${t === I18N.en ? "%" : " %"}`;
-    };
-    // Complete 24 h union supplied by the same calculation as the sensors.
-    const intervals = day?.intervals || [];
     const hi = dateOf(summary?.rolling_calculated_at)?.getTime() || Date.now();
+    return { day, week, hi, incomplete: !complete(day) || !complete(week) };
+  }
+
+  _timelineHtml(t, stats) {
+    const fmt = this._fmt();
+    const { day, hi, incomplete } = this._rolling(stats);
+    // Complete 24 h union supplied by the same calculation as the sensors.
     const lo = hi - 86400000;
-    const segments = intervals.map((interval) => {
+    const segments = (day?.intervals || []).map((interval) => {
       const from = Math.max(dateOf(interval.start)?.getTime() || lo, lo);
       const to = Math.min(dateOf(interval.end)?.getTime() || hi, hi);
       const left = ((from - lo) / 86400000) * 100;
-      const width = Math.max(((to - from) / 86400000) * 100, 0.2);
+      const width = Math.max(((to - from) / 86400000) * 100, 0.6);
       const title = `${hhmm(new Date(from), fmt)}–${hhmm(new Date(to), fmt)} · ${span(t, (to-from)/1000)}`;
       const level = ["red", "yellow"].includes(interval.maximum_air_level) ? interval.maximum_air_level : "other";
       return `<span class="seg ${level}${interval.ongoing ? " live" : ""}${interval.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
     }).join("");
-    const ticks = [6, 12, 18].map((h) => `<span class="tick" style="left:${(h/24)*100}%"></span>`).join("");
-    const incomplete = !day?.coverage_complete || !week?.coverage_complete;
-    const extras = week?.count ? `${t.longest} ${span(t, week.longest_duration_seconds || 0)} · ${t.average} ${span(t, week.observed_duration_seconds / week.count)}` : "";
-    const extrasHint = extras ? `<div class="hint">${esc(extras)}</div>` : "";
-    let qualityHint = "";
-    if (incomplete) {
-      let reason = t.incomplete;
-      if (day?.quality === "gaps" || week?.quality === "gaps") reason += ` · ${t.gaps}`;
-      qualityHint = `<div class="hint">${esc(reason)}</div>`;
-    }
-    return `<div class="stats">
-      <div class="row"><span class="lbl">${esc(t.last24)}</span><div class="timeline${incomplete ? " incomplete" : ""}">${ticks}${segments}</div><b>${esc(line(day))}</b></div>
-      <div class="row plain"><span class="lbl">${esc(t.week)}</span><b>${esc(line(week))}</b></div>
-      ${extrasHint}
-      ${qualityHint}
-    </div>`;
+    // The strip is a rolling 24 h; mark the real local 00/06/12/18 hours on it.
+    const marks = clockMarks(lo, hi, fmt.config?.time_zone);
+    const ticks = marks.map((mark) => `<span class="tick" style="left:${mark.left.toFixed(2)}%"></span>`).join("");
+    const labels = marks
+      .filter((mark) => mark.left > 7 && mark.left < 86)
+      .map((mark) => `<span style="left:${mark.left.toFixed(2)}%">${String(mark.hour).padStart(2, "0")}:00</span>`)
+      .join("");
+    return `<div class="strip${incomplete ? " incomplete" : ""}">${ticks}${segments}</div>
+      <div class="axis">${labels}<span class="end">${esc(t.now)}</span></div>`;
+  }
+
+  _statsHtml(t, stats) {
+    const fmt = this._fmt();
+    const { day, week } = this._rolling(stats);
+    // The share of time is the headline; without full coverage it is unknown,
+    // so the observed duration takes its place rather than a guessed share.
+    const hero = (result) => {
+      if (complete(result)) return `${result.percentage.toLocaleString(fmt.locale.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${t === I18N.en ? "%" : " %"}`;
+      return result ? span(t, result.observed_duration_seconds || 0) : "—";
+    };
+    const sub = (result) => {
+      if (!result) return t.incomplete;
+      if (!result.count) return t.noAlerts;
+      return complete(result) ? `${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)}` : alerts(t, result.count);
+    };
+    const kpi = (label, result) => `<div class="kpi${complete(result) ? "" : " partial"}">
+        <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(hero(result))}</span><span class="k-sub">${esc(sub(result))}</span>
+      </div>`;
+    const tiles = [
+      this._shows("stats", "day") ? kpi(t.last24, day) : "",
+      this._shows("stats", "week") ? kpi(t.week, week) : "",
+    ].filter(Boolean);
+    return `<div class="kpis"${tiles.length === 1 ? ' style="grid-template-columns:1fr"' : ""}>${tiles.join("")}</div>`;
+  }
+
+  _recordsHtml(t, stats) {
+    const { day, week, incomplete } = this._rolling(stats);
+    const hints = [];
+    if (week?.count) hints.push(`${t.longest} ${span(t, week.longest_duration_seconds || 0)}`, `${t.average} ${span(t, week.observed_duration_seconds / week.count)}`);
+    if (incomplete && (day || week)) hints.push(t.incomplete);
+    if (day?.quality === "gaps" || week?.quality === "gaps") hints.push(t.gaps);
+    return hints.length ? `<div class="hint">${esc(hints.join(" · "))}</div>` : "";
   }
 
   _moreInfo(entityId) {
@@ -512,21 +550,18 @@ class UkraineAlarmProCard extends HTMLElement {
       return;
     }
     const view = this._view(t, ids);
-    const compact = this._config.layout === "compact";
-    const region = compact ? `${esc(view.name)}${levelSuffix(t, view)}` : esc(view.name);
-    const body = compact ? "" : this._bodyHtml(t, view);
+    const { sections } = this._config;
+    const compact = sections.length === 1 && sections[0] === "status";
+    const parts = sections.map((section) => this._sectionHtml(section, t, view)).filter(Boolean);
+    // An active alert on stale data is flagged whatever the user picked: a
+    // quiet card says "no fresh data" in its title, an active one must not
+    // let an old alert pass for a current one.
+    if (view.stale && view.active) {
+      parts.splice(sections[0] === "status" ? 1 : 0, 0, `<div class="foot"><span class="dot"></span>${esc(t.staleNote)}</div>`);
+    }
     patchDOM(this.shadowRoot, `${STYLE}
       <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0" role="button" aria-label="${esc(view.name)}: ${esc(view.title)}">
-        <div class="glow"></div>
-        <div class="head">
-          <div class="badge"><span class="pulse"></span><ha-icon icon="${STATUS_ICONS[view.status]}"></ha-icon></div>
-          <div class="titles">
-            <div class="region">${region}</div>
-            <div class="status">${esc(view.title)}</div>
-          </div>
-          ${this._timerHtml(t, view)}
-        </div>
-        ${body}
+        ${parts.join("\n")}
       </ha-card>`);
     const card = this.shadowRoot.querySelector("ha-card");
     if (this._eventCard !== card) {
@@ -583,12 +618,12 @@ class UkraineAlarmProCard extends HTMLElement {
 
   _chips(t, view) {
     if (!view.active) return [];
-    const chips = view.types
+    const chips = !this._shows("details", "types") ? [] : view.types
       .slice(1)
       .map((type) => chip(TYPE_ICONS[type] || TYPE_ICONS.unrecognized, t.types[type] || type));
-    const levelText = t.level[view.air];
+    const levelText = this._shows("details", "level") && t.level[view.air];
     if (levelText) chips.push(`<span class="chip level ${esc(view.air)}"><span class="dot"></span>${esc(levelText)}</span>`);
-    const coverage = view.threat?.attributes?.coverage;
+    const coverage = this._shows("details", "coverage") ? view.threat?.attributes?.coverage : undefined;
     if (coverage === "whole") chips.push(chip("mdi:map", t.whole));
     if (coverage === "unrecognized") chips.push(chip("mdi:map-search", t.unknownCoverage));
     if (coverage === "partial") {
@@ -599,26 +634,38 @@ class UkraineAlarmProCard extends HTMLElement {
     return chips;
   }
 
-  _freshness(t, view) {
-    if (view.stale) return t.staleNote;
+  // The update time rides quietly in the region line; stale data turns it red.
+  _meta(t, view) {
     const updated = dateOf(known(view.updated)?.state);
-    return updated ? `${t.fresh} · ${t.updated} ${hhmm(updated, this._fmt())}` : t.fresh;
+    if (!updated || view.noData) return "";
+    return ` <span class="meta${view.stale ? " bad" : ""}">· ${esc(t.updated)} ${esc(hhmm(updated, this._fmt()))}</span>`;
   }
 
-  _bodyHtml(t, view) {
-    const chips = this._chips(t, view);
-    const reasons = view.active ? (view.level?.attributes?.reasons || []).join(" · ") : "";
-    const stats = this._statsOn() ? view.journal : null;
-    const parts = [
-      chips.length ? `<div class="chips">${chips.join("")}</div>` : "",
-      reasons ? `<div class="reasons">${esc(reasons)}</div>` : "",
-      stats ? this._statsHtml(t, stats) : "",
-      `<div class="foot">
-            <span class="fresh ${view.stale ? "bad" : "ok"}"><span class="dot"></span>${esc(this._freshness(t, view))}</span>
-          </div>`,
-    ];
-    return `
-          ${parts.join("\n")}`;
+  _sectionHtml(section, t, view) {
+    if (section === "status") return this._headHtml(t, view);
+    if (section === "details") {
+      const chips = this._chips(t, view);
+      const reasons = view.active && this._shows("details", "reason") ? (view.level?.attributes?.reasons || []).join(" · ") : "";
+      if (!chips.length && !reasons) return "";
+      return `<div class="sec details">${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}${reasons ? `<div class="reasons">${esc(reasons)}</div>` : ""}</div>`;
+    }
+    if (!view.journal) return "";
+    const html = { timeline: this._timelineHtml, stats: this._statsHtml, records: this._recordsHtml }[section].call(this, t, view.journal);
+    return html ? `<div class="sec ${section}">${html}</div>` : "";
+  }
+
+  _headHtml(t, view) {
+    // Without the level chip the level still shows, next to the region name.
+    const inline = this._shows("details", "level") ? "" : levelSuffix(t, view);
+    const meta = this._shows("status", "updated") ? this._meta(t, view) : "";
+    return `<div class="sec head">
+          <div class="badge"><span class="pulse"></span><ha-icon icon="${STATUS_ICONS[view.status]}"></ha-icon></div>
+          <div class="titles">
+            <div class="region">${esc(view.name)}${inline}${meta}</div>
+            <div class="status">${esc(view.title)}</div>
+          </div>
+          ${this._shows("status", "timer") ? this._timerHtml(t, view) : ""}
+        </div>`;
   }
 }
 
@@ -630,6 +677,8 @@ const STATUS_ICONS = {
   stale: "mdi:cloud-off-outline",
   nodata: "mdi:timer-sand",
 };
+
+const complete = (result) => Boolean(result?.coverage_complete) && Number.isFinite(result.percentage);
 
 const known = (state) => (state && !["unknown", "unavailable"].includes(state.state) ? state : null);
 
@@ -647,10 +696,10 @@ function titleOf(t, { noData, active, stale, types }) {
   return stale ? t.stale : t.quiet;
 }
 
-// In the compact layout the level sits next to the region name.
+// Without the level chip, the level sits next to the region name.
 function levelSuffix(t, view) {
   const text = view.active && t.level[view.air];
-  return text ? ` · <span class="lvl ${esc(view.air)}">${esc(text)}</span>` : "";
+  return text ? ` <span class="lvl ${esc(view.air)}"><span class="dot"></span>${esc(text)}</span>` : "";
 }
 
 const STYLE = `<style>
@@ -660,97 +709,288 @@ const STYLE = `<style>
   ha-card.red, ha-card.alert { --accent: var(--uap-red); }
   ha-card.yellow { --accent: var(--uap-yellow); }
   ha-card.stale, ha-card.nodata { --accent: var(--uap-gray); }
-  .glow { position: absolute; inset: 0; pointer-events: none;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%); }
-  ha-card.red .glow, ha-card.alert .glow, ha-card.yellow .glow {
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 34%, transparent), color-mix(in srgb, var(--accent) 6%, transparent) 70%); }
-  .head { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .badge { position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%;
-    display: grid; place-items: center; color: #fff; background: var(--accent);
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 45%, transparent); }
-  .badge ha-icon { --mdc-icon-size: 24px; }
-  .pulse { display: none; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--accent); }
-  ha-card.red .pulse, ha-card.alert .pulse, ha-card.yellow .pulse { display: block; animation: pulse 1.8s ease-out infinite; }
-  @keyframes pulse { from { transform: scale(1); opacity: .8; } to { transform: scale(1.7); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .pulse { animation: none !important; } }
-  .titles { min-width: 0; flex: 1; }
-  .region { font-size: 14px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .status { font-size: 18px; font-weight: 700; line-height: 1.2; color: var(--primary-text-color); }
-  ha-card.red .status, ha-card.alert .status { color: var(--uap-red); }
-  ha-card.yellow .status { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
-  .timer { text-align: right; flex: none; }
-  .timer .big { font-size: 18px; white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
-  .timer .small { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
-  .chips { position: relative; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 12px;
-    background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); color: var(--primary-text-color); }
-  .chip ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
-  .chip .dot, .fresh .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-  .chip.level.yellow .dot { background: var(--uap-yellow); }
-  .chip.level.red .dot { background: var(--uap-red); }
-  .chip.level.unrecognized .dot { background: var(--uap-gray); }
-  .reasons { position: relative; margin-top: 8px; font-size: 13px; color: var(--secondary-text-color);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .foot { position: relative; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
-    margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--divider-color, rgba(127,127,127,.2));
-    font-size: 12px; color: var(--secondary-text-color); }
-  .fresh { display: inline-flex; align-items: center; gap: 6px; }
-  .fresh.ok .dot { background: var(--uap-green); }
-  .fresh.bad { color: var(--uap-red); }
-  .fresh.bad .dot { background: var(--uap-red); }
-  ha-card.compact { padding: 12px 14px; }
-  ha-card.compact .badge { width: 40px; height: 40px; }
-  ha-card.compact .badge ha-icon { --mdc-icon-size: 22px; }
-  ha-card.compact .status, ha-card.compact .timer .big { font-size: 17px; }
-  .lvl.red { color: var(--uap-red); font-weight: 600; }
-  .lvl.yellow { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); font-weight: 600; }
-  .timer.quiet .big { color: var(--uap-green); }
-  .stats { position: relative; margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-  .row { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "lbl val" "viz viz"; align-items: center; gap: 3px 10px; }
-  .lbl { grid-area: lbl; } .row b { grid-area: val; } .timeline { grid-area: viz; }
-  .row.plain { display: flex; justify-content: space-between; gap: 10px; }
-  @container (min-width: 520px) {
-    .row { grid-template-columns: 52px minmax(120px, 1fr) auto; grid-template-areas: "lbl viz val"; }
-  }
-  .lbl { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
-  .row b { font-size: 12px; font-weight: 600; color: var(--primary-text-color); white-space: nowrap;
-    font-variant-numeric: tabular-nums; text-align: right; }
-  .timeline { position: relative; height: 12px; border-radius: 4px; overflow: hidden; }
-  .timeline.incomplete { background: repeating-linear-gradient(45deg, rgba(127,127,127,.16) 0 4px, transparent 4px 8px); }
+  /* An active alert tints the whole card; a quiet one stays neutral. */
+  ha-card.red, ha-card.alert, ha-card.yellow {
+    background: color-mix(in srgb, var(--accent) 10%, var(--ha-card-background, var(--card-background-color, #fff))); }
   ha-card:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
-  .timeline { background: color-mix(in srgb, var(--uap-green) 18%, transparent); }
-  .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 12%, transparent); }
-  .seg { position: absolute; top: 0; bottom: 0; background: var(--uap-red); }
+  .head { display: flex; align-items: center; gap: 12px; }
+  .badge { position: relative; flex: none; width: 38px; height: 38px; border-radius: 11px;
+    display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  ha-card.red .badge, ha-card.alert .badge, ha-card.yellow .badge { color: #fff; background: var(--accent); }
+  .badge ha-icon { --mdc-icon-size: 22px; display: flex; }
+  .pulse { display: none; position: absolute; inset: 0; border-radius: inherit; }
+  ha-card.red .pulse, ha-card.alert .pulse, ha-card.yellow .pulse { display: block; animation: pulse 1.8s ease-out infinite; }
+  @keyframes pulse { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+    to { box-shadow: 0 0 0 9px transparent; } }
+  .titles { min-width: 0; flex: 1; }
+  .region { font-size: 12.5px; line-height: 1.3; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta.bad { color: var(--uap-red); }
+  .status { font-size: 16px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  ha-card.red .status, ha-card.alert .status { color: var(--uap-red); }
+  ha-card.yellow .status { color: color-mix(in srgb, var(--uap-yellow) 70%, var(--primary-text-color)); }
+  ha-card.stale .status, ha-card.nodata .status { color: var(--secondary-text-color); }
+  .timer { flex: none; text-align: right; }
+  .timer .big { font-size: 16px; font-weight: 600; line-height: 1.25; white-space: nowrap;
+    font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+  .timer .small { font-size: 12px; line-height: 1.3; white-space: nowrap; color: var(--secondary-text-color); }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: currentColor; }
+  .lvl { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; font-weight: 600; }
+  .lvl .dot { width: 7px; height: 7px; }
+  .lvl.red { color: var(--uap-red); }
+  .lvl.yellow { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
+  .sec + .sec, .foot + .sec, .sec + .foot { margin-top: 10px; }
+  .sec.timeline + .sec.stats, .sec.stats + .sec.records, .sec.timeline + .sec.records { margin-top: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 3px 8px; border-radius: 6px;
+    font-size: 12px; line-height: 1.35; color: var(--primary-text-color);
+    background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); }
+  .chip ha-icon { --mdc-icon-size: 15px; display: flex; color: var(--secondary-text-color); }
+  .chip.level.red .dot { background: var(--uap-red); }
+  .chip.level.yellow .dot { background: var(--uap-yellow); }
+  .chip.level.unrecognized .dot { background: var(--uap-gray); }
+  .chips + .reasons { margin-top: 6px; }
+  .reasons { font-size: 12.5px; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--uap-red); }
+  .strip { position: relative; height: 8px; border-radius: 4px; overflow: hidden;
+    background: color-mix(in srgb, var(--uap-green) 22%, transparent); }
+  .strip.incomplete { background: repeating-linear-gradient(45deg, rgba(127,127,127,.14) 0 3px, transparent 3px 7px); }
+  .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--primary-text-color) 18%, transparent); }
+  .seg { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--uap-red); }
   .seg.yellow { background: var(--uap-yellow); }
   .seg.other { background: color-mix(in srgb, var(--uap-red) 70%, var(--uap-gray)); }
   .seg.gap { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
   .seg.live { animation: live 1.8s ease-in-out infinite; }
-  @keyframes live { 50% { opacity: .6; } }
-  @media (prefers-reduced-motion: reduce) { .seg.live { animation: none; } }
-  .hint { font-size: 11px; color: var(--secondary-text-color); }
+  @keyframes live { 50% { opacity: .55; } }
+  .axis { position: relative; height: 13px; margin-top: 3px; font-size: 10.5px; line-height: 13px;
+    color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+  .axis span { position: absolute; top: 0; transform: translateX(-50%); }
+  .axis .end { right: 0; transform: none; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi { display: flex; flex-direction: column; min-width: 0; padding: 7px 10px; border-radius: 10px;
+    background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
+  .k-lbl, .k-sub { font-size: 11.5px; line-height: 1.35; color: var(--secondary-text-color);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .kpi.partial .k-val { color: var(--secondary-text-color); }
+  .hint { font-size: 11.5px; color: var(--secondary-text-color); }
+  ha-card.compact { padding: 10px 12px; }
+  ha-card.compact .badge { width: 34px; height: 34px; border-radius: 10px; }
+  ha-card.compact .badge ha-icon { --mdc-icon-size: 20px; }
+  @media (prefers-reduced-motion: reduce) { .pulse, .seg.live { animation: none !important; } }
   /* The timer keeps the right-hand column; only a very narrow card (a half-width
      tile on a phone) moves it under the title instead of colliding with it. */
   @container (max-width: 280px) {
-    .head { column-gap: 12px; row-gap: 2px; }
+    .head { flex-wrap: wrap; row-gap: 2px; }
     .timer { order: 3; flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px;
-      text-align: left; padding-left: 56px; }
-    ha-card.compact .timer { padding-left: 52px; }
-    .status { font-size: 17px; }
-    .timer .big { font-size: 16px; }
+      text-align: left; padding-left: 50px; }
+    ha-card.compact .timer { padding-left: 46px; }
     .timer .small { white-space: normal; }
-    /* Statistics values wrap under their label instead of being cut off. */
-    .row, .row.plain { display: grid; grid-template-columns: 1fr; grid-template-areas: "lbl" "val" "viz"; }
-    .row.plain { grid-template-areas: "lbl" "val"; }
-    .row b { text-align: left; white-space: normal; }
+    .kpis { grid-template-columns: 1fr; }
+    .k-sub { white-space: normal; }
   }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
+
+// Editor words, in Home Assistant's language; the card's own `language` is a setting in it.
+const EDITOR_I18N = {
+  uk: {
+    entity: "Регіон", name: "Назва", language: "Мова картки",
+    head: "Розділи", reset: "Скинути", up: "Вище", down: "Нижче", items: "Що показувати",
+    names: {
+      status: ["Стан", "регіон, тривога чи тихо, тривалість"],
+      details: ["Деталі тривоги", "рівень, інші загрози, охоплення, причина"],
+      timeline: ["Смуга 24 год", "коли були тривоги за добу"],
+      stats: ["Статистика", "частка часу під тривогою за 24 год і 7 днів"],
+      records: ["Найдовша й середня", "а також якість статистики"],
+    },
+    item: {
+      status: { timer: "Тривалість", updated: "Час оновлення" },
+      details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
+      stats: { day: "24 год", week: "7 днів" },
+    },
+    languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
+  },
+  en: {
+    entity: "Region", name: "Name", language: "Card language",
+    head: "Sections", reset: "Reset", up: "Move up", down: "Move down", items: "What to show",
+    names: {
+      status: ["Status", "region, alert or quiet, duration"],
+      details: ["Alert details", "level, other threats, coverage, reason"],
+      timeline: ["24 h strip", "when the alerts were over the day"],
+      stats: ["Statistics", "share of time under alert, 24 h and 7 days"],
+      records: ["Longest and average", "and the statistics quality"],
+    },
+    item: {
+      status: { timer: "Duration", updated: "Update time" },
+      details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
+      stats: { day: "24 h", week: "7 days" },
+    },
+    languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
+  },
+};
+
+class UkraineAlarmProCardEditor extends HTMLElement {
+  setConfig(config) {
+    const { sections, hide } = normalizeConfig(config);
+    this._config = { ...config, sections, hide };
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _labels() {
+    return (this._hass?.locale?.language || this._hass?.language || "en").startsWith("uk") ? EDITOR_I18N.uk : EDITOR_I18N.en;
+  }
+
+  // Only what the user set is written: no `layout`, and no empty `hide`.
+  _emit(next) {
+    const { layout, ...rest } = { ...this._config, ...next };
+    if (!rest.hide?.length) delete rest.hide;
+    this._config = { ...rest, hide: rest.hide || [] };
+    this._render();
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: rest }, bubbles: true, composed: true }));
+  }
+
+  _toggle(key) {
+    const on = this._config.sections;
+    if (on.includes(key)) {
+      if (on.length > 1) this._emit({ sections: on.filter((section) => section !== key) });
+      else this._render();
+    } else this._emit({ sections: [...on, key] });
+  }
+
+  _move(key, dir) {
+    const on = [...this._config.sections];
+    const i = on.indexOf(key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= on.length) return;
+    [on[i], on[j]] = [on[j], on[i]];
+    this._emit({ sections: on });
+  }
+
+  // Items hide one at a time; a section always keeps at least one.
+  _toggleItem(id) {
+    const [section] = id.split(".");
+    const hide = [...this._config.hide];
+    const left = ITEMS[section].filter((item) => !hide.includes(`${section}.${item}`)).length;
+    if (hide.includes(id)) hide.splice(hide.indexOf(id), 1);
+    else if (left > 1) hide.push(id);
+    else { this._render(); return; }
+    this._emit({ hide });
+  }
+
+  _expand(key) {
+    this._open = this._open || new Set();
+    if (!this._open.delete(key)) this._open.add(key);
+    this._render();
+  }
+
+  _sectionsHtml() {
+    const l = this._labels();
+    const on = this._config.sections;
+    const hide = this._config.hide;
+    const rows = [...on, ...SECTIONS.filter((section) => !on.includes(section))];
+    return rows.map((key) => {
+      const [name, hint] = l.names[key];
+      const shown = on.includes(key);
+      const i = on.indexOf(key);
+      const lock = shown && on.length === 1 ? " disabled" : "";
+      const expandable = shown && Boolean(ITEMS[key]);
+      const open = expandable && this._open?.has(key);
+      const expand = expandable
+        ? `<button type="button" data-expand="${key}" class="${open ? "open" : ""}" title="${esc(l.items)}" aria-expanded="${Boolean(open)}"><ha-icon icon="mdi:tune-variant"></ha-icon></button>`
+        : "";
+      const move = (dir, off) => `<button type="button" data-move="${key}" data-dir="${dir}"${off ? " disabled" : ""} title="${esc(dir < 0 ? l.up : l.down)}"><ha-icon icon="mdi:chevron-${dir < 0 ? "up" : "down"}"></ha-icon></button>`;
+      const left = (ITEMS[key] || []).filter((item) => !hide.includes(`${key}.${item}`)).length;
+      const items = open
+        ? `<div class="items">${ITEMS[key].map((item) => {
+          const id = `${key}.${item}`;
+          const checked = !hide.includes(id);
+          return `<label><input type="checkbox" data-item="${id}"${checked ? " checked" : ""}${checked && left === 1 ? " disabled" : ""}><span>${esc(l.item[key][item])}</span></label>`;
+        }).join("")}</div>`
+        : "";
+      return `<div class="row${shown ? "" : " off"}"><label><input type="checkbox" data-toggle="${key}"${shown ? " checked" : ""}${lock}><span>${esc(name)}<small>${esc(hint)}</small></span></label>`
+        + expand + (shown ? move(-1, i === 0) + move(1, i === on.length - 1) : "") + `</div>${items}`;
+    }).join("");
+  }
+
+  _render() {
+    if (!this._config || typeof document === "undefined") return;
+    if (!this._list) {
+      this.innerHTML = `<style>${EDITOR_CSS}</style><div class="form"></div><div class="top"><b></b><button type="button" class="reset"></button></div><div class="list"></div>`;
+      this._list = this.querySelector(".list");
+      this.addEventListener("click", (event) => {
+        const button = event.target.closest?.("button");
+        if (button?.dataset.move) this._move(button.dataset.move, Number(button.dataset.dir));
+        else if (button?.dataset.expand) this._expand(button.dataset.expand);
+        else if (button?.classList.contains("reset")) this._emit({ sections: [...SECTIONS], hide: [] });
+      });
+      this.addEventListener("change", (event) => {
+        if (event.target.dataset?.toggle) this._toggle(event.target.dataset.toggle);
+        else if (event.target.dataset?.item) this._toggleItem(event.target.dataset.item);
+      });
+    }
+    const l = this._labels();
+    this.querySelector(".top b").textContent = l.head;
+    this.querySelector(".top .reset").textContent = l.reset;
+    this._list.innerHTML = this._sectionsHtml();
+    if (!this._hass || !customElements.get("ha-form")) return;
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (field) => this._labels()[field.name];
+      this._form.addEventListener("value-changed", (event) => {
+        event.stopPropagation();
+        const { entity, name, language } = event.detail.value;
+        const next = { ...this._config };
+        // Empty fields and the "auto" language are defaults, not written into YAML.
+        for (const [key, value] of Object.entries({ entity, name, language })) {
+          if (value && value !== "auto") next[key] = value; else delete next[key];
+        }
+        this._config = next;
+        this._emit({});
+      });
+      this.querySelector(".form").appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.schema = [
+      { name: "entity", selector: { entity: { filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } } },
+      { name: "name", selector: { text: {} } },
+      { name: "language", selector: { select: { mode: "dropdown", options: Object.entries(l.languages).map(([value, label]) => ({ value, label })) } } },
+    ];
+    this._form.data = { entity: this._config.entity, name: this._config.name, language: this._config.language || "auto" };
+  }
+}
+
+const EDITOR_CSS = `
+  .form { margin-bottom: 12px; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; }
+  .top button { border: 0; background: none; color: var(--primary-color); font: inherit; cursor: pointer; }
+  .row { display: flex; align-items: center; gap: 4px; min-height: 44px; border-bottom: 1px solid var(--divider-color); }
+  .row label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+  .row input { width: 20px; height: 20px; margin: 0; accent-color: var(--primary-color); }
+  .row span { display: flex; flex-direction: column; } .row small { color: var(--secondary-text-color); }
+  .row.off span { opacity: .55; }
+  .row button { display: flex; width: 40px; height: 40px; align-items: center; justify-content: center; border: 0;
+    border-radius: 50%; background: none; color: var(--primary-text-color); cursor: pointer; }
+  .row button:disabled { opacity: .25; cursor: default; }
+  .row button.open { color: var(--primary-color); }
+  .items { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0 10px 30px; border-bottom: 1px solid var(--divider-color); }
+  .items label { display: flex; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; }
+  .items input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
+`;
 
 // Loaded as an early "extra module": the frontend can swap its element registry
 // after that, dropping a definition made too soon. Re-check for a while so the
 // card always ends up defined in the registry the dashboards actually use.
 function register() {
   if (!window.customElements.get(CARD)) window.customElements.define(CARD, UkraineAlarmProCard);
+  if (!window.customElements.get(`${CARD}-editor`)) window.customElements.define(`${CARD}-editor`, UkraineAlarmProCardEditor);
 }
 register();
 // Frequent at first, then sparse: a slow phone can finish booting late.
@@ -765,7 +1005,7 @@ if (!window.customCards.some((card) => card.type === CARD)) {
   window.customCards.push({
     type: CARD,
     name: "Ukraine Alarm Pro",
-    description: "Alert status of one region: threat, level, duration, coverage and data freshness.",
+    description: "Air raid alerts for one region: pick, hide and reorder status, details, timeline and statistics.",
     preview: true,
     documentationURL: "https://github.com/ABovsh/ukraine-alarm-pro",
   });

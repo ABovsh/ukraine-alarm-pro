@@ -104,7 +104,8 @@ def test_card_defines_its_element_and_picker_entry():
     source = CARD.read_text(encoding="utf-8")
     assert 'customElements.define(CARD' in source
     assert "window.customCards" in source
-    assert "getConfigForm" in source
+    assert "getConfigElement" in source
+    assert "customElements.define(`${CARD}-editor`" in source
     # Statistics come from the journal actions, not from new entities.
     assert '"get_summary"' in source
     assert '"get_history"' in source

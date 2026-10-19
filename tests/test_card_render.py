@@ -5,6 +5,7 @@ Regenerate after an intentional change: UAP_UPDATE_SNAPSHOTS=1 pytest tests/test
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -64,3 +65,60 @@ def test_card_is_compact_on_a_phone():
     style = CARD.read_text(encoding="utf-8")
     assert "@container (max-width: 280px)" in style
     assert "max-width: 420px" not in style
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_fresh_data_needs_no_footer_but_stale_data_is_explicit():
+    """A footer saying "data is current" on every card is noise; the update time
+    rides in the region line, and only stale data gets its own warning."""
+    rendered = _render()
+    for name in ("quiet_status", "quiet_full", "alert_red_status"):
+        assert 'class="foot' not in rendered[name], name
+        assert "Дані актуальні" not in rendered[name], name
+        assert "оновлено" in rendered[name], name
+    assert "оновлено" not in rendered["quiet_compact"]
+    assert "Немає свіжих даних" in rendered["stale"]
+    assert "оновлено" in rendered["stale"]
+    alert_stale = _render_one("alert_stale")
+    assert "Дані застаріли" in alert_stale
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_full_layout_shows_two_percentage_tiles_and_clock_marks():
+    rendered = _render()
+    full = rendered["quiet_full"]
+    assert len(re.findall(r'class="kpi[" ]', full)) == 2
+    assert "24 год" in full and "7 днів" in full
+    # Rolling 24 h strip labelled with real Kyiv clock hours, ending at "now".
+    assert "зараз" in full
+    assert "18:00" in full or "12:00" in full
+
+
+def _render_one(name: str) -> str:
+    return _render()[name]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_card_is_built_from_the_sections_the_user_picked():
+    """One modular card: sections render in the chosen order, items hide one by
+    one, and saved layout configs open as the sections they used to show."""
+    rendered = _render()
+    reordered = rendered["sections_reordered"]
+    assert reordered.index('sec stats') < reordered.index('sec head')
+    assert 'class="strip' not in reordered and 'class="chips' not in reordered
+    details = rendered["sections_details_only"]
+    assert 'sec head' not in details
+    assert "Червоний рівень" in details and "Загроза артобстрілу" in details
+    assert "Частина регіону" not in details and "Балістика" not in details
+    assert 'class="timer' not in rendered["sections_status_no_timer"]
+    # Without the details section the level still shows, next to the region.
+    assert "Червоний рівень" in rendered["sections_status_no_timer"]
+    week = rendered["sections_week_only"]
+    assert "7 днів" in week and "24 год" not in week
+    sizes = {row[0]: row for row in map(tuple, rendered["card_size"])}
+    assert sizes["status"][1] == "status.updated"  # legacy compact
+    assert ("status,details", "") in {row[:2] for row in sizes.values()}
+    assert "timeline" in rendered["card_size"][0][0]  # legacy full = every section
+    assert rendered["card_size"][3][0] == rendered["card_size"][0][0]  # unknown layout = full
+    assert "status, details, timeline, stats, records" in rendered["bad_section"]
+    assert rendered["stub"]["sections"] == ["status", "details", "timeline", "stats", "records"]

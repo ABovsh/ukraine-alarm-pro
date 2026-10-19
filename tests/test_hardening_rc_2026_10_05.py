@@ -169,7 +169,7 @@ async def test_card_discovers_siblings_that_arrive_after_the_alert_state(page):
     await page.evaluate("""hass.states=late;
       hass.states['binary_sensor.uap_data_stale'].state='on'; c.hass={...hass};""")
     assert await page.evaluate("c._entities().stale") == "binary_sensor.uap_data_stale"
-    assert "Data is stale" in await page.evaluate("c.shadowRoot.textContent")
+    assert "No fresh data" in await page.evaluate("c.shadowRoot.textContent")
 
 
 async def test_card_connection_change_cannot_accept_the_old_connection_reply(page):

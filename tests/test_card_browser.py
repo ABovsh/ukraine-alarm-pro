@@ -168,3 +168,36 @@ async def test_mobile_stale_incomplete_and_partial_are_distinct(page, tmp_path):
     assert "Incomplete statistics" in text
     assert await page.evaluate("document.documentElement.scrollWidth <= 360")
     await page.screenshot(path=str(tmp_path / "uap-mobile.png"))
+
+
+async def test_editor_picks_hides_and_reorders_sections(page):
+    """The visual editor writes `sections`/`hide`, drops a saved `layout`, and
+    never lets the last section go."""
+    await page.evaluate("""window.changes = [];
+      window.ed = document.createElement('ukraine-alarm-pro-card-editor');
+      ed.addEventListener('config-changed', (e) => changes.push(e.detail.config));
+      document.body.appendChild(ed);
+      ed.setConfig({ entity: 'binary_sensor.uap_31_alert', layout: 'status' });
+      ed.hass = makeHass();""")
+    rows = await page.evaluate(
+        "[...ed.querySelectorAll('[data-toggle]')].map((i) => [i.dataset.toggle, i.checked])"
+    )
+    assert rows[:2] == [["status", True], ["details", True]]
+    assert [key for key, on in rows if not on] == ["timeline", "stats", "records"]
+    await page.evaluate("ed.querySelector('[data-toggle=stats]').click()")
+    assert await page.evaluate("changes.at(-1)") == {
+        "entity": "binary_sensor.uap_31_alert",
+        "sections": ["status", "details", "stats"],
+    }
+    await page.evaluate("ed.querySelector('[data-move=stats][data-dir=\"-1\"]').click()")
+    assert await page.evaluate("changes.at(-1).sections") == ["status", "stats", "details"]
+    await page.evaluate("ed.querySelector('[data-expand=stats]').click()")
+    await page.evaluate("ed.querySelector('[data-item=\"stats.day\"]').click()")
+    assert await page.evaluate("changes.at(-1).hide") == ["stats.day"]
+    # The remaining item of a section cannot be hidden too.
+    assert await page.evaluate("ed.querySelector('[data-item=\"stats.week\"]').disabled")
+    await page.evaluate(
+        "for (const k of ['details', 'stats']) ed.querySelector(`[data-toggle=${k}]`).click()"
+    )
+    assert await page.evaluate("changes.at(-1).sections") == ["status"]
+    assert await page.evaluate("ed.querySelector('[data-toggle=status]').disabled")

@@ -73,6 +73,7 @@ const scenarios = {
   alert_partial_two: [{ ...alertRed, areas: [{ region_name: "A" }, { region_name: "" }] }, { layout: "status" }, null],
   alert_long: [{ ...alertRed, started: iso(3 * 1440 + 125) }, { layout: "compact" }, null],
   stale: [{ stale: "on" }, { layout: "full" }, { episodes: quietEpisodes, summary: summary() }],
+  alert_stale: [{ ...alertRed, stale: "on" }, { layout: "status" }, null],
   no_data: [{ alert: "unavailable" }, { layout: "status" }, null],
   no_hub: [{ withHub: false }, { layout: "status" }, null],
   english_full: [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary() }],
@@ -84,6 +85,10 @@ const scenarios = {
   alert_one_day: [{ ...alertRed, started: iso(1440 + 61) }, { layout: "compact" }, null],
   big_share: [{}, { layout: "full" }, { episodes: [{ observed_started_at: iso(900), observed_cleared_at: iso(100), maximum_air_level: "red", had_gap: false }], summary: summary({ observed_duration_seconds: 200000 }) }],
   share_capped: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ observed_duration_seconds: 9000000 }) }],
+  sections_reordered: [alertRed, { sections: ["stats", "status"] }, { episodes, summary: summary() }],
+  sections_details_only: [alertRed, { sections: ["details"], hide: ["details.coverage", "details.reason"] }, null],
+  sections_status_no_timer: [alertRed, { sections: ["status"], hide: ["status.timer"] }, null],
+  sections_week_only: [{}, { sections: ["status", "stats"], hide: ["stats.day"] }, { episodes: quietEpisodes, summary: summary() }],
 };
 for (const n of [1, 2, 4, 5, 11, 12, 14, 15, 21, 25, 111]) {
   scenarios[`plural_${n}`] = [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ count: n }) }];
@@ -106,5 +111,7 @@ Object.defineProperty(empty, "isConnected", { value: false });
 empty.setConfig({});
 empty.hass = { states: {}, entities: {}, locale: { language: "uk" } };
 out.not_found = empty.shadowRoot.innerHTML.split("</style>").pop().replace(/\s+/g, " ").trim();
-out.card_size = ["full", "status", "compact", "bogus"].map((layout) => { const c = new Card(); c.setConfig({ layout }); return [c._config.layout, c.getCardSize()]; });
+out.card_size = ["full", "status", "compact", "bogus"].map((layout) => { const c = new Card(); c.setConfig({ layout }); return [c._config.sections.join(","), c._config.hide.join(","), c.getCardSize()]; });
+out.bad_section = (() => { try { new Card().setConfig({ sections: ["status", "map"] }); return "accepted"; } catch (e) { return String(e.message); } })();
+out.stub = Card.getStubConfig(hass({}));
 console.log(JSON.stringify(out, null, 1));
