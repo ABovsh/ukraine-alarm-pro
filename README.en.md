@@ -22,8 +22,9 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
 - **Alerts for an oblast, raion or hromada.** Each selected region includes alerts
   from its administrative ancestors and the regions within it. Coverage shows
   whether an alert affects the whole region or only part of it.
-- **Dashboard card.** Current state, alert duration or time since the all clear,
-  statistics for 24 hours and 7 days, and three layouts.
+- **Modular dashboard card.** Current state, alert duration or time since the all
+  clear, alert details, a day strip and statistics for 24 hours and 7 days. The card's
+  sections are switched on, off and reordered in its editor.
 - **Up to 90 days of history.** Local observations are supplemented with official
   air-alert history. That source has no alert levels or alerts declared for an individual hromada.
 - **Events and notification blueprints.** Alert start, escalation, new threats,
@@ -33,7 +34,8 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
 - **Last known state during outages.** The saved alert map is restored after a
   restart; a separate sensor and the card indicate stale data.
 - **One shared connection for selected regions.** The integration does not limit
-  their number and switches to a fallback source after repeated WebSocket failures.
+  their number and switches to a fallback source after repeated WebSocket failures or
+  when a cross-check shows that the WebSocket missed updates.
 
 ## Installation
 
@@ -65,30 +67,39 @@ requires the region-list source to be available.
 
 ## Dashboard card
 
-The card is part of the integration; there is nothing else to install. The screenshot
-shows its three layouts, top to bottom:
+The card is part of the integration; there is nothing else to install. It is built
+from sections: switch on the ones you need in the card editor and set their order there.
+The screenshot shows, top to bottom: all sections, "Status" with "Alert details", and
+"Status" alone.
 
-<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: compact, status only and full layouts" width="420">
+<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: all sections, status with alert details, and status only" width="420">
 
-- **Compact** — region name, state and time: how long the alert has lasted or how long
-  since the all clear. During an alert the level is shown next to the name.
-- **Status only** — the same, plus threat types, level, reason, coverage (the whole
-  region or part of it) and whether the data is current. When data is stale the card
-  says "No fresh data", not "All quiet".
-- **Full** — the same, plus statistics for 24 hours and 7 days: alert count, their
-  duration, share of time under alert, a day strip with the alerts, and the longest and
-  average alert.
+| Section | What it shows | Items you can hide |
+| --- | --- | --- |
+| Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
+| Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
+| 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
+| Statistics | share of time under alert, alert count and their duration | 24 h, 7 days |
+| Longest and average | the longest and average alert over 7 days, and the incomplete-statistics note | — |
 
-Tapping the card opens the alert sensor with its history.
+- Alert details appear only during an alert. Without the "Alert details" section the
+  level is shown next to the region name.
+- When data is stale the card says "No fresh data", not "All quiet", and shows the
+  update time in red. An active alert on stale data gets a separate warning.
+- During an alert the card is tinted in the level's colour.
+
+Tapping the card opens the alert sensor with its history. Tab moves focus to the card;
+Enter or Space opens the same sensor.
 
 ### Adding the card
 
 1. After installing the integration, reload Home Assistant in your browser or app.
 2. On a dashboard, choose **Edit dashboard → Add card** and find **Ukraine Alarm Pro**.
-3. In **Region / Регіон**, pick your region's alert sensor.
+3. In **Region**, pick your region's alert sensor.
    With a single region, the card selects it automatically.
-4. In **Layout / Вигляд**, choose a layout. Optionally set **Name / Назва**
-   (for example, "Home") and **Language / Мова**.
+4. In the **Sections** list, tick the sections you need and order them with the arrows.
+   The slider button next to a section opens its items. Optionally set **Name**
+   (for example, "Home") and **Card language**.
 5. Press **Save**. Add one card per region.
 
 For YAML-mode dashboards, add the resource manually:
@@ -101,17 +112,30 @@ If the card does not appear, see [Help](#help).
 type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # optional with a single region
 name: Home                          # optional
-layout: full                        # full, status (status only) or compact
+sections:                           # optional; without it, every section in this order
+  - status
+  - details
+  - timeline
+  - stats
+  - records
+hide:                               # optional: section items not to show
+  - details.reason
 language: auto                      # auto (Home Assistant language), uk or en
 ```
+
+Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`. Cards saved with
+`layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
+update time, `status` — "Status" and "Alert details", `full` — every section.
 
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.
 Percentages match the [time-under-alert sensors](#time-under-alert). Incomplete
 statistics, stale data and partial geographical coverage have separate indicators.
 Cards for the same region share requests and pause them in a hidden tab or offscreen.
-Active compact/status cards do not request the journal. The card creates no database
-rows. Entities may be renamed: the card finds them by region.
+A card without the day strip, statistics and "Longest and average" sections makes no
+journal requests: it reads the time since the all clear from
+`sensor.uap_<id>_alert_cleared`. The card creates no database rows. Entities may be renamed: the card finds them by region.
 
 ## Notifications
 
@@ -169,6 +193,7 @@ if you rename them, use your own IDs in automations.
 | `sensor.uap_<id>_threat` | enum | highest active threat: `none`, `air`, `artillery`, `urban_fights`, `chemical`, `nuclear`, `unrecognized` |
 | `sensor.uap_<id>_air_alert_level` | enum | air alert level: `none`, `yellow`, `red`, `unrecognized` |
 | `sensor.uap_<id>_alert_started` | timestamp | when the oldest active alert was declared; `unknown` while the region is quiet |
+| `sensor.uap_<id>_alert_cleared` | timestamp | when the last alert in the region ended; unchanged during a new alert |
 | `sensor.uap_<id>_alert_percentage_24h` | % | time under alert over the last 86,400 seconds |
 | `sensor.uap_<id>_alert_percentage_7d` | % | time under alert over the last 604,800 seconds |
 | `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
@@ -202,7 +227,10 @@ removed needed history, and `clock_jump` means a system clock change.
 `window_seconds` and `threat_scope: any_alert` describe the measurement.
 
 After upgrading, a full window requires 24 hours or seven days of continuous coverage.
-Restarts and lost data leave an exact gap from the last confirmation to recovery.
+A data gap of up to 5 minutes does not count when the region's state is the same on
+both sides and no alert started or ended at its edges, so an ordinary Home Assistant
+restart does not hide the percentage. A longer gap, or one with a state change, leaves
+an exact gap from the last confirmation to recovery.
 A percentage becomes available again when that gap leaves its window. Official
 history adds known air alerts; it cannot prove the absence of other threats or close
 all-threat coverage gaps.
@@ -343,14 +371,17 @@ Card statistics come from the integration's own 90-day journal.
 For `0.11.0rc1` and `0.11.0rc2` users: these sensors no longer accumulate long-term
 statistics; existing records remain. IDs, current values and ordinary state-change
 history are preserved.
-`sensor.uap_active_regions` retains its previous statistics for compatibility.
+`sensor.uap_<id>_alert_cleared` is written only after an all clear and has no
+`state_class`. Since 0.12 `sensor.uap_active_regions` has no `state_class` either: its
+state and ordinary history remain, regular statistics are no longer collected, and
+existing statistics rows stay.
 
 ## Help
 
 - **Card will not load.** For "Custom element doesn't exist", first reload the page
   or clear the app's frontend cache. Check that Home Assistant was restarted after
   installation and that YAML-mode dashboards have the card resource. For
-  "Configuration error", also check `type`, `entity`, `layout` and `language` against the example above.
+  "Configuration error", also check `type`, `entity`, `sections`, `hide` and `language` against the example above.
 - **No fresh data.** Check access to the [data sources](#data-sources) and
   `sensor.uap_last_update`. A saved state does not confirm a current alert or all clear.
 - **No notifications.** Check the selected event entity and automation actions.

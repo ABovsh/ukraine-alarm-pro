@@ -3,6 +3,41 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ✨ Added
+
+- The card is built from sections: Status, Alert details, 24 h strip, Statistics and
+  Longest and average. A visual editor switches them on and off, sets their order and
+  hides single items; YAML uses `sections` and `hide`.
+- `sensor.uap_<id>_alert_cleared`: when the last alert in the region ended. Written
+  once per all clear and restored from the journal after a restart.
+
+### 🐛 Fixed
+
+- A data gap of up to 5 minutes with the same regional state on both sides and no
+  alert edge across it no longer makes the 24 h and 7 d percentages `unknown`, so a
+  Home Assistant restart does not hide them for a day or a week.
+- When the watchdog finds that the WebSocket missed updates, polling starts at once
+  until the WebSocket publishes again. Before, a reconnect to another silent socket
+  left the map refreshed only every ~13 minutes.
+
+### 🔧 Changed
+
+- Card design: smaller status tile, update time next to the region name instead of a
+  footer, a 24 h strip marked with local clock hours, two statistics tiles with the
+  share of time as the headline, and a tinted card during an alert.
+- A card without statistics sections reads the time since the all clear from
+  `alert_cleared` and makes no journal requests.
+
+### ⚠️ Breaking
+
+- `sensor.uap_active_regions` no longer has `state_class: measurement`. Its state and
+  history remain; long-term statistics stop, existing rows are kept. Statistics
+  graphs that use it stop receiving new data.
+- Saved `layout: compact|status|full` cards keep working and open as the matching
+  sections; the card editor replaces `layout` with `sections` on the first edit.
+
 ## [0.11.0] - 2026-10-05
 
 ### ✨ Added
