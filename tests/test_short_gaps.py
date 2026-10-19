@@ -84,3 +84,23 @@ async def test_long_quiet_gap_is_not_bridged():
     result = history.rolling("31", DAY)
     assert result["percentage"] is None
     assert result["gap_seconds"] == 360
+
+
+async def test_alert_that_cleared_right_before_the_restart_is_bridged():
+    """2026-10-19 22:42: the all clear was the last confirmed map before the
+    restart, so the edge sits exactly at the gap's start. The state there is
+    known — quiet before the gap and after it."""
+    store = FakeStore()
+    history, clock = _hist(store, now=T0 - timedelta(days=8))
+    await history.async_load()
+    history.confirm(["31"], clock["now"])
+    history.handle_event("started", _payload("started", T0 - timedelta(minutes=30), active=True))
+    history.handle_event("cleared", _payload("cleared", T0, active=False))
+    clock["now"] = T0
+    await history.async_flush()
+    history, clock = await _restart(store, T0 + timedelta(seconds=21), active=False)
+    clock["now"] = T0 + timedelta(minutes=10)
+    history.confirm(["31"], clock["now"])
+    result = history.rolling("31", DAY)
+    assert result["coverage_complete"] is True
+    assert result["percentage"] == 2.1

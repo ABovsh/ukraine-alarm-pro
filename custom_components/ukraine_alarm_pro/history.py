@@ -716,7 +716,8 @@ class AlertHistory:
                 start is not None
                 and end is not None
                 and (end - start).total_seconds() <= BRIDGEABLE_GAP_SECONDS
-                and not any(start <= edge <= end + _EDGE_TOLERANCE for edge in edges)
+                # An edge at the gap's start is the last confirmed state itself.
+                and not any(start < edge <= end + _EDGE_TOLERANCE for edge in edges)
             )
             if not bridged:
                 result.append((start, end))
