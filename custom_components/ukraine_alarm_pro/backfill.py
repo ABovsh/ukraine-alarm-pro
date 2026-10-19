@@ -8,7 +8,6 @@ districts for a date range. It carries air alerts only and no levels.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import time
@@ -65,7 +64,7 @@ def _parse(stamp: Any) -> datetime | None:
     if not isinstance(stamp, str):
         return None
     try:
-        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(stamp)
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt_util.UTC)
@@ -130,7 +129,7 @@ async def async_fetch_official_history(
                 release = getattr(resp, "release", None)
                 if release is not None:
                     release()
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+    except (TimeoutError, aiohttp.ClientError, ValueError) as err:
         if isinstance(err, aiohttp.ClientResponseError) and err.status in (401, 403):
             _TOKENS.pop(session, None)
         # The anonymous page token travels in the query; omit the URL from logs.

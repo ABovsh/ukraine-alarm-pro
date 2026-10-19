@@ -8,7 +8,6 @@ a good one.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
@@ -47,7 +46,7 @@ async def async_fetch_regions(session: aiohttp.ClientSession) -> dict[str, Any]:
         )
         resp.raise_for_status()
         return await resp.json()
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+    except (TimeoutError, aiohttp.ClientError, ValueError) as err:
         raise TransportError(f"regions fetch failed: {err}") from err
 
 

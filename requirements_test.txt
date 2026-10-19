@@ -3,6 +3,6 @@ aiohttp
 pytest>=8.0.0
 pytest-asyncio
 pytest-homeassistant-custom-component>=0.13.108
-ruff
+ruff==0.17.1
 pytest-cov
 playwright>=1.49.0
