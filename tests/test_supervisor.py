@@ -47,7 +47,8 @@ async def test_ws_healthy_uses_websocket():
     await sup.start()
     await asyncio.sleep(0.1)
     assert sup.mode == "websocket"
-    assert updates and "703" in updates[0].regions
+    assert updates
+    assert "703" in updates[0].regions
     await sup.stop()
 
 
