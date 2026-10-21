@@ -8,7 +8,11 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
-from custom_components.ukraine_alarm_pro.api.ws import WsTransport, _publication, _replies
+from custom_components.ukraine_alarm_pro.api.ws import (
+    WsTransport,
+    _publication,
+    _replies,
+)
 from custom_components.ukraine_alarm_pro.backfill import parse_ranged_alerts
 from custom_components.ukraine_alarm_pro.regions import (
     async_fetch_regions,

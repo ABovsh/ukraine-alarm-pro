@@ -642,7 +642,8 @@ class UkraineAlarmProCard extends HTMLElement {
   _meta(t, view) {
     const updated = dateOf(known(view.updated)?.state);
     if (!updated || view.noData) return "";
-    return ` <span class="meta${view.stale ? " bad" : ""}">· ${esc(t.updated)} ${esc(hhmm(updated, this._fmt()))}</span>`;
+    const cls = view.stale ? "meta bad" : "meta";
+    return ` <span class="${cls}">· ${esc(t.updated)} ${esc(hhmm(updated, this._fmt()))}</span>`;
   }
 
   _sectionHtml(section, t, view) {
@@ -651,7 +652,9 @@ class UkraineAlarmProCard extends HTMLElement {
       const chips = this._chips(t, view);
       const reasons = view.active && this._shows("details", "reason") ? (view.level?.attributes?.reasons || []).join(" · ") : "";
       if (!chips.length && !reasons) return "";
-      return `<div class="sec details">${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}${reasons ? `<div class="reasons">${esc(reasons)}</div>` : ""}</div>`;
+      const chipsHtml = chips.length ? `<div class="chips">${chips.join("")}</div>` : "";
+      const reasonsHtml = reasons ? `<div class="reasons">${esc(reasons)}</div>` : "";
+      return `<div class="sec details">${chipsHtml}${reasonsHtml}</div>`;
     }
     if (!view.journal) return "";
     const html = { timeline: this._timelineHtml, stats: this._statsHtml, records: this._recordsHtml }[section].call(this, t, view.journal);
@@ -907,10 +910,15 @@ class UkraineAlarmProCardEditor extends HTMLElement {
       const lock = shown && on.length === 1 ? " disabled" : "";
       const expandable = shown && Boolean(ITEMS[key]);
       const open = expandable && this._open?.has(key);
+      const openClass = open ? "open" : "";
       const expand = expandable
-        ? `<button type="button" data-expand="${key}" class="${open ? "open" : ""}" title="${esc(l.items)}" aria-expanded="${Boolean(open)}"><ha-icon icon="mdi:tune-variant"></ha-icon></button>`
+        ? `<button type="button" data-expand="${key}" class="${openClass}" title="${esc(l.items)}" aria-expanded="${Boolean(open)}"><ha-icon icon="mdi:tune-variant"></ha-icon></button>`
         : "";
-      const move = (dir, off) => `<button type="button" data-move="${key}" data-dir="${dir}"${off ? " disabled" : ""} title="${esc(dir < 0 ? l.up : l.down)}"><ha-icon icon="mdi:chevron-${dir < 0 ? "up" : "down"}"></ha-icon></button>`;
+      const move = (dir, off) => {
+        const label = dir < 0 ? l.up : l.down;
+        const icon = dir < 0 ? "up" : "down";
+        return `<button type="button" data-move="${key}" data-dir="${dir}"${off ? " disabled" : ""} title="${esc(label)}"><ha-icon icon="mdi:chevron-${icon}"></ha-icon></button>`;
+      };
       const left = (ITEMS[key] || []).filter((item) => !hide.includes(`${key}.${item}`)).length;
       const items = open
         ? `<div class="items">${ITEMS[key].map((item) => {

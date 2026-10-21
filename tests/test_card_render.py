@@ -88,7 +88,8 @@ def test_full_layout_shows_two_percentage_tiles_and_clock_marks():
     rendered = _render()
     full = rendered["quiet_full"]
     assert len(re.findall(r'class="kpi[" ]', full)) == 2
-    assert "24 год" in full and "7 днів" in full
+    assert "24 год" in full
+    assert "7 днів" in full
     # Rolling 24 h strip labelled with real Kyiv clock hours, ending at "now".
     assert "зараз" in full
     assert "18:00" in full or "12:00" in full
@@ -105,16 +106,20 @@ def test_card_is_built_from_the_sections_the_user_picked():
     rendered = _render()
     reordered = rendered["sections_reordered"]
     assert reordered.index('sec stats') < reordered.index('sec head')
-    assert 'class="strip' not in reordered and 'class="chips' not in reordered
+    assert 'class="strip' not in reordered
+    assert 'class="chips' not in reordered
     details = rendered["sections_details_only"]
     assert 'sec head' not in details
-    assert "Червоний рівень" in details and "Загроза артобстрілу" in details
-    assert "Частина регіону" not in details and "Балістика" not in details
+    assert "Червоний рівень" in details
+    assert "Загроза артобстрілу" in details
+    assert "Частина регіону" not in details
+    assert "Балістика" not in details
     assert 'class="timer' not in rendered["sections_status_no_timer"]
     # Without the details section the level still shows, next to the region.
     assert "Червоний рівень" in rendered["sections_status_no_timer"]
     week = rendered["sections_week_only"]
-    assert "7 днів" in week and "24 год" not in week
+    assert "7 днів" in week
+    assert "24 год" not in week
     sizes = {row[0]: row for row in map(tuple, rendered["card_size"])}
     assert sizes["status"][1] == "status.updated"  # legacy compact
     assert ("status,details", "") in {row[:2] for row in sizes.values()}
