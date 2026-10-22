@@ -7,10 +7,12 @@ it once and only its own part of the duration. Clocks are literal, zone Kyiv.
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from test_alert_history import FakeStore, _hist, _payload
+import voluptuous as vol
+from test_alert_history import _hist, _payload
+from test_entities import _setup
 
 from custom_components.ukraine_alarm_pro.const import DOMAIN
-from custom_components.ukraine_alarm_pro.models import Snapshot, parse_alert_payload
+from custom_components.ukraine_alarm_pro.models import Snapshot
 
 CREATED = datetime(2026, 8, 1, 12, tzinfo=UTC)
 
@@ -162,7 +164,7 @@ async def test_average_is_rounded_duration_over_count(hass):
 
 async def test_window_matches_rolling_for_the_rolling_bounds(hass):
     now = datetime(2026, 10, 11, 8, tzinfo=UTC)
-    history, clock = await _journal(hass, now)
+    history, _ = await _journal(hass, now)
     _episode(history, now - timedelta(hours=5), now - timedelta(hours=4))
     history.confirm(["31"], now)
     rolling = history.rolling("31", 86400)
@@ -173,9 +175,7 @@ async def test_window_matches_rolling_for_the_rolling_bounds(hass):
 
 
 async def test_service_returns_calendar_and_schema_is_unchanged(hass, enable_custom_integrations):
-    from test_entities import _setup
-
-    entry, push = await _setup(hass)
+    _, push = await _setup(hass)
     push(Snapshot())
     await hass.async_block_till_done()
     response = await hass.services.async_call(
@@ -186,7 +186,7 @@ async def test_service_returns_calendar_and_schema_is_unchanged(hass, enable_cus
     assert "daily" in response["calendar"]["month"]
     assert "daily" not in response["calendar"]["today"]
     assert response["days"] == 1 and "rolling_24h" in response
-    with pytest.raises(Exception):
+    with pytest.raises(vol.Invalid):
         await hass.services.async_call(
             DOMAIN, "get_summary", {"region_id": "31", "days": 30},
             blocking=True, return_response=True,
