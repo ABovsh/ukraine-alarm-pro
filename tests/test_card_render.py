@@ -186,7 +186,11 @@ def test_table_rows_columns_and_lamp_are_customisable():
     assert 'class="lamp warn"' in _table(rendered["calendar_incomplete_month"])
     assert re.search(r'title="[^"]*Неповна статистика: дані з \d\d\.\d\d', _table(rendered["calendar_incomplete_month"]))
     assert 'class="lamp ok"' in _table(rendered["calendar_gaps_month"])  # 99 s of a month
-    assert "були перерви в даних: 1 хв" in _table(rendered["calendar_gaps_month"])
+    small_gap = _table(rendered["calendar_gaps_month"])
+    assert "були перерви в даних: 1 хв" in small_gap
+    assert "Дані практично повні" in small_gap
+    assert 'title="Дані практично повні · були перерви в даних: 1 хв"' in small_gap
+    assert 'title="Дані повні · були перерви в даних: 1 хв"' not in small_gap
     assert _table(rendered["calendar_big_gaps_month"]).count('class="lamp warn"') == 1
     assert 'class="lamp warn"' in _table(rendered["calendar_today_gaps"])
     assert 'class="lamp warn"' in _table(rendered["calendar_stale_week"])

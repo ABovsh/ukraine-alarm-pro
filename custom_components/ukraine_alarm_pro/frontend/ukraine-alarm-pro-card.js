@@ -46,6 +46,7 @@ const I18N = {
     journalSince: "дані з",
     gaps: "були перерви в даних",
     dataOk: "Дані повні",
+    dataNearlyComplete: "Дані практично повні",
     sec: "с",
     shareH: "частка",
     totalH: "разом",
@@ -91,6 +92,7 @@ const I18N = {
     journalSince: "data since",
     gaps: "data had gaps",
     dataOk: "Data is complete",
+    dataNearlyComplete: "Data is nearly complete",
     sec: "s",
     shareH: "share",
     totalH: "total",
@@ -554,7 +556,8 @@ class UkraineAlarmProCard extends HTMLElement {
     const gap = result?.gap_seconds || 0;
     if (quality === "gaps") reasons.push(`${t.gaps}: ${gap < 60 ? `${Math.round(gap)} ${t.sec}` : span(t, gap)}`);
     const warn = Boolean(quality && !["complete", "gaps"].includes(quality)) || (quality === "gaps" && noticeable);
-    return { warn, tip: warn ? reasons.join(" · ") : [t.dataOk, ...reasons].join(" · ") };
+    const status = quality === "gaps" ? t.dataNearlyComplete : t.dataOk;
+    return { warn, tip: warn ? reasons.join(" · ") : [status, ...reasons].join(" · ") };
   }
 
   _statsHtml(t, stats) {
