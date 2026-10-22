@@ -3,30 +3,30 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.13.0] - 2026-10-22
 
 ### ✨ Added
 
-- `get_summary` returns `calendar`: `today` (from local midnight) and `month` (from the
-  first of the month) with `count`, `observed_duration_seconds`,
-  `longest_duration_seconds`, `average_duration_seconds`, `quality`,
-  `coverage_complete` and `gap_seconds`, plus `month.daily`. An alert across midnight is
-  split between the periods. No new entities.
-- The card's Statistics section is a table with a row per period: today, 24 h, 7 days and
-  the current month. Columns: share of time under alert with a bar, total, count, longest
-  and average alert. On a narrow card the type and column gaps shrink. The
-  editor hides any period and, inside the table, the bar, the total, count, longest and
-  average columns and the lamp (`stats.today`, `stats.month`, `stats.bar`, `stats.total`,
-  `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`). A small lamp next to each
-  period is green when the data is complete and yellow when it is partial; the tooltip
-  gives the reason.
-- `calendar.<period>.percentage`: the share of time under alert over the time the journal
-  covers.
+- Calendar statistics for today and the current month. Closes #5, requested by @milair.
+  - `get_summary` returns `calendar`: `today` (from local midnight) and `month` (from the
+    first of the month) with `count`, `observed_duration_seconds`,
+    `longest_duration_seconds`, `average_duration_seconds`, `percentage` (share of time
+    under alert over the time the journal covers), `quality`, `coverage_complete` and
+    `gap_seconds`, plus `month.daily`. An alert across midnight is split between the
+    periods. No new entities.
+  - The card's Statistics section is a table with a row per period: today, 24 h, 7 days
+    and the current month. Columns: share of time under alert with a bar, total, count,
+    longest and average alert. A lamp next to each period is green when the data is
+    complete and yellow when it is partial; the tooltip gives the reason. On a narrow
+    card the type and column gaps shrink.
+  - The editor hides any period and, inside the table, the bar, the total, count,
+    longest and average columns and the lamp (`stats.today`, `stats.month`, `stats.bar`,
+    `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`).
 
 ### 🔧 Changed
 
-- The "Longest and average" section (`records`) is removed: the statistics table carries the same
-  numbers. A saved `records` is skipped; the rest of the card stays.
+- The "Longest and average" section (`records`) is removed: the statistics table carries
+  the same numbers. A saved `records` is skipped; the rest of the card stays.
 - The journal parses each stored timestamp once, so the 24 h and 7 d recalculation takes
   about 12 ms instead of 29 ms at 9,000 episodes per region.
 
