@@ -191,3 +191,37 @@ async def test_service_returns_calendar_and_schema_is_unchanged(hass, enable_cus
             DOMAIN, "get_summary", {"region_id": "31", "days": 30},
             blocking=True, return_response=True,
         )
+
+
+async def test_percentage_is_the_share_of_the_period_so_far(hass):
+    history, clock = await _journal(hass, datetime(2026, 10, 10, 20, tzinfo=UTC))
+    # Midnight Kyiv is 21:00 UTC; 08:00 Kyiv is 8 h = 28800 s into the day.
+    _episode(history, datetime(2026, 10, 11, 1, tzinfo=UTC), datetime(2026, 10, 11, 2, 30, tzinfo=UTC))
+    clock["now"] = datetime(2026, 10, 11, 5, tzinfo=UTC)
+    history.confirm(["31"], clock["now"])
+
+    calendar = history.calendar("31")
+    assert calendar["today"]["percentage"] == 18.8  # 5400 / 28800
+    # Oct 1 00:00 Kyiv .. Oct 11 08:00 Kyiv = 10 d 8 h = 892800 s
+    assert calendar["month"]["percentage"] == 0.6
+
+
+async def test_percentage_counts_only_the_time_the_journal_covers(hass):
+    created = datetime(2026, 10, 15, 6, tzinfo=UTC)
+    history, clock = await _journal(hass, created, created=created)
+    _episode(history, datetime(2026, 10, 16, 6, tzinfo=UTC), datetime(2026, 10, 16, 7, tzinfo=UTC))
+    clock["now"] = datetime(2026, 10, 20, 6, tzinfo=UTC)
+    history.confirm(["31"], clock["now"])
+
+    # Five days of journal, not the 19 days since the 1st: 3600 / 432000.
+    assert history.calendar("31")["month"]["percentage"] == 0.8
+
+
+async def test_percentage_zero_is_a_value_and_missing_coverage_is_none(hass):
+    history, clock = await _journal(hass, datetime(2026, 10, 11, 8, tzinfo=UTC))
+    history.confirm(["31"], clock["now"])
+    assert history.calendar("31")["month"]["percentage"] == 0.0
+
+    empty, _ = _hist(now=datetime(2026, 10, 11, 8, tzinfo=UTC))
+    await empty.async_load()
+    assert empty.calendar("31")["today"]["percentage"] is None

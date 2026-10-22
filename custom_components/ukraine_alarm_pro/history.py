@@ -665,6 +665,7 @@ class AlertHistory:
     def _period(window: dict[str, Any], start: datetime, end: datetime) -> dict[str, Any]:
         count = window["count"]
         duration = window["observed_duration_seconds"]
+        covered = window["covered_seconds"]
         return {
             "start": dt_util.as_local(start).isoformat(),
             "end": dt_util.as_local(end).isoformat(),
@@ -672,6 +673,9 @@ class AlertHistory:
             "observed_duration_seconds": duration,
             "longest_duration_seconds": window["longest_duration_seconds"],
             "average_duration_seconds": round(duration / count) if count else None,
+            # Share of the time the journal covers, so a gap or a late start
+            # does not read as quiet time; None when nothing is covered.
+            "percentage": round(100 * duration / covered, 1) if covered else None,
             "quality": window["quality"],
             "coverage_complete": window["coverage_complete"],
             "gap_seconds": window["gap_seconds"],
@@ -755,8 +759,18 @@ class AlertHistory:
                 row["maximum_air_level"] = ep["maximum_air_level"]
             row["had_gap"] |= ep["had_gap"]
             row["ongoing"] |= ep["observed_cleared_at"] is None
+        floor = min(
+            (stamp for stamp in (since, _parse(self._official_since.get(region_id))) if stamp),
+            default=None,
+        )
+        covered = (
+            max((hi - max(lo, floor)).total_seconds() - gap_seconds, 0)
+            if floor is not None
+            else 0
+        )
         return {
             "spans": intervals,
+            "covered_seconds": covered,
             "coverage_complete": quality == "complete",
             "quality": quality,
             "gap_seconds": round(gap_seconds),
