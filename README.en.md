@@ -77,7 +77,7 @@ from sections: switch on the ones you need in the card editor and set their orde
 | Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
-| Statistics | a table with a row per period (24 h, 7 days, today since local midnight, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card the type and column gaps shrink | each period; the bar, the total, count, longest and average columns; the lamp |
+| Statistics | a table with a row per period (today since local midnight, 24 h, 7 days, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card the type and column gaps shrink | each period; the bar, the total, count, longest and average columns; the lamp |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
   level is shown next to the region name.

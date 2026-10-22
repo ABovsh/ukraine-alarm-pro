@@ -147,6 +147,8 @@ def test_statistics_are_one_table_with_a_row_per_period():
     assert "вересня" not in table
     for share in ("36,7 %", "27,4 %", "35,6 %", "29,5 %"):  # 7 d: 165413 / (604800 - 55)
         assert share in table, share
+    order = [table.index(f">{label}<") for label in ("Сьогодні", "24 год", "7 днів", "Вересень")]
+    assert order == sorted(order), "rows: today, 24 h, 7 days, the month"
     assert table.count('class="lamp ok"') == 4
     assert table.count('<i style="width:') == 4  # the share bar under each percentage
     today = table[table.index(">Сьогодні<"):]

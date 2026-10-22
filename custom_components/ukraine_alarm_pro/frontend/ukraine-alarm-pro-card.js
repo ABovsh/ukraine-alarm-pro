@@ -189,7 +189,7 @@ const RETIRED_SECTIONS = ["records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["day", "week", "today", "month", "bar", "total", "count", "longest", "average", "lamp"],
+  stats: ["today", "day", "week", "month", "bar", "total", "count", "longest", "average", "lamp"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -200,7 +200,7 @@ const LEGACY_LAYOUTS = {
 // Sections drawn from the journal's 24 h / 7 d summary.
 const JOURNAL_SECTIONS = ["timeline", "stats"];
 // Of a section's items, these must keep one shown; the rest (bar, longest, average) only trim a tile.
-const REQUIRED = { stats: ["day", "week", "today", "month"] };
+const REQUIRED = { stats: ["today", "day", "week", "month"] };
 // Hiding `item` would leave its section with nothing to show.
 const lastShown = (section, hide, item) => {
   const group = REQUIRED[section] || ITEMS[section];
@@ -575,9 +575,9 @@ class UkraineAlarmProCard extends HTMLElement {
     };
     const own = (result) => (Number.isFinite(result?.percentage) ? result.percentage : null);
     const periods = [
+      calendar?.today ? ["today", t.today, calendar.today, own(calendar.today)] : null,
       ["day", t.last24, day, share(day)],
       ["week", t.week, week, share(week)],
-      calendar?.today ? ["today", t.today, calendar.today, own(calendar.today)] : null,
       calendar?.month ? ["month", monthName(calendar.month), calendar.month, own(calendar.month)] : null,
     ].filter((period) => period && this._shows("stats", period[0]));
     return this._tableHtml(t, stats, periods);
@@ -897,7 +897,7 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
-      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць", bar: "Смужка частки", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних" },
+      stats: { today: "Сьогодні", day: "24 год", week: "7 днів", month: "Поточний місяць", bar: "Смужка частки", total: "Разом", count: "Кількість", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних" },
     },
     languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
   },
@@ -913,7 +913,7 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Duration", updated: "Update time" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
-      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month", bar: "Share bar", longest: "Longest", average: "Average", lamp: "Data completeness lamp" },
+      stats: { today: "Today", day: "24 h", week: "7 days", month: "This month", bar: "Share bar", total: "Total", count: "Count", longest: "Longest", average: "Average", lamp: "Data completeness lamp" },
     },
     languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
   },

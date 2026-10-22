@@ -199,6 +199,13 @@ async def test_editor_picks_hides_and_reorders_sections(page):
     await page.evaluate("ed.querySelector('[data-move=stats][data-dir=\"-1\"]').click()")
     assert await page.evaluate("changes.at(-1).sections") == ["status", "stats", "details"]
     await page.evaluate("ed.querySelector('[data-expand=stats]').click()")
+    # Every item the editor offers has a label, in the table's own order.
+    labels = await page.evaluate("[...ed.querySelectorAll('.items label')].map((l) => [l.querySelector('input').dataset.item, l.textContent.trim()])")
+    assert [item for item, _text in labels] == [
+        "stats.today", "stats.day", "stats.week", "stats.month", "stats.bar", "stats.total", "stats.count",
+        "stats.longest", "stats.average", "stats.lamp",
+    ]
+    assert all(text for _item, text in labels), labels
     await page.evaluate("ed.querySelector('[data-item=\"stats.day\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == ["stats.day"]
     # The remaining tile cannot be hidden too; bar, longest and average never block one.

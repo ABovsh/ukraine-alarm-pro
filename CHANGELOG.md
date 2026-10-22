@@ -12,7 +12,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   `longest_duration_seconds`, `average_duration_seconds`, `quality`,
   `coverage_complete` and `gap_seconds`, plus `month.daily`. An alert across midnight is
   split between the periods. No new entities.
-- The card's Statistics section is a table with a row per period: 24 h, 7 days, today and
+- The card's Statistics section is a table with a row per period: today, 24 h, 7 days and
   the current month. Columns: share of time under alert with a bar, total, count, longest
   and average alert. On a narrow card the type and column gaps shrink. The
   editor hides any period and, inside the table, the bar, the total, count, longest and
