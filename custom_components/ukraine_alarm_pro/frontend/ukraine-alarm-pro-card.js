@@ -35,7 +35,7 @@ const I18N = {
     last24: "24 год",
     week: "7 днів",
     today: "Сьогодні",
-    avg: "Середня",
+    avgShort: "середня",
     now: "зараз",
     noAlerts: "без тривог",
     quietFor: "без тривог з",
@@ -76,7 +76,7 @@ const I18N = {
     last24: "24 h",
     week: "7 days",
     today: "Today",
-    avg: "Average",
+    avgShort: "average",
     now: "now",
     noAlerts: "no alerts",
     quietFor: "no alerts since",
@@ -179,7 +179,7 @@ const SECTIONS = ["status", "details", "timeline", "stats", "records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["day", "week", "today", "month"],
+  stats: ["day", "week", "today", "month", "bar", "longest", "average"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -189,6 +189,13 @@ const LEGACY_LAYOUTS = {
 };
 // Sections drawn from the journal's 24 h / 7 d summary.
 const JOURNAL_SECTIONS = ["timeline", "stats", "records"];
+// Of a section's items, these must keep one shown; the rest (bar, longest, average) only trim a tile.
+const REQUIRED = { stats: ["day", "week", "today", "month"] };
+// Hiding `item` would leave its section with nothing to show.
+const lastShown = (section, hide, item) => {
+  const group = REQUIRED[section] || ITEMS[section];
+  return group.includes(item) && group.filter((other) => !hide.includes(`${section}.${other}`)).length === 1;
+};
 const validItem = (id) => {
   const [section, item] = String(id).split(".");
   return Boolean(ITEMS[section]?.includes(item));
@@ -519,49 +526,59 @@ class UkraineAlarmProCard extends HTMLElement {
   _statsHtml(t, stats) {
     const fmt = this._fmt();
     const { day, week } = this._rolling(stats);
-    // The share of time is the headline; without full coverage it is unknown,
-    // so the observed duration takes its place rather than a guessed share.
-    const hero = (result) => {
-      if (complete(result)) return `${result.percentage.toLocaleString(fmt.locale.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${t === I18N.en ? "%" : " %"}`;
-      return result ? span(t, result.observed_duration_seconds || 0) : "—";
+    const pct = (value) => `${value.toLocaleString(fmt.locale.language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${t === I18N.en ? "%" : " %"}`;
+    // The sensors only know a share when coverage is complete; with gaps the share
+    // of the time that has data is still a fair number, so the card works it out.
+    const share = (result) => {
+      if (Number.isFinite(result?.percentage)) return result.percentage;
+      const known = (result?.window_seconds || 0) - (result?.gap_seconds || 0);
+      return result?.quality === "gaps" && known > 0 ? (100 * (result.observed_duration_seconds || 0)) / known : null;
     };
-    const sub = (result) => {
-      if (!result) return t.incomplete;
-      if (!result.count) return t.noAlerts;
-      return complete(result) ? `${alerts(t, result.count)} · ${span(t, result.observed_duration_seconds)}` : alerts(t, result.count);
-    };
-    const kpi = (label, result) => `<div class="kpi${complete(result) ? "" : " partial"}">
-        <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(hero(result))}</span><span class="k-sub">${esc(sub(result))}</span>
+    const since = dateOf(stats.summary?.coverage_start);
+    // Every tile reads the same: share as the headline and a bar, then what the share is made of.
+    const tile = (label, result, percentage) => {
+      // What is missing is written in the tile (a phone has no tooltips); the exact gap rides in the tooltip.
+      const quality = result?.quality;
+      const length = result?.window_seconds || ((dateOf(result?.end) - dateOf(result?.start)) / 1000) || 0;
+      const gapShare = length ? (result?.gap_seconds || 0) / length : 0;
+      let note = "";
+      if (quality === "incomplete") note = `${t.incomplete}${since ? `: ${t.journalSince} ${dayMonth(since, this._hass)}` : ""}`;
+      else if (quality === "gaps" && gapShare >= 0.01) note = t.gaps;
+      else if (quality && !["complete", "gaps"].includes(quality)) note = t.incomplete;
+      const notes = [note, quality === "gaps" ? `${t.gaps}: ${span(t, result.gap_seconds || 0)}` : ""].filter(Boolean);
+      const solid = !result || ["complete", "gaps"].includes(quality);
+      const count = result?.count || 0;
+      const seconds = result?.observed_duration_seconds || 0;
+      const row = (name, value) => `<div class="k-row"><span>${esc(name)}</span><b>${esc(value)}</b></div>`;
+      const average = result?.average_duration_seconds ?? (count ? seconds / count : null);
+      const rows = [
+        `<div class="k-row k-main"><span>${esc(result ? span(t, seconds) : "—")}</span><span>${esc(!result ? "" : count ? alerts(t, count) : t.noAlerts)}</span></div>`,
+        count && this._shows("stats", "longest") ? row(t.longestShort, span(t, result.longest_duration_seconds || 0)) : "",
+        count && this._shows("stats", "average") && average !== null ? row(t.avgShort, span(t, average)) : "",
+      ];
+      const bar = this._shows("stats", "bar")
+        ? `<div class="k-bar"><i style="width:${Math.min(Math.max(percentage ?? 0, 0), 100).toFixed(1)}%"></i></div>`
+        : "";
+      const tip = notes.length ? ` title="${esc(notes.join(" · "))}"` : "";
+      return `<div class="kpi${solid ? "" : " partial"}"${tip}>
+        <div class="k-top"><span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(percentage === null ? "—" : pct(percentage))}</span></div>${bar}${rows.join("")}${note ? `<div class="k-note">${esc(note)}</div>` : ""}
       </div>`;
+    };
     // Calendar periods are cut at local midnight on the server; the same response carries them.
     const calendar = stats.summary?.calendar;
-    const since = dateOf(stats.summary?.coverage_start);
     const month = (period) => {
       const name = new Intl.DateTimeFormat(fmt.locale.language, { month: "long", timeZone: fmt.config?.time_zone || undefined })
         .format(dateOf(period.start) || new Date());
       return name.charAt(0).toUpperCase() + name.slice(1);
     };
-    const periodKpi = (label, period) => {
-      if (!period) return "";
-      const note = [period.count ? alerts(t, period.count) : t.noAlerts];
-      if (period.count > 1) note.push(`${t.longestShort} ${span(t, period.longest_duration_seconds)}`);
-      if (period.quality === "incomplete") note.push(since ? `${t.journalSince} ${dayMonth(since, this._hass)}` : t.incomplete);
-      else if (period.quality === "gaps") note.push(t.gapsShort);
-      const tips = [];
-      if (Number.isFinite(period.average_duration_seconds)) tips.push(`${t.avg} ${span(t, period.average_duration_seconds)}`);
-      if (period.quality === "gaps") tips.push(`${t.gaps}: ${span(t, period.gap_seconds || 0)}`);
-      const tip = tips.length ? ` title="${esc(tips.join(" · "))}"` : "";
-      return `<div class="kpi cal${period.coverage_complete ? "" : " partial"}"${tip}>
-        <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(span(t, period.observed_duration_seconds || 0))}</span><span class="k-sub">${esc(note.join(" · "))}</span>
-      </div>`;
-    };
+    const period = (label, result) => (result ? tile(label, result, Number.isFinite(result.percentage) ? result.percentage : null) : "");
     const tiles = [
-      this._shows("stats", "day") ? kpi(t.last24, day) : "",
-      this._shows("stats", "week") ? kpi(t.week, week) : "",
-      this._shows("stats", "today") ? periodKpi(t.today, calendar?.today) : "",
-      this._shows("stats", "month") && calendar?.month ? periodKpi(month(calendar.month), calendar.month) : "",
+      this._shows("stats", "day") ? tile(t.last24, day, share(day)) : "",
+      this._shows("stats", "week") ? tile(t.week, week, share(week)) : "",
+      this._shows("stats", "today") ? period(t.today, calendar?.today) : "",
+      this._shows("stats", "month") && calendar?.month ? period(month(calendar.month), calendar.month) : "",
     ].filter(Boolean);
-    return `<div class="kpis"${tiles.length === 1 ? ' style="grid-template-columns:1fr"' : ""}>${tiles.join("")}</div>`;
+    return `<div class="kpis">${tiles.join("")}</div>`;
   }
 
   _recordsHtml(t, stats) {
@@ -810,14 +827,23 @@ const STYLE = `<style>
     color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
   .axis span { position: absolute; top: 0; transform: translateX(-50%); }
   .axis .end { right: 0; transform: none; }
-  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .kpi { display: flex; flex-direction: column; min-width: 0; padding: 7px 10px; border-radius: 10px;
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .kpi { min-width: 0; padding: 7px 10px 8px; border-radius: 10px; font-variant-numeric: tabular-nums;
     background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
-  .k-lbl, .k-sub { font-size: 11.5px; line-height: 1.35; color: var(--secondary-text-color);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .k-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  .k-lbl { font-size: 11.5px; line-height: 1.35; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); white-space: nowrap; }
   .kpi.partial .k-val { color: var(--secondary-text-color); }
-  .kpi.cal .k-sub { white-space: normal; }
+  .k-bar { height: 4px; margin: 3px 0 5px; border-radius: 2px; overflow: hidden;
+    background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
+  .k-bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary-color); }
+  .kpi.partial .k-bar i { background: var(--secondary-text-color); }
+  .k-row { display: flex; justify-content: space-between; gap: 6px; font-size: 11.5px; line-height: 1.4; white-space: nowrap; }
+  .k-row span:first-child { color: var(--secondary-text-color); }
+  .k-row b { font-weight: 500; }
+  .k-note { margin-top: 2px; font-size: 10.5px; line-height: 1.3; color: var(--secondary-text-color); }
+  .k-main span:first-child { color: var(--primary-text-color); }
+  .k-main span:last-child { color: var(--secondary-text-color); }
   .hint { font-size: 11.5px; color: var(--secondary-text-color); }
   ha-card.compact { padding: 10px 12px; }
   ha-card.compact .badge { width: 34px; height: 34px; border-radius: 10px; }
@@ -832,7 +858,6 @@ const STYLE = `<style>
     ha-card.compact .timer { padding-left: 46px; }
     .timer .small { white-space: normal; }
     .kpis { grid-template-columns: 1fr; }
-    .k-sub { white-space: normal; }
   }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;
@@ -846,13 +871,13 @@ const EDITOR_I18N = {
       status: ["Стан", "регіон, тривога чи тихо, тривалість"],
       details: ["Деталі тривоги", "рівень, інші загрози, охоплення, причина"],
       timeline: ["Смуга 24 год", "коли були тривоги за добу"],
-      stats: ["Статистика", "частка часу під тривогою за 24 год і 7 днів, тривоги за сьогодні й місяць"],
+      stats: ["Статистика", "частка часу під тривогою, кількість, найдовша й середня тривога за 24 год, 7 днів, сьогодні й місяць"],
       records: ["Найдовша й середня", "а також якість статистики"],
     },
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
-      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць" },
+      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць", bar: "Смужка частки", longest: "Найдовша", average: "Середня" },
     },
     languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
   },
@@ -863,13 +888,13 @@ const EDITOR_I18N = {
       status: ["Status", "region, alert or quiet, duration"],
       details: ["Alert details", "level, other threats, coverage, reason"],
       timeline: ["24 h strip", "when the alerts were over the day"],
-      stats: ["Statistics", "share of time under alert, 24 h and 7 days, alerts today and this month"],
+      stats: ["Statistics", "share of time under alert, count, longest and average alert over 24 h, 7 days, today and this month"],
       records: ["Longest and average", "and the statistics quality"],
     },
     item: {
       status: { timer: "Duration", updated: "Update time" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
-      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month" },
+      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month", bar: "Share bar", longest: "Longest", average: "Average" },
     },
     languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
   },
@@ -917,13 +942,12 @@ class UkraineAlarmProCardEditor extends HTMLElement {
     this._emit({ sections: on });
   }
 
-  // Items hide one at a time; a section always keeps at least one.
+  // Items hide one at a time; a section always keeps at least one of its required items.
   _toggleItem(id) {
-    const [section] = id.split(".");
+    const [section, item] = id.split(".");
     const hide = [...this._config.hide];
-    const left = ITEMS[section].filter((item) => !hide.includes(`${section}.${item}`)).length;
     if (hide.includes(id)) hide.splice(hide.indexOf(id), 1);
-    else if (left > 1) hide.push(id);
+    else if (!lastShown(section, hide, item)) hide.push(id);
     else { this._render(); return; }
     this._emit({ hide });
   }
@@ -955,12 +979,11 @@ class UkraineAlarmProCardEditor extends HTMLElement {
         const icon = dir < 0 ? "up" : "down";
         return `<button type="button" data-move="${key}" data-dir="${dir}"${off ? " disabled" : ""} title="${esc(label)}"><ha-icon icon="mdi:chevron-${icon}"></ha-icon></button>`;
       };
-      const left = (ITEMS[key] || []).filter((item) => !hide.includes(`${key}.${item}`)).length;
       const items = open
         ? `<div class="items">${ITEMS[key].map((item) => {
           const id = `${key}.${item}`;
           const checked = !hide.includes(id);
-          return `<label><input type="checkbox" data-item="${id}"${checked ? " checked" : ""}${checked && left === 1 ? " disabled" : ""}><span>${esc(l.item[key][item])}</span></label>`;
+          return `<label><input type="checkbox" data-item="${id}"${checked ? " checked" : ""}${checked && lastShown(key, hide, item) ? " disabled" : ""}><span>${esc(l.item[key][item])}</span></label>`;
         }).join("")}</div>`
         : "";
       return `<div class="row${shown ? "" : " off"}"><label><input type="checkbox" data-toggle="${key}"${shown ? " checked" : ""}${lock}><span>${esc(name)}<small>${esc(hint)}</small></span></label>`

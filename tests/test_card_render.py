@@ -130,36 +130,57 @@ def test_card_is_built_from_the_sections_the_user_picked():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_calendar_tiles_show_today_and_the_month_from_the_same_response():
-    """`calendar` rides in the existing summary: two more tiles in the stats
-    section, month named in the nominative, average in the tooltip, nothing
-    drawn when an older integration sends no `calendar`."""
+def test_every_tile_has_the_same_format_with_a_share_headline():
+    """24 h, 7 d, today and the month look alike: share as the headline with a
+    bar under it, duration and count, then the longest and the average alert."""
     rendered = _render()
     full = rendered["calendar_full"]
     assert len(re.findall(r'class="kpi[" ]', full)) == 4
-    assert "Сьогодні" in full
-    assert "Вересень" in full and "вересня" not in full
-    assert "1 год 15 хв" in full  # today: 4500 s
-    assert "2 тривоги" in full and "найдовша 50 хв" in full
-    assert "7 тривог" in full and "найдовша 2 год 0 хв" in full
-    assert 'title="Середня 37 хв"' in full
+    assert full.count('class="k-bar"') == 4
+    # Share of time: sensor value for 24 h, computed for 7 d over the time with data.
+    assert "36,7 %" in full
+    assert "27,4 %" in full  # 165413 / (604800 - 55)
+    assert "35,6 %" in full and "29,5 %" in full
+    for label in ("24 год", "7 днів", "Сьогодні", "Вересень"):
+        assert label in full, label
+    assert "вересня" not in full
+    assert "1 год 15 хв" in full and "2 тривоги" in full  # today
+    assert full.count("найдовша") == 4 and full.count("середня") == 4
+    assert "50 хв" in full and "37 хв" in full  # today's longest and average
+    assert "6 дн 10 год" not in full  # the month fixture is 6 h 30 min
     assert "Today" in rendered["calendar_english"] and "September" in rendered["calendar_english"]
-    # Without `calendar` the card is exactly what it was.
+    assert "longest" in rendered["calendar_english"] and "average" in rendered["calendar_english"]
+    # Without `calendar` the card shows the two rolling tiles in the same format.
     assert len(re.findall(r'class="kpi[" ]', rendered["quiet_full"])) == 2
     assert "Сьогодні" not in rendered["quiet_full"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_calendar_tiles_handle_quiet_incomplete_and_hidden_items():
+def test_tiles_are_customisable_and_notes_go_to_the_tooltip():
     rendered = _render()
+    bare = rendered["calendar_no_details"]
+    assert 'class="k-bar"' not in bare
+    assert "найдовша" not in bare and "середня" not in bare
+    assert "36,7 %" in bare and "тривог" in bare
     quiet = rendered["calendar_quiet"]
-    assert quiet.count("без тривог") >= 2
-    assert "Середня" not in quiet and "title=" not in quiet
-    incomplete = rendered["calendar_incomplete_month"]
-    assert len(re.findall(r'class="kpi cal partial', incomplete)) == 1
-    assert "дані з" in incomplete
+    assert "без тривог" in quiet
+    assert "найдовша" not in quiet and "середня" not in quiet
+    assert "0,0 %" in quiet or "0 %" in quiet
+    # Incomplete data is written in the tile, not only in a tooltip: a phone has none.
     gaps = rendered["calendar_gaps_month"]
-    assert "з перервами" in gaps and "були перерви в даних: 1 хв" in gaps
+    assert "були перерви в даних: 1 хв" in gaps  # tooltip with the exact gap
+    assert 'class="k-note"' not in gaps  # 99 s of a month changes the share by nothing
+    assert 'class="kpi partial' not in gaps
+    big = rendered["calendar_big_gaps_month"]
+    assert 'class="k-note">були перерви в даних' in big
+    assert 'class="kpi partial' not in big
+    incomplete = rendered["calendar_incomplete_month"]
+    assert len(re.findall(r'class="kpi partial', incomplete)) == 1
+    assert re.search(r'class="k-note">Неповна статистика: дані з \d\d\.\d\d', incomplete)
+    stale = rendered["calendar_stale_week"]
+    assert 'class="k-note">' in stale and 'class="kpi partial' in stale
+    no_percent = rendered["calendar_no_percent"]
+    assert "—" in no_percent and 'class="kpi partial' in no_percent
     only = rendered["calendar_today_only"]
     assert len(re.findall(r'class="kpi[" ]', only)) == 1
     assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only

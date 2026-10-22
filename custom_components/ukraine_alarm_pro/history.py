@@ -15,6 +15,7 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -51,13 +52,19 @@ def history_storage_key(entry_id: str) -> str:
     return f"{DOMAIN}.history.{entry_id}"
 
 
+@lru_cache(maxsize=32768)
+def _parse_text(stamp: str) -> datetime | None:
+    try:
+        return dt_util.parse_datetime(stamp)
+    except (ValueError, OverflowError):
+        return None
+
+
 def _parse(stamp: Any) -> datetime | None:
     # Every stamp this journal writes carries its offset; one without it is
     # damage, and comparing it with an aware time would fail the whole setup.
-    try:
-        parsed = dt_util.parse_datetime(stamp) if isinstance(stamp, str) else None
-    except (ValueError, OverflowError):
-        return None
+    # A stamp never changes, so a 90-day journal is parsed once, not per call.
+    parsed = _parse_text(stamp) if isinstance(stamp, str) else None
     return parsed if parsed is not None and parsed.tzinfo is not None else None
 
 
@@ -632,7 +639,8 @@ class AlertHistory:
         today = dt_util.as_local(now).date()
         day_start = dt_util.start_of_local_day(today)
         month_start = dt_util.start_of_local_day(today.replace(day=1))
-        month = self._window(region_id, month_start, now, now=now)
+        shared = (self._spans(region_id, now), self._unbridged_gaps(region_id))
+        month = self._window(region_id, month_start, now, now=now, render=False, shared=shared)
         bounds = [
             dt_util.start_of_local_day(month_start.date() + timedelta(days=offset))
             for offset in range((today - month_start.date()).days + 1)
@@ -657,7 +665,7 @@ class AlertHistory:
                 bucket["observed_duration_seconds"]
             )
         return {
-            "today": self._period(self._window(region_id, day_start, now, now=now), day_start, now),
+            "today": self._period(self._window(region_id, day_start, now, now=now, render=False, shared=shared), day_start, now),
             "month": {**self._period(month, month_start, now), "daily": daily},
         }
 
@@ -681,24 +689,33 @@ class AlertHistory:
             "gap_seconds": window["gap_seconds"],
         }
 
+    def _spans(self, region_id: str, now: datetime) -> list[tuple[datetime, datetime]]:
+        """Journal episodes and official intervals; an open episode runs until `now`."""
+        spans = [
+            (_parse(ep["observed_started_at"]), _parse(ep["observed_cleared_at"]) or now)
+            for ep in self._episodes(region_id)
+        ]
+        spans.extend(
+            (_parse(a), _parse(b)) for a, b in self._official_spans.get(region_id, [])
+        )
+        return spans
+
     def _window(
-        self, region_id: str, lo: datetime, hi: datetime, *, now: datetime
+        self,
+        region_id: str,
+        lo: datetime,
+        hi: datetime,
+        *,
+        now: datetime,
+        render: bool = True,
+        shared: tuple[list, list] | None = None,
     ) -> dict[str, Any]:
         """Union of intervals within [lo, hi]; an open alert runs until `now`."""
         lo = lo.astimezone(dt_util.UTC)
         hi = hi.astimezone(dt_util.UTC)
         now = now.astimezone(dt_util.UTC)
         episodes = self._episodes(region_id)
-        spans = [
-            (
-                _parse(ep["observed_started_at"]),
-                _parse(ep["observed_cleared_at"]) or now,
-            )
-            for ep in episodes
-        ]
-        spans.extend(
-            (_parse(a), _parse(b)) for a, b in self._official_spans.get(region_id, [])
-        )
+        spans, shared_gaps = shared or (self._spans(region_id, now), None)
         intervals = _union(
             [
                 (max(start, lo), min(end, hi))
@@ -707,7 +724,7 @@ class AlertHistory:
             ]
         )
         duration = sum((end - start).total_seconds() for start, end in intervals)
-        gaps = self._unbridged_gaps(region_id)
+        gaps = list(shared_gaps) if shared_gaps is not None else self._unbridged_gaps(region_id)
         opened = _parse(self._open_gaps.get(region_id))
         if opened is not None:
             gaps.append((opened, now))
@@ -744,9 +761,9 @@ class AlertHistory:
                 "ongoing": False,
             }
             for start, end in intervals
-        ]
+        ] if render else []
         starts = [start for start, _end in intervals]
-        for ep in episodes:
+        for ep in episodes if render else ():
             start = max(_parse(ep["observed_started_at"]), lo)
             end = min(_parse(ep["observed_cleared_at"]) or now, hi)
             if start >= end or not starts:

@@ -200,6 +200,14 @@ async def test_editor_picks_hides_and_reorders_sections(page):
         await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == ["stats.day", "stats.week", "stats.today"]
     assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
+    # What a tile shows can go freely: bar, longest and average never block a tile.
+    for item in ("bar", "longest", "average"):
+        assert not await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').disabled")
+        await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
+    assert await page.evaluate("changes.at(-1).hide") == [
+        "stats.day", "stats.week", "stats.today", "stats.bar", "stats.longest", "stats.average"
+    ]
+    assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
     await page.evaluate(
         "for (const k of ['details', 'stats']) ed.querySelector(`[data-toggle=${k}]`).click()"
     )

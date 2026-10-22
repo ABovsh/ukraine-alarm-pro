@@ -58,11 +58,15 @@ const summary = (extra = {}) => ({
 const period = (extra = {}) => ({
   start: "2026-09-01T00:00:00+03:00", end: iso(0), count: 7, observed_duration_seconds: 23400,
   longest_duration_seconds: 7200, average_duration_seconds: 3343, quality: "complete",
-  coverage_complete: true, gap_seconds: 0, ...extra,
+  coverage_complete: true, gap_seconds: 0, percentage: 29.5, ...extra,
+});
+const rolling = (extra = {}) => ({
+  percentage: 36.7, coverage_complete: true, quality: "complete", count: 10, observed_duration_seconds: 31724,
+  longest_duration_seconds: 8565, window_seconds: 86400, gap_seconds: 0, ...extra,
 });
 const calendar = (today = {}, month = {}) => ({
   today: period({ start: "2026-09-15T00:00:00+03:00", count: 2, observed_duration_seconds: 4500,
-    longest_duration_seconds: 3000, average_duration_seconds: 2250, ...today }),
+    longest_duration_seconds: 3000, average_duration_seconds: 2250, percentage: 35.6, ...today }),
   month: { ...period(month), daily: [] },
 });
 
@@ -102,15 +106,19 @@ const scenarios = {
   sections_week_only: [{}, { sections: ["status", "stats"], hide: ["stats.day"] }, { episodes: quietEpisodes, summary: summary() }],
 };
 Object.assign(scenarios, {
-  calendar_full: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
-  calendar_english: [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+  calendar_full: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
+  calendar_english: [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
   calendar_quiet: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(
-    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null },
-    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null }) }) }],
+    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null, percentage: 0 },
+    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null, percentage: 0 }) }) }],
   calendar_incomplete_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "incomplete", coverage_complete: false }) }) }],
   calendar_gaps_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "gaps", coverage_complete: false, gap_seconds: 99 }) }) }],
-  calendar_today_only: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
-  calendar_hidden: [{}, { sections: ["stats"], hide: ["stats.today", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+  calendar_no_details: [{}, { sections: ["stats"], hide: ["stats.bar", "stats.longest", "stats.average"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling() }) }],
+  calendar_no_percent: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.today"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { percentage: null, quality: "incomplete", coverage_complete: false }) }) }],
+  calendar_big_gaps_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "gaps", coverage_complete: false, gap_seconds: 40000 }) }) }],
+  calendar_stale_week: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "stale", coverage_complete: false, window_seconds: 604800, gap_seconds: 600 }), calendar: calendar() }) }],
+  calendar_today_only: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
+  calendar_hidden: [{}, { sections: ["stats"], hide: ["stats.today", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
 });
 for (const n of [1, 2, 4, 5, 11, 12, 14, 15, 21, 25, 111]) {
   scenarios[`plural_${n}`] = [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ count: n }) }];
