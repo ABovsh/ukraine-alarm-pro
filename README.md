@@ -80,7 +80,7 @@
 | Стан | назву регіону, тривогу чи тишу, скільки триває тривога або скільки минуло від відбою | тривалість, час оновлення |
 | Деталі тривоги | рівень, інші загрози, охоплення (увесь регіон чи його частина) і причину | кожен із чотирьох |
 | Смуга 24 год | коли були тривоги за останню добу, з позначками 00:00, 06:00, 12:00 і 18:00 | — |
-| Статистика | частку часу під тривогою, кількість тривог і їх тривалість | 24 год, 7 днів |
+| Статистика | частку часу під тривогою за 24 год і 7 днів; кількість тривог, їх сумарну тривалість і найдовшу за сьогодні та поточний місяць | 24 год, 7 днів, сьогодні, місяць |
 | Найдовша й середня | найдовшу й середню тривогу за 7 днів і позначку неповної статистики | — |
 
 - Деталі тривоги видно лише під час тривоги. Без розділу «Деталі тривоги» рівень
@@ -125,7 +125,7 @@ language: uk                        # auto (як у Home Assistant), uk або e
 ```
 
 Пункти для `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
-`details.coverage`, `details.reason`, `stats.day`, `stats.week`. Картки, збережені з
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`. Картки, збережені з
 `layout:` до версії 0.12, відкриваються з відповідними розділами: `compact` — «Стан»
 без часу оновлення, `status` — «Стан» і «Деталі тривоги», `full` — усі розділи.
 
@@ -322,6 +322,27 @@ response_variable: history
 `get_summary` з `days: 1` (сьогодні) або `days: 7` повертає кількість епізодів,
 `observed_duration_seconds`, `longest_duration_seconds`, `has_gaps` і `daily` — кількість
 і тривалість за кожен день — за місцевими днями Home Assistant.
+
+Крім того, `get_summary` повертає `calendar` з періодами `today` (від місцевої півночі) і
+`month` (від першого числа поточного місяця за часовим поясом Home Assistant). Кожен період
+має `count`, `observed_duration_seconds`, `longest_duration_seconds`,
+`average_duration_seconds` (`null`, якщо тривог не було), `quality`, `coverage_complete` і
+`gap_seconds`; `calendar.month.daily` — кількість і тривалість за кожен день місяця.
+Тривога, що перетинає північ, ділиться: кожен період враховує її один раз і лише свою
+частину тривалості. Якщо журнал розпочато пізніше за початок періоду, `quality` дорівнює
+`incomplete`, а `coverage_complete` — `false`: це неповні дані, а не нуль.
+
+```yaml
+action: ukraine_alarm_pro.get_summary
+data:
+  region_id: "31"
+response_variable: summary
+# {{ summary.calendar.month.count }} тривог за місяць,
+# {{ summary.calendar.today.observed_duration_seconds }} с за сьогодні
+```
+
+Викликайте сервіс за подією, наприклад за відбоєм, а не щохвилини: кожен виклик
+записується в recorder як подія `call_service`.
 
 `observed_started_at` і `observed_cleared_at` — час, коли інтеграція отримала дані;
 `declared_started_at` — час оголошення з джерела. Якщо дані переривалися або тривога

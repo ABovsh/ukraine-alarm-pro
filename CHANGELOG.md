@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ✨ Added
+
+- `get_summary` returns `calendar`: `today` (from local midnight) and `month` (from the
+  first of the month) with `count`, `observed_duration_seconds`,
+  `longest_duration_seconds`, `average_duration_seconds`, `quality`,
+  `coverage_complete` and `gap_seconds`, plus `month.daily`. An alert across midnight is
+  split between the periods. No new entities.
+- The card's Statistics section has two more tiles, today and the current month; the
+  editor can hide them (`stats.today`, `stats.month`).
+
 ## [0.12.0] - 2026-10-21
 
 ### ✨ Added
