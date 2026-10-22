@@ -127,3 +127,38 @@ def test_card_is_built_from_the_sections_the_user_picked():
     assert rendered["card_size"][3][0] == rendered["card_size"][0][0]  # unknown layout = full
     assert "status, details, timeline, stats, records" in rendered["bad_section"]
     assert rendered["stub"]["sections"] == ["status", "details", "timeline", "stats", "records"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_calendar_tiles_show_today_and_the_month_from_the_same_response():
+    """`calendar` rides in the existing summary: two more tiles in the stats
+    section, month named in the nominative, average in the tooltip, nothing
+    drawn when an older integration sends no `calendar`."""
+    rendered = _render()
+    full = rendered["calendar_full"]
+    assert len(re.findall(r'class="kpi[" ]', full)) == 4
+    assert "Сьогодні" in full
+    assert "Вересень" in full and "вересня" not in full
+    assert "1 год 15 хв" in full  # today: 4500 s
+    assert "2 тривоги" in full and "найдовша 50 хв" in full
+    assert "7 тривог" in full and "найдовша 2 год 0 хв" in full
+    assert 'title="Середня 37 хв"' in full
+    assert "Today" in rendered["calendar_english"] and "September" in rendered["calendar_english"]
+    # Without `calendar` the card is exactly what it was.
+    assert len(re.findall(r'class="kpi[" ]', rendered["quiet_full"])) == 2
+    assert "Сьогодні" not in rendered["quiet_full"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_calendar_tiles_handle_quiet_incomplete_and_hidden_items():
+    rendered = _render()
+    quiet = rendered["calendar_quiet"]
+    assert quiet.count("без тривог") >= 2
+    assert "Середня" not in quiet
+    incomplete = rendered["calendar_incomplete_month"]
+    assert len(re.findall(r'class="kpi cal partial', incomplete)) == 1
+    assert "дані з" in incomplete
+    only = rendered["calendar_today_only"]
+    assert len(re.findall(r'class="kpi[" ]', only)) == 1
+    assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only
+    assert "Сьогодні" not in rendered["calendar_hidden"]

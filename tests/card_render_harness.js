@@ -55,6 +55,17 @@ const summary = (extra = {}) => ({
   period_start: iso(6 * 1440), coverage_start: iso(3 * 1440), ...extra,
 });
 
+const period = (extra = {}) => ({
+  start: "2026-09-01T00:00:00+03:00", end: iso(0), count: 7, observed_duration_seconds: 23400,
+  longest_duration_seconds: 7200, average_duration_seconds: 3343, quality: "complete",
+  coverage_complete: true, gap_seconds: 0, ...extra,
+});
+const calendar = (today = {}, month = {}) => ({
+  today: period({ start: "2026-09-15T00:00:00+03:00", count: 2, observed_duration_seconds: 4500,
+    longest_duration_seconds: 3000, average_duration_seconds: 2250, ...today }),
+  month: { ...period(month), daily: [] },
+});
+
 const alertRed = { alert: "on", threat: "air", types: "air,artillery", level: "red", reasons: ["Ракетна загроза", "Балістика"],
   coverage: "partial", areas: [{ region_name: "Фастівський район" }, { region_name: "Бучанський район" }, { region_name: "Обухівський район" }, { region_name: "Броварський район" }], started: iso(20) };
 
@@ -90,6 +101,16 @@ const scenarios = {
   sections_status_no_timer: [alertRed, { sections: ["status"], hide: ["status.timer"] }, null],
   sections_week_only: [{}, { sections: ["status", "stats"], hide: ["stats.day"] }, { episodes: quietEpisodes, summary: summary() }],
 };
+Object.assign(scenarios, {
+  calendar_full: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+  calendar_english: [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+  calendar_quiet: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(
+    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null },
+    { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null }) }) }],
+  calendar_incomplete_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "incomplete", coverage_complete: false }) }) }],
+  calendar_today_only: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+  calendar_hidden: [{}, { sections: ["stats"], hide: ["stats.today", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
+});
 for (const n of [1, 2, 4, 5, 11, 12, 14, 15, 21, 25, 111]) {
   scenarios[`plural_${n}`] = [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ count: n }) }];
   scenarios[`plural_en_${n}`] = [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary({ count: n }) }];

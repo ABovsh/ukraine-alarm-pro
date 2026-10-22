@@ -34,10 +34,13 @@ const I18N = {
     notFound: "Не знайдено сутностей Ukraine Alarm Pro",
     last24: "24 год",
     week: "7 днів",
+    today: "Сьогодні",
+    avg: "Середня",
     now: "зараз",
     noAlerts: "без тривог",
     quietFor: "без тривог з",
     longest: "Найдовша",
+    longestShort: "найдовша",
     average: "Середня",
     ongoing: "триває",
     journalSince: "дані з",
@@ -71,10 +74,13 @@ const I18N = {
     notFound: "No Ukraine Alarm Pro entities found",
     last24: "24 h",
     week: "7 days",
+    today: "Today",
+    avg: "Average",
     now: "now",
     noAlerts: "no alerts",
     quietFor: "no alerts since",
     longest: "Longest",
+    longestShort: "longest",
     average: "Average",
     ongoing: "ongoing",
     journalSince: "data since",
@@ -171,7 +177,7 @@ const SECTIONS = ["status", "details", "timeline", "stats", "records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["day", "week"],
+  stats: ["day", "week", "today", "month"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -366,7 +372,9 @@ class UkraineAlarmProCard extends HTMLElement {
 
   getCardSize() {
     const weight = { status: 1, details: 1, timeline: 0.5, stats: 1.5, records: 0.5 };
-    return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section], 0)));
+    // A second row of tiles when the calendar ones are on.
+    const calendar = ["stats.today", "stats.month"].some((id) => !this._config?.hide?.includes(id));
+    return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section] + (section === "stats" && calendar ? 1 : 0), 0)));
   }
 
   getGridOptions() {
@@ -400,7 +408,8 @@ class UkraineAlarmProCard extends HTMLElement {
     if (this._statsFailed?.rid === rid && Date.now() - this._statsFailed.at < STATS_RETRY) return;
     const event = ids.event ? this._hass.states[ids.event] : undefined;
     const percentages = [ids.percentage24h, ids.percentage7d].map((id) => this._hass.states[id]?.last_updated).join("|");
-    const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}|${percentages}`;
+    const day = new Date().toLocaleDateString("sv", { timeZone: this._hass.config?.time_zone || undefined });
+    const trigger = `${rid}|${event?.state}|${this._hass.states[ids.alert].state}|${percentages}|${day}`;
     const age = this._stats ? Date.now() - this._stats.fetched : Infinity;
     const maxAge = this._hass.states[ids.alert].state === "on" ? STATS_FRESH_ACTIVE : STATS_FRESH_QUIET;
     if (this._stats?.trigger === trigger && age < maxAge) return;
@@ -522,9 +531,30 @@ class UkraineAlarmProCard extends HTMLElement {
     const kpi = (label, result) => `<div class="kpi${complete(result) ? "" : " partial"}">
         <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(hero(result))}</span><span class="k-sub">${esc(sub(result))}</span>
       </div>`;
+    // Calendar periods are cut at local midnight on the server; the same response carries them.
+    const calendar = stats.summary?.calendar;
+    const since = dateOf(stats.summary?.coverage_start);
+    const month = (period) => {
+      const name = new Intl.DateTimeFormat(fmt.locale.language, { month: "long", timeZone: fmt.config?.time_zone || undefined })
+        .format(dateOf(period.start) || new Date());
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    };
+    const periodKpi = (label, period) => {
+      if (!period) return "";
+      const note = [period.count ? alerts(t, period.count) : t.noAlerts];
+      if (period.count > 1) note.push(`${t.longestShort} ${span(t, period.longest_duration_seconds)}`);
+      if (period.quality === "incomplete") note.push(since ? `${t.journalSince} ${dayMonth(since, this._hass)}` : t.incomplete);
+      else if (period.quality === "gaps") note.push(t.gaps);
+      const tip = Number.isFinite(period.average_duration_seconds) ? ` title="${esc(`${t.avg} ${span(t, period.average_duration_seconds)}`)}"` : "";
+      return `<div class="kpi cal${period.coverage_complete ? "" : " partial"}"${tip}>
+        <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(span(t, period.observed_duration_seconds || 0))}</span><span class="k-sub">${esc(note.join(" · "))}</span>
+      </div>`;
+    };
     const tiles = [
       this._shows("stats", "day") ? kpi(t.last24, day) : "",
       this._shows("stats", "week") ? kpi(t.week, week) : "",
+      this._shows("stats", "today") ? periodKpi(t.today, calendar?.today) : "",
+      this._shows("stats", "month") && calendar?.month ? periodKpi(month(calendar.month), calendar.month) : "",
     ].filter(Boolean);
     return `<div class="kpis"${tiles.length === 1 ? ' style="grid-template-columns:1fr"' : ""}>${tiles.join("")}</div>`;
   }
@@ -782,6 +812,7 @@ const STYLE = `<style>
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
   .kpi.partial .k-val { color: var(--secondary-text-color); }
+  .kpi.cal .k-sub { white-space: normal; }
   .hint { font-size: 11.5px; color: var(--secondary-text-color); }
   ha-card.compact { padding: 10px 12px; }
   ha-card.compact .badge { width: 34px; height: 34px; border-radius: 10px; }
@@ -810,13 +841,13 @@ const EDITOR_I18N = {
       status: ["Стан", "регіон, тривога чи тихо, тривалість"],
       details: ["Деталі тривоги", "рівень, інші загрози, охоплення, причина"],
       timeline: ["Смуга 24 год", "коли були тривоги за добу"],
-      stats: ["Статистика", "частка часу під тривогою за 24 год і 7 днів"],
+      stats: ["Статистика", "частка часу під тривогою за 24 год і 7 днів, тривоги за сьогодні й місяць"],
       records: ["Найдовша й середня", "а також якість статистики"],
     },
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
-      stats: { day: "24 год", week: "7 днів" },
+      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць" },
     },
     languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
   },
@@ -827,13 +858,13 @@ const EDITOR_I18N = {
       status: ["Status", "region, alert or quiet, duration"],
       details: ["Alert details", "level, other threats, coverage, reason"],
       timeline: ["24 h strip", "when the alerts were over the day"],
-      stats: ["Statistics", "share of time under alert, 24 h and 7 days"],
+      stats: ["Statistics", "share of time under alert, 24 h and 7 days, alerts today and this month"],
       records: ["Longest and average", "and the statistics quality"],
     },
     item: {
       status: { timer: "Duration", updated: "Update time" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
-      stats: { day: "24 h", week: "7 days" },
+      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month" },
     },
     languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
   },
