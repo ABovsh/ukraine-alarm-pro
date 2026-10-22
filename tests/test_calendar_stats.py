@@ -12,6 +12,7 @@ from test_alert_history import _hist, _payload
 from test_entities import _setup
 
 from custom_components.ukraine_alarm_pro.const import DOMAIN
+from custom_components.ukraine_alarm_pro.history import _parse
 from custom_components.ukraine_alarm_pro.models import Snapshot
 
 CREATED = datetime(2026, 8, 1, 12, tzinfo=UTC)
@@ -242,3 +243,23 @@ async def test_percentage_counts_official_history_before_the_live_feed(hass):
     # Oct 1 00:00 Kyiv .. Oct 16 09:00 Kyiv = 15 d 9 h = 1328400 s
     assert month["observed_duration_seconds"] == 3600
     assert month["percentage"] == 0.3
+
+
+async def test_clock_set_back_marks_the_period_clock_jump_not_complete(hass):
+    """A confirmation stamped after `now` means the clock went back: the calendar
+    periods say so instead of passing a share off as complete."""
+    history, clock = await _journal(hass, datetime(2026, 10, 11, 8, tzinfo=UTC))
+    _episode(history, datetime(2026, 10, 11, 5, tzinfo=UTC), datetime(2026, 10, 11, 6, tzinfo=UTC))
+    history.confirm(["31"], clock["now"] + timedelta(hours=2))
+
+    for period in history.calendar("31").values():
+        assert period["quality"] == "clock_jump"
+        assert period["coverage_complete"] is False
+
+
+def test_unparseable_stamps_are_ignored_not_fatal():
+    # Valid shape, impossible date; a stamp without an offset is damage too.
+    assert _parse("2026-02-30T00:00:00+00:00") is None
+    assert _parse("2026-10-11T00:00:00") is None
+    assert _parse(None) is None
+    assert _parse("2026-10-11T00:00:00+00:00") == datetime(2026, 10, 11, tzinfo=UTC)
