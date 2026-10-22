@@ -23,7 +23,7 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
   from its administrative ancestors and the regions within it. Coverage shows
   whether an alert affects the whole region or only part of it.
 - **Modular dashboard card.** Current state, alert duration or time since the all
-  clear, alert details, a day strip and statistics for 24 hours, 7 days, today and the month. The card's
+  clear, alert details, a day strip, statistics for 24 hours, 7 days and the month, and a separate one for today. The card's
   sections are switched on, off and reordered in its editor.
 - **Up to 90 days of history.** Local observations are supplemented with official
   air-alert history. That source has no alert levels or alerts declared for an individual hromada.
@@ -70,15 +70,15 @@ requires the region-list source to be available.
 The card is part of the integration; there is nothing else to install. It is built
 from sections: switch on the ones you need in the card editor and set their order there.
 
-<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: status, day strip and statistics for 24 hours, 7 days, today and the month" width="420">
+<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: status, day strip, statistics for 24 hours, 7 days and the month, and for today" width="420">
 
 | Section | What it shows | Items you can hide |
 | --- | --- | --- |
 | Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
-| Statistics | four tiles: 24 h, 7 days, today and the current month. Each shows the share of time under alert (headline and bar), total duration, count, and the longest and average alert | each tile; bar, longest, average |
-| Longest and average | the longest and average alert over 7 days, and the incomplete-statistics note | — |
+| Statistics | three tiles: 24 h, 7 days and the current month. Each shows the share of time under alert (headline and bar), total duration, count, and the longest and average alert | each tile; bar, longest, average |
+| Today | the same for today since local midnight, in one full-width row | bar, longest, average |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
   level is shown next to the region name.
@@ -115,25 +115,25 @@ sections:                           # optional; without it, every section in thi
   - details
   - timeline
   - stats
-  - records
+  - today
 hide:                               # optional: section items not to show
   - details.reason
 language: auto                      # auto (Home Assistant language), uk or en
 ```
 
 Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
-`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.longest`, `stats.average`. Cards saved with
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.month`, `stats.bar`, `stats.longest`, `stats.average`, `today.bar`, `today.longest`, `today.average`. The 0.12 `records` section opens as `today`. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
 update time, `status` — "Status" and "Alert details", `full` — every section.
 
-The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. When the journal does not cover the whole period, or gaps noticeably change the share, the tile says so under its values.
+The share for the month and today is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. When the journal does not cover the whole period, or gaps noticeably change the share, the tile says so under its values.
 
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.
 Percentages match the [time-under-alert sensors](#time-under-alert). Incomplete
 statistics, stale data and partial geographical coverage have separate indicators.
 Cards for the same region share requests and pause them in a hidden tab or offscreen.
-A card without the day strip, statistics and "Longest and average" sections makes no
+A card without the day strip, statistics and "Today" sections makes no
 journal requests: it reads the time since the all clear from
 `sensor.uap_<id>_alert_cleared`. The card creates no database rows. Entities may be renamed: the card finds them by region.
 

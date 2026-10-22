@@ -125,58 +125,67 @@ def test_card_is_built_from_the_sections_the_user_picked():
     assert ("status,details", "") in {row[:2] for row in sizes.values()}
     assert "timeline" in rendered["card_size"][0][0]  # legacy full = every section
     assert rendered["card_size"][3][0] == rendered["card_size"][0][0]  # unknown layout = full
-    assert "status, details, timeline, stats, records" in rendered["bad_section"]
-    assert rendered["stub"]["sections"] == ["status", "details", "timeline", "stats", "records"]
+    assert "status, details, timeline, stats, today" in rendered["bad_section"]
+    assert rendered["stub"]["sections"] == ["status", "details", "timeline", "stats", "today"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_every_tile_has_the_same_format_with_a_share_headline():
-    """24 h, 7 d, today and the month look alike: share as the headline with a
-    bar under it, duration and count, then the longest and the average alert."""
+def test_tiles_share_one_format_and_today_is_its_own_segment():
+    """24 h, 7 d and the month look alike: share as the headline with a bar, duration
+    and count, then the longest and the average alert. Today is a separate segment
+    below, and nothing else repeats statistics."""
     rendered = _render()
     full = rendered["calendar_full"]
-    assert len(re.findall(r'class="kpi[" ]', full)) == 4
+    assert len(re.findall(r'class="kpi[" ]', full)) == 4  # three tiles and the today segment
     assert full.count('class="k-bar"') == 4
-    # Share of time: sensor value for 24 h, computed for 7 d over the time with data.
-    assert "36,7 %" in full
+    assert "36,7 %" in full  # sensor value
     assert "27,4 %" in full  # 165413 / (604800 - 55)
-    assert "35,6 %" in full and "29,5 %" in full
-    for label in ("24 год", "7 днів", "Сьогодні", "Вересень"):
+    assert "29,5 %" in full and "35,6 %" in full
+    for label in ("24 год", "7 днів", "Вересень", "Сьогодні"):
         assert label in full, label
     assert "вересня" not in full
-    assert "1 год 15 хв" in full and "2 тривоги" in full  # today
+    today = full[full.index('class="sec today"'):]
+    assert "1 год 15 хв" in today and "2 тривоги" in today
+    assert "найдовша <b>50 хв</b>" in today and "середня <b>37 хв</b>" in today
     assert full.count("найдовша") == 4 and full.count("середня") == 4
-    assert "50 хв" in full and "37 хв" in full  # today's longest and average
-    assert "6 дн 10 год" not in full  # the month fixture is 6 h 30 min
-    assert "Today" in rendered["calendar_english"] and "September" in rendered["calendar_english"]
-    assert "longest" in rendered["calendar_english"] and "average" in rendered["calendar_english"]
-    # Without `calendar` the card shows the two rolling tiles in the same format.
-    assert len(re.findall(r'class="kpi[" ]', rendered["quiet_full"])) == 2
-    assert "Сьогодні" not in rendered["quiet_full"]
+    # No leftover "longest and average" line under the card, no tile named today.
+    assert 'class="hint"' not in full
+    assert full.count("Сьогодні") == 1
+    assert full.index('class="sec stats"') < full.index('class="sec today"')
+    english = rendered["calendar_english"]
+    assert "Today" in english and "September" in english and "longest" in english
+    # Without `calendar` the rolling tiles keep their format and the today segment is absent.
+    quiet = rendered["quiet_full"]
+    assert len(re.findall(r'class="kpi[" ]', quiet)) == 2
+    assert 'class="sec today"' not in quiet
+    # A saved `records` section is the today segment now.
+    assert 'class="sec today"' in rendered["records_alias"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_tiles_are_customisable_and_notes_go_to_the_tooltip():
+def test_tiles_and_today_are_customisable_and_say_what_is_missing():
     rendered = _render()
     bare = rendered["calendar_no_details"]
     assert 'class="k-bar"' not in bare
     assert "найдовша" not in bare and "середня" not in bare
-    assert "36,7 %" in bare and "тривог" in bare
+    assert "36,7 %" in bare and "Сьогодні" in bare and "тривог" in bare
+    trimmed = rendered["calendar_today_trimmed"]
+    assert 'class="k-bar"' not in trimmed and "середня" not in trimmed
+    assert "найдовша <b>50 хв</b>" in trimmed
     quiet = rendered["calendar_quiet"]
     assert "без тривог" in quiet
-    assert "найдовша" not in quiet and "середня" not in quiet
     assert "0,0 %" in quiet or "0 %" in quiet
-    # Incomplete data is written in the tile, not only in a tooltip: a phone has none.
+    assert "середня" not in quiet.split('class="sec today"')[1]
     gaps = rendered["calendar_gaps_month"]
     assert "були перерви в даних: 1 хв" in gaps  # tooltip with the exact gap
     assert 'class="k-note"' not in gaps  # 99 s of a month changes the share by nothing
     assert 'class="kpi partial' not in gaps
-    big = rendered["calendar_big_gaps_month"]
-    assert 'class="k-note">були перерви в даних' in big
-    assert 'class="kpi partial' not in big
+    assert 'class="k-note">були перерви в даних' in rendered["calendar_big_gaps_month"]
     incomplete = rendered["calendar_incomplete_month"]
     assert len(re.findall(r'class="kpi partial', incomplete)) == 1
     assert re.search(r'class="k-note">Неповна статистика: дані з \d\d\.\d\d', incomplete)
+    assert 'class="kpi partial' in rendered["calendar_today_gaps"]
+    assert 'class="k-note">' in rendered["calendar_today_gaps"]
     stale = rendered["calendar_stale_week"]
     assert 'class="k-note">' in stale and 'class="kpi partial' in stale
     no_percent = rendered["calendar_no_percent"]
@@ -184,4 +193,4 @@ def test_tiles_are_customisable_and_notes_go_to_the_tooltip():
     only = rendered["calendar_today_only"]
     assert len(re.findall(r'class="kpi[" ]', only)) == 1
     assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only
-    assert "Сьогодні" not in rendered["calendar_hidden"]
+    assert "Вересень" not in rendered["calendar_hidden"]

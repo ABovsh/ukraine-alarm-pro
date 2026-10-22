@@ -160,7 +160,7 @@ async def test_mobile_stale_incomplete_and_partial_are_distinct(page, tmp_path):
     await page.clock.run_for(200)
     await page.wait_for_function("c._stats !== null")
     await page.evaluate(
-        "c._stats.summary.rolling_24h.coverage_complete=false; hass.states['sensor.uap_31_alert_percentage_24h'].state='unknown'; c._render()"
+        "c._stats.summary.rolling_24h.coverage_complete=false; c._stats.summary.rolling_24h.quality='incomplete'; hass.states['sensor.uap_31_alert_percentage_24h'].state='unknown'; hass.states['sensor.uap_31_alert_percentage_24h'].attributes.quality='incomplete'; c._render()"
     )
     text = await page.evaluate("c.shadowRoot.textContent")
     assert "Part of the region" in text
@@ -183,7 +183,7 @@ async def test_editor_picks_hides_and_reorders_sections(page):
         "[...ed.querySelectorAll('[data-toggle]')].map((i) => [i.dataset.toggle, i.checked])"
     )
     assert rows[:2] == [["status", True], ["details", True]]
-    assert [key for key, on in rows if not on] == ["timeline", "stats", "records"]
+    assert [key for key, on in rows if not on] == ["timeline", "stats", "today"]
     await page.evaluate("ed.querySelector('[data-toggle=stats]').click()")
     assert await page.evaluate("changes.at(-1)") == {
         "entity": "binary_sensor.uap_31_alert",
@@ -194,18 +194,16 @@ async def test_editor_picks_hides_and_reorders_sections(page):
     await page.evaluate("ed.querySelector('[data-expand=stats]').click()")
     await page.evaluate("ed.querySelector('[data-item=\"stats.day\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == ["stats.day"]
-    # The remaining item of a section cannot be hidden too.
+    # The remaining tile cannot be hidden too; bar, longest and average never block one.
     assert not await page.evaluate("ed.querySelector('[data-item=\"stats.week\"]').disabled")
-    for item in ("week", "today"):
-        await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
-    assert await page.evaluate("changes.at(-1).hide") == ["stats.day", "stats.week", "stats.today"]
+    await page.evaluate("ed.querySelector('[data-item=\"stats.week\"]').click()")
+    assert await page.evaluate("changes.at(-1).hide") == ["stats.day", "stats.week"]
     assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
-    # What a tile shows can go freely: bar, longest and average never block a tile.
     for item in ("bar", "longest", "average"):
         assert not await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').disabled")
         await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == [
-        "stats.day", "stats.week", "stats.today", "stats.bar", "stats.longest", "stats.average"
+        "stats.day", "stats.week", "stats.bar", "stats.longest", "stats.average"
     ]
     assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
     await page.evaluate(
