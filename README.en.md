@@ -23,7 +23,7 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
   from its administrative ancestors and the regions within it. Coverage shows
   whether an alert affects the whole region or only part of it.
 - **Modular dashboard card.** Current state, alert duration or time since the all
-  clear, alert details, a day strip and statistics for 24 hours and 7 days. The card's
+  clear, alert details, a day strip and statistics for 24 hours, 7 days, today and the month. The card's
   sections are switched on, off and reordered in its editor.
 - **Up to 90 days of history.** Local observations are supplemented with official
   air-alert history. That source has no alert levels or alerts declared for an individual hromada.
@@ -69,10 +69,8 @@ requires the region-list source to be available.
 
 The card is part of the integration; there is nothing else to install. It is built
 from sections: switch on the ones you need in the card editor and set their order there.
-The screenshot shows, top to bottom: all sections, "Status" with "Alert details", and
-"Status" alone.
 
-<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: all sections, status with alert details, and status only" width="420">
+<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: status, day strip and statistics for 24 hours, 7 days, today and the month" width="420">
 
 | Section | What it shows | Items you can hide |
 | --- | --- | --- |
