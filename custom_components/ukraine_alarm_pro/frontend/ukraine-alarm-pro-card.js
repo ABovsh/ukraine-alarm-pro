@@ -47,6 +47,9 @@ const I18N = {
     gaps: "були перерви в даних",
     dataOk: "Дані повні",
     sec: "с",
+    shareH: "частка",
+    totalH: "разом",
+    countH: "к-сть",
     incomplete: "Неповна статистика",
     plural: ["тривога", "тривоги", "тривог"],
   },
@@ -89,6 +92,9 @@ const I18N = {
     gaps: "data had gaps",
     dataOk: "Data is complete",
     sec: "s",
+    shareH: "share",
+    totalH: "total",
+    countH: "count",
     incomplete: "Incomplete statistics",
     plural: ["alert", "alerts", "alerts"],
   },
@@ -183,7 +189,7 @@ const RETIRED_SECTIONS = ["records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["day", "week", "today", "month", "bar", "longest", "average", "lamp"],
+  stats: ["day", "week", "today", "month", "bar", "total", "count", "longest", "average", "lamp"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -386,10 +392,10 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getCardSize() {
-    const weight = { status: 1, details: 1, timeline: 0.5, stats: 1.5 };
-    // A second row of tiles when more than two are on.
-    const calendar = ["stats.day", "stats.week", "stats.today", "stats.month"].filter((id) => !this._config?.hide?.includes(id)).length > 2;
-    return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section] + (section === "stats" && calendar ? 1 : 0), 0)));
+    // The statistics table: a header and a line per period.
+    const periods = ["stats.day", "stats.week", "stats.today", "stats.month"].filter((id) => !this._config?.hide?.includes(id)).length;
+    const weight = { status: 1, details: 1, timeline: 0.5, stats: 0.5 + 0.5 * periods };
+    return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section], 0)));
   }
 
   getGridOptions() {
@@ -563,10 +569,13 @@ class UkraineAlarmProCard extends HTMLElement {
     const bar = this._shows("stats", "bar")
       ? `<div class="k-bar"><i style="width:${Math.min(Math.max(percentage ?? 0, 0), 100).toFixed(1)}%"></i></div>`
       : "";
+    const totalText = this._shows("stats", "total") ? (result ? span(t, seconds) : "—") : "";
+    const countText = this._shows("stats", "count") ? (!result ? "" : count ? alerts(t, count) : t.noAlerts) : "";
+    const main = totalText || countText ? `<div class="k-row k-main"><span>${esc(totalText)}</span><span>${esc(countText)}</span></div>` : "";
     const lamp = this._shows("stats", "lamp") && result ? `<i class="lamp ${warn ? "warn" : "ok"}" role="img" aria-label="${esc(tip)}"></i>` : "";
     return `<div class="kpi"${result && this._shows("stats", "lamp") ? ` title="${esc(tip)}"` : ""}>
         <div class="k-top"><span class="k-lbl">${lamp}${esc(label)}</span><span class="k-val">${esc(percentage === null ? "—" : this._pct(t, percentage))}</span></div>${bar}
-        <div class="k-row k-main"><span>${esc(result ? span(t, seconds) : "—")}</span><span>${esc(!result ? "" : count ? alerts(t, count) : t.noAlerts)}</span></div>${row(t.longestShort, longest)}${row(t.avgShort, mean)}
+        ${main}${row(t.longestShort, longest)}${row(t.avgShort, mean)}
       </div>`;
   }
 
@@ -587,13 +596,41 @@ class UkraineAlarmProCard extends HTMLElement {
       return name.charAt(0).toUpperCase() + name.slice(1);
     };
     const own = (result) => (Number.isFinite(result?.percentage) ? result.percentage : null);
-    const tiles = [
-      this._shows("stats", "day") ? this._periodHtml(t, stats, t.last24, day, share(day)) : "",
-      this._shows("stats", "week") ? this._periodHtml(t, stats, t.week, week, share(week)) : "",
-      this._shows("stats", "today") && calendar?.today ? this._periodHtml(t, stats, t.today, calendar.today, own(calendar.today)) : "",
-      this._shows("stats", "month") && calendar?.month ? this._periodHtml(t, stats, monthName(calendar.month), calendar.month, own(calendar.month)) : "",
-    ].filter(Boolean);
-    return `<div class="kpis">${tiles.join("")}</div>`;
+    const periods = [
+      ["day", t.last24, day, share(day)],
+      ["week", t.week, week, share(week)],
+      calendar?.today ? ["today", t.today, calendar.today, own(calendar.today)] : null,
+      calendar?.month ? ["month", monthName(calendar.month), calendar.month, own(calendar.month)] : null,
+    ].filter((period) => period && this._shows("stats", period[0]));
+    const tiles = periods.map(([, label, result, percentage]) => this._periodHtml(t, stats, label, result, percentage));
+    return `${this._tableHtml(t, stats, periods)}<div class="kpis">${tiles.join("")}</div>`;
+  }
+
+  // The same numbers, a line per period: compact on a wide card; a narrow one shows the tiles instead.
+  _tableHtml(t, stats, periods) {
+    const shown = (item) => this._shows("stats", item);
+    const columns = ["total", "count", "longest", "average"].filter(shown);
+    const head = (text, right) => `<div class="hd${right ? " n" : ""}">${esc(text)}</div>`;
+    const labels = { total: t.totalH, count: t.countH, longest: t.longestShort, average: t.avgShort };
+    const cells = periods.map(([, label, result, percentage]) => {
+      const { warn, tip } = this._lamp(t, result, stats);
+      const lamp = shown("lamp") && result ? `<i class="lamp ${warn ? "warn" : "ok"}" role="img" aria-label="${esc(tip)}"></i>` : "";
+      const count = result?.count || 0;
+      const seconds = result?.observed_duration_seconds || 0;
+      const average = result?.average_duration_seconds ?? (count ? seconds / count : null);
+      const bar = shown("bar") ? `<i style="width:${(Math.min(Math.max(percentage ?? 0, 0), 100) * 0.9).toFixed(1)}%"></i>` : "";
+      const value = {
+        total: result ? span(t, seconds) : "—",
+        count: result ? String(count) : "—",
+        longest: count ? span(t, result.longest_duration_seconds || 0) : "—",
+        average: count && average !== null ? span(t, average) : "—",
+      };
+      return `<div class="c l"${lamp ? ` title="${esc(tip)}"` : ""}>${lamp}${esc(label)}</div>`
+        + `<div class="c p">${esc(percentage === null ? "—" : this._pct(t, percentage))}${bar}</div>`
+        + columns.map((column) => `<div class="c n${column === "count" ? " dim" : ""}">${esc(value[column])}</div>`).join("");
+    });
+    return `<div class="tbl" style="grid-template-columns: repeat(${columns.length + 2}, auto)">`
+      + head("") + head(t.shareH) + columns.map((column) => head(labels[column], true)).join("") + cells.join("") + "</div>";
   }
 
   _moreInfo(entityId) {
@@ -833,7 +870,17 @@ const STYLE = `<style>
     color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
   .axis span { position: absolute; top: 0; transform: translateX(-50%); }
   .axis .end { right: 0; transform: none; }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  /* A line per period on a card wide enough for it; a narrower one shows the same numbers as tiles. */
+  .tbl { display: grid; justify-content: space-between; column-gap: 6px; align-items: center; font-variant-numeric: tabular-nums; font-size: 11px; }
+  .tbl .hd { padding-bottom: 3px; font-size: 10.5px; color: var(--secondary-text-color); white-space: nowrap; }
+  .tbl .c { padding: 5px 0; white-space: nowrap; border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+  .tbl .n { text-align: right; }
+  .tbl .dim { color: var(--secondary-text-color); }
+  .tbl .p { position: relative; font-size: 13.5px; font-weight: 600; color: var(--primary-text-color); }
+  .tbl .p i { position: absolute; left: 0; bottom: 3px; height: 3px; border-radius: 2px; background: var(--primary-color); }
+  .tbl .l { color: var(--primary-text-color); font-size: 11.5px; }
+  .kpis { display: none; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  @container (max-width: 353px) { .tbl { display: none; } .kpis { display: grid; } }
   .kpi { min-width: 0; padding: 7px 10px 8px; border-radius: 10px; font-variant-numeric: tabular-nums;
     background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .k-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }

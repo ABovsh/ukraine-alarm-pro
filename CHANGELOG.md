@@ -12,12 +12,14 @@ This project follows [Semantic Versioning](https://semver.org/).
   `longest_duration_seconds`, `average_duration_seconds`, `quality`,
   `coverage_complete` and `gap_seconds`, plus `month.daily`. An alert across midnight is
   split between the periods. No new entities.
-- The card's Statistics section has four equal tiles in one format: 24 h, 7 days, today
-  and the current month. Each shows the share of time under alert (headline and bar),
-  total duration, count, and the longest and average alert. The editor hides any tile and,
-  inside the tiles, the bar, longest and average (`stats.today`, `stats.month`,
-  `stats.bar`, `stats.longest`, `stats.average`, `stats.lamp`). A small lamp in each tile is
-  green when the data is complete and yellow when it is partial; the tooltip gives the reason.
+- The card's Statistics section is a table with a row per period: 24 h, 7 days, today and
+  the current month. Columns: share of time under alert with a bar, total, count, longest
+  and average alert. A card narrower than ~350 px shows the same numbers as tiles. The
+  editor hides any period and, inside the table, the bar, the total, count, longest and
+  average columns and the lamp (`stats.today`, `stats.month`, `stats.bar`, `stats.total`,
+  `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`). A small lamp next to each
+  period is green when the data is complete and yellow when it is partial; the tooltip
+  gives the reason.
 - `calendar.<period>.percentage`: the share of time under alert over the time the journal
   covers.
 

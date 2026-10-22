@@ -77,7 +77,7 @@ from sections: switch on the ones you need in the card editor and set their orde
 | Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
-| Statistics | four equal tiles: 24 h, 7 days, today (since local midnight) and the current month. Each shows the share of time under alert (headline and bar), total duration, count, and the longest and average alert | each tile; bar, longest, average, lamp |
+| Statistics | a table with a row per period (24 h, 7 days, today since local midnight, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card (under ~350 px) the same numbers show as tiles | each period; the bar, the total, count, longest and average columns; the lamp |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
   level is shown next to the region name.
@@ -120,11 +120,11 @@ language: auto                      # auto (Home Assistant language), uk or en
 ```
 
 Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
-`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.longest`, `stats.average`, `stats.lamp`. The 0.12 `records` section no longer exists: its statistics are in the tiles, and it is skipped in saved cards. Cards saved with
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`. The 0.12 `records` section no longer exists: its statistics are in the tiles, and it is skipped in saved cards. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
 update time, `status` — "Status" and "Alert details", `full` — every section.
 
-The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. A lamp next to the tile name is green when the data is complete and yellow when it is partial (the journal does not cover the whole period, stale data, or gaps over 1% of the period). The tooltip gives the reason.
+The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. A lamp next to the period name is green when the data is complete and yellow when it is partial (the journal does not cover the whole period, stale data, or gaps over 1% of the period). The tooltip gives the reason.
 
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.

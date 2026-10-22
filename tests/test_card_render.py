@@ -129,66 +129,83 @@ def test_card_is_built_from_the_sections_the_user_picked():
     assert rendered["stub"]["sections"] == ["status", "details", "timeline", "stats"]
 
 
+def _table(html: str) -> str:
+    """The statistics table: one row per period, headers once."""
+    return html[html.index('class="tbl"'):html.index('class="kpis"')]
+
+
+def _tiles(html: str) -> str:
+    """The same numbers as tiles, shown instead of the table on a narrow card."""
+    return html[html.index('class="kpis"'):]
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_four_equal_tiles_share_one_format_and_nothing_repeats_below():
-    """24 h, 7 d, the month and today look alike: share as the headline with a bar,
-    duration and count, then the longest and the average alert. No statistics line
-    repeats them under the tiles."""
+def test_statistics_are_one_table_with_a_row_per_period():
     rendered = _render()
     full = rendered["calendar_full"]
-    assert len(re.findall(r'class="kpi[" ]', full)) == 4
-    assert full.count('class="k-bar"') == 4
-    assert "36,7 %" in full  # sensor value
-    assert "27,4 %" in full  # 165413 / (604800 - 55)
-    assert "29,5 %" in full and "35,6 %" in full
+    table = _table(full)
+    for header in ("частка", "разом", "к-сть", "найдовша", "середня"):
+        assert table.count(f">{header}<") == 1, header
+    assert table.count('class="c l"') == 4  # one row per period
     for label in ("24 год", "7 днів", "Сьогодні", "Вересень"):
-        assert label in full, label
-    assert "вересня" not in full
-    assert "1 год 15 хв" in full and "2 тривоги" in full  # today
-    assert full.count("найдовша") == 4 and full.count("середня") == 4
-    assert 'class="hint"' not in full and "Найдовша" not in full
-    assert 'class="sec records"' not in full
-    english = rendered["calendar_english"]
-    assert "Today" in english and "September" in english and "longest" in english
-    # Without `calendar` the rolling tiles keep their format and no calendar tile appears.
-    quiet = rendered["quiet_full"]
-    assert len(re.findall(r'class="kpi[" ]', quiet)) == 2
-    assert "Сьогодні" not in quiet
+        assert label in table, label
+    assert "вересня" not in table
+    for share in ("36,7 %", "27,4 %", "35,6 %", "29,5 %"):  # 7 d: 165413 / (604800 - 55)
+        assert share in table, share
+    assert table.count('class="lamp ok"') == 4
+    assert table.count('<i style="width:') == 4  # the share bar under each percentage
+    today = table[table.index(">Сьогодні<"):]
+    assert "1 год 15 хв" in today and ">2<" in today and "50 хв" in today and "37 хв" in today
+    assert 'class="sec records"' not in full and 'class="hint"' not in full
+    english = _table(rendered["calendar_english"])
+    for word in ("Today", "September", "share", "total", "count", "longest", "average"):
+        assert word in english, word
+    # Without `calendar` the table has the two rolling rows only.
+    quiet = _table(rendered["quiet_full"])
+    assert quiet.count('class="c l"') == 2 and "Сьогодні" not in quiet
+    # A period without alerts says so with dashes, not zeros it cannot know.
+    empty = _table(rendered["calendar_quiet"])
+    assert "0,0 %" in empty and "без тривог" not in empty and empty.count(">—<") >= 4
     # A `records` section saved by 0.12 is dropped, the rest of the card stays.
     legacy = rendered["records_dropped"]
-    assert 'class="sec head"' in legacy and "kpi" not in legacy
+    assert 'class="sec head"' in legacy and "tbl" not in legacy
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_tiles_are_customisable_and_say_what_is_missing():
+def test_table_rows_columns_and_lamp_are_customisable():
     rendered = _render()
-    bare = rendered["calendar_no_details"]
-    assert 'class="k-bar"' not in bare
-    assert "найдовша" not in bare and "середня" not in bare
-    assert "36,7 %" in bare and "Сьогодні" in bare and "тривог" in bare
-    quiet = rendered["calendar_quiet"]
-    assert "без тривог" in quiet
-    assert "0,0 %" in quiet or "0 %" in quiet
-    assert "середня" not in quiet
-    # A small lamp in every tile: green when the data is complete, yellow when it is partial.
-    full = rendered["calendar_full"]
-    assert full.count('class="lamp ok"') == 4 and 'class="lamp warn"' not in full
-    gaps = rendered["calendar_gaps_month"]
-    assert "були перерви в даних: 55 с" in full  # a week with 55 s of gaps
-    assert 'class="lamp ok"' in gaps  # 99 s of a month changes the share by nothing
-    assert "були перерви в даних: 1 хв" in gaps  # but the tooltip keeps the exact gap
-    assert rendered["calendar_big_gaps_month"].count('class="lamp warn"') == 1
-    incomplete = rendered["calendar_incomplete_month"]
-    assert incomplete.count('class="lamp warn"') == 1
-    assert re.search(r'title="[^"]*Неповна статистика: дані з \d\d\.\d\d', incomplete)
-    assert 'class="lamp warn"' in rendered["calendar_today_gaps"]
-    assert 'class="lamp warn"' in rendered["calendar_stale_week"]
-    no_percent = rendered["calendar_no_percent"]
-    assert "—" in no_percent and 'class="lamp warn"' in no_percent
-    # The lamp replaces the text under the tile and can be switched off.
+    bare = _table(rendered["calendar_no_details"])
+    assert "lamp" not in bare and '<i style="width:' not in bare
+    assert ">найдовша<" not in bare and ">середня<" not in bare and "36,7 %" in bare
+    share_only = _table(rendered["table_share_only"])
+    for header in ("разом", "к-сть", "найдовша", "середня"):
+        assert f">{header}<" not in share_only, header
+    assert ">частка<" in share_only and "36,7 %" in share_only
+    only = _table(rendered["calendar_today_only"])
+    assert only.count('class="c l"') == 1 and "Сьогодні" in only and "24 год" not in only
+    assert "Вересень" in _table(rendered["calendar_hidden"]) and "Сьогодні" not in _table(rendered["calendar_hidden"])
+    # What is partial gets a yellow lamp, in the table and in the tiles alike.
+    assert 'class="lamp warn"' in _table(rendered["calendar_incomplete_month"])
+    assert re.search(r'title="[^"]*Неповна статистика: дані з \d\d\.\d\d', _table(rendered["calendar_incomplete_month"]))
+    assert 'class="lamp ok"' in _table(rendered["calendar_gaps_month"])  # 99 s of a month
+    assert "були перерви в даних: 1 хв" in _table(rendered["calendar_gaps_month"])
+    assert _table(rendered["calendar_big_gaps_month"]).count('class="lamp warn"') == 1
+    assert 'class="lamp warn"' in _table(rendered["calendar_today_gaps"])
+    assert 'class="lamp warn"' in _table(rendered["calendar_stale_week"])
+    assert "були перерви в даних: 55 с" in _table(rendered["calendar_full"])  # a week with 55 s
+    assert "—" in _table(rendered["calendar_no_percent"])
     assert 'class="k-note"' not in json.dumps(rendered)
-    assert "lamp" not in rendered["calendar_no_details"]
-    only = rendered["calendar_today_only"]
-    assert len(re.findall(r'class="kpi[" ]', only)) == 1
-    assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only
-    assert "Сьогодні" not in rendered["calendar_hidden"] and "Вересень" in rendered["calendar_hidden"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_tiles_are_the_fallback_for_a_card_too_narrow_for_the_table():
+    """Same numbers, same lamp, same items: a phone-sized card gets tiles."""
+    rendered = _render()
+    tiles = _tiles(rendered["calendar_full"])
+    assert len(re.findall(r'class="kpi[" ]', tiles)) == 4
+    assert tiles.count('class="k-bar"') == 4 and tiles.count('class="lamp ok"') == 4
+    assert tiles.count("найдовша") == 4 and tiles.count("середня") == 4
+    assert "29,5 %" in tiles and "35,6 %" in tiles and "Вересень" in tiles
+    bare = _tiles(rendered["calendar_no_details"])
+    assert 'class="k-bar"' not in bare and "найдовша" not in bare and "lamp" not in bare
+    assert len(re.findall(r'class="kpi[" ]', _tiles(rendered["calendar_today_only"]))) == 1
