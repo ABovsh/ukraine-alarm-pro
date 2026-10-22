@@ -776,8 +776,18 @@ class AlertHistory:
                 row["maximum_air_level"] = ep["maximum_air_level"]
             row["had_gap"] |= ep["had_gap"]
             row["ongoing"] |= ep["observed_cleared_at"] is None
+        # The journal's own coverage start (what `coverage_start` reports): official
+        # history reaches back before the live feed was first seen.
         floor = min(
-            (stamp for stamp in (since, _parse(self._official_since.get(region_id))) if stamp),
+            (
+                stamp
+                for stamp in (
+                    since,
+                    _parse(self._official_since.get(region_id)),
+                    _parse(self._created_at),
+                )
+                if stamp
+            ),
             default=None,
         )
         covered = (

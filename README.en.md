@@ -79,7 +79,7 @@ The screenshot shows, top to bottom: all sections, "Status" with "Alert details"
 | Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
-| Statistics | share of time under alert over 24 h and 7 days; alert count, total duration and the longest alert for today and the current month | 24 h, 7 days, today, month |
+| Statistics | four tiles: 24 h, 7 days, today and the current month. Each shows the share of time under alert (headline and bar), total duration, count, and the longest and average alert | each tile; bar, longest, average |
 | Longest and average | the longest and average alert over 7 days, and the incomplete-statistics note | — |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
@@ -124,9 +124,11 @@ language: auto                      # auto (Home Assistant language), uk or en
 ```
 
 Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
-`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`. Cards saved with
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.longest`, `stats.average`. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
 update time, `status` — "Status" and "Alert details", `full` — every section.
+
+The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. When the journal does not cover the whole period, or gaps noticeably change the share, the tile says so under its values.
 
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.
@@ -319,7 +321,7 @@ duration per day — over Home Assistant's local days.
 `get_summary` also returns `calendar` with the periods `today` (from local midnight) and
 `month` (from the first of the current month, in Home Assistant's time zone). Each period
 has `count`, `observed_duration_seconds`, `longest_duration_seconds`,
-`average_duration_seconds` (`null` when there were no alerts), `quality`,
+`average_duration_seconds` (`null` when there were no alerts), `percentage` (share of time under alert over the time the journal covers; `null` when nothing is covered), `quality`,
 `coverage_complete` and `gap_seconds`; `calendar.month.daily` has the count and duration
 for each day of the month. An alert that crosses midnight is split: each period counts it
 once and only its own part of the duration. If the journal starts after the period

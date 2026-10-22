@@ -225,3 +225,20 @@ async def test_percentage_zero_is_a_value_and_missing_coverage_is_none(hass):
     empty, _ = _hist(now=datetime(2026, 10, 11, 8, tzinfo=UTC))
     await empty.async_load()
     assert empty.calendar("31")["today"]["percentage"] is None
+
+
+async def test_percentage_counts_official_history_before_the_live_feed(hass):
+    """The journal was created on 2026-08-01 (before the 90-day official window) and the live feed seen only from
+    10-15, but official history covers the whole month: the share is over the
+    month, not over the days since the feed."""
+    history, clock = await _journal(hass, datetime(2026, 10, 15, 6, tzinfo=UTC))
+    history._live_since["31"] = datetime(2026, 10, 15, 6, tzinfo=UTC).isoformat()
+    official = [(datetime(2026, 10, 2, 5, tzinfo=UTC), datetime(2026, 10, 2, 6, tzinfo=UTC))]
+    history.merge_official("31", official, window_start=datetime(2026, 8, 5, tzinfo=UTC))
+    clock["now"] = datetime(2026, 10, 16, 6, tzinfo=UTC)
+    history.confirm(["31"], clock["now"])
+
+    month = history.calendar("31")["month"]
+    # Oct 1 00:00 Kyiv .. Oct 16 09:00 Kyiv = 15 d 9 h = 1328400 s
+    assert month["observed_duration_seconds"] == 3600
+    assert month["percentage"] == 0.3
