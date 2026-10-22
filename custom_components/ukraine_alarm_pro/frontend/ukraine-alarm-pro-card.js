@@ -856,6 +856,9 @@ const STYLE = `<style>
   .tbl .p { position: relative; font-size: 13.5px; font-weight: 600; color: var(--primary-text-color); }
   .tbl .p i { position: absolute; left: 0; bottom: 3px; height: 3px; border-radius: 2px; background: var(--primary-color); }
   .tbl .l { color: var(--primary-text-color); font-size: 11.5px; }
+  .lamp { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; vertical-align: middle; position: relative; top: -1px; }
+  .lamp.ok { background: var(--uap-green); }
+  .lamp.warn { background: var(--uap-yellow); }
   @container (max-width: 319px) {
     .tbl { column-gap: 4px; font-size: 10px; }
     .tbl .hd { font-size: 9.5px; }

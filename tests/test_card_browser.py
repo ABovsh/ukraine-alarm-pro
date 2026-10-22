@@ -252,3 +252,9 @@ async def test_the_table_is_the_only_view_and_fits_every_phone_width(page):
         assert state["shown"], width
         assert state["overflow"] <= 0, width
         assert state["height"] < 150, width  # a header and four lines, never wrapped
+        # The completeness lamp is drawn: a coloured dot, not an empty inline element.
+        lamp = await page.evaluate("""(() => {
+          const el = c.shadowRoot.querySelector('.tbl .lamp.ok'), r = el.getBoundingClientRect();
+          return [r.width, r.height, getComputedStyle(el).backgroundColor];
+        })()""")
+        assert lamp[0] >= 6 and lamp[1] >= 6 and lamp[2] != "rgba(0, 0, 0, 0)", width
