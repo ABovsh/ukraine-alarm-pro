@@ -133,6 +133,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             else None
         )
         result["last_episode"] = coordinator.history.history(region_id, 1)
+        result["calendar"] = coordinator.history.calendar(region_id)
         return result
 
     hass.services.async_register(

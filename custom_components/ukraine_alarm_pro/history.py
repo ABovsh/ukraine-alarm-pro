@@ -601,7 +601,89 @@ class AlertHistory:
     ) -> dict[str, Any]:
         """Fixed UTC-second window, union of intervals, honest quality metadata."""
         now = (now or self._now()).astimezone(dt_util.UTC)
-        lo = now - timedelta(seconds=window_seconds)
+        window = self._window(
+            region_id, now - timedelta(seconds=window_seconds), now, now=now
+        )
+        complete = window["coverage_complete"]
+        duration = window["observed_duration_seconds"]
+        return {
+            "region_id": region_id,
+            "window_seconds": window_seconds,
+            "percentage": round(100 * duration / window_seconds, 1)
+            if complete
+            else None,
+            "coverage_complete": complete,
+            "quality": window["quality"],
+            "threat_scope": "any_alert",
+            "gap_seconds": window["gap_seconds"],
+            "count": window["count"],
+            "observed_duration_seconds": window["observed_duration_seconds"],
+            "longest_duration_seconds": window["longest_duration_seconds"],
+            "intervals": window["intervals"],
+        }
+
+    def calendar(self, region_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+        """Today and the current month in the local zone, cut at midnight.
+
+        An alert across a boundary counts once in each period, with only its
+        own part of the duration.
+        """
+        now = (now or self._now()).astimezone(dt_util.UTC)
+        today = dt_util.as_local(now).date()
+        day_start = dt_util.start_of_local_day(today)
+        month_start = dt_util.start_of_local_day(today.replace(day=1))
+        month = self._window(region_id, month_start, now, now=now)
+        bounds = [
+            dt_util.start_of_local_day(month_start.date() + timedelta(days=offset))
+            for offset in range((today - month_start.date()).days + 1)
+        ]
+        daily = [
+            {"date": start.date().isoformat(), "count": 0, "observed_duration_seconds": 0}
+            for start in bounds
+        ]
+        bounds.append(now)
+        for start, end in month["spans"]:
+            first = max(bisect_right(bounds, start) - 1, 0)
+            for index in range(first, len(daily)):
+                lo, hi = bounds[index], bounds[index + 1]
+                if lo >= end:
+                    break
+                daily[index]["count"] += 1
+                daily[index]["observed_duration_seconds"] += (
+                    min(end, hi) - max(start, lo)
+                ).total_seconds()
+        for bucket in daily:
+            bucket["observed_duration_seconds"] = round(
+                bucket["observed_duration_seconds"]
+            )
+        return {
+            "today": self._period(self._window(region_id, day_start, now, now=now), day_start, now),
+            "month": {**self._period(month, month_start, now), "daily": daily},
+        }
+
+    @staticmethod
+    def _period(window: dict[str, Any], start: datetime, end: datetime) -> dict[str, Any]:
+        count = window["count"]
+        duration = window["observed_duration_seconds"]
+        return {
+            "start": dt_util.as_local(start).isoformat(),
+            "end": dt_util.as_local(end).isoformat(),
+            "count": count,
+            "observed_duration_seconds": duration,
+            "longest_duration_seconds": window["longest_duration_seconds"],
+            "average_duration_seconds": round(duration / count) if count else None,
+            "quality": window["quality"],
+            "coverage_complete": window["coverage_complete"],
+            "gap_seconds": window["gap_seconds"],
+        }
+
+    def _window(
+        self, region_id: str, lo: datetime, hi: datetime, *, now: datetime
+    ) -> dict[str, Any]:
+        """Union of intervals within [lo, hi]; an open alert runs until `now`."""
+        lo = lo.astimezone(dt_util.UTC)
+        hi = hi.astimezone(dt_util.UTC)
+        now = now.astimezone(dt_util.UTC)
         episodes = self._episodes(region_id)
         spans = [
             (
@@ -615,9 +697,9 @@ class AlertHistory:
         )
         intervals = _union(
             [
-                (max(start, lo), min(end, now))
+                (max(start, lo), min(end, hi))
                 for start, end in spans
-                if start < now and end > lo
+                if start < hi and end > lo
             ]
         )
         duration = sum((end - start).total_seconds() for start, end in intervals)
@@ -627,9 +709,9 @@ class AlertHistory:
             gaps.append((opened, now))
         holes = _union(
             [
-                (max(start, lo), min(end, now))
+                (max(start, lo), min(end, hi))
                 for start, end in gaps
-                if start < now and end > lo
+                if start < hi and end > lo
             ]
         )
         gap_seconds = sum((end - start).total_seconds() for start, end in holes)
@@ -649,7 +731,6 @@ class AlertHistory:
             quality = "clock_jump"
         if any(start <= now < end for start, end in gaps):
             quality = "clock_jump" if opened is None else "stale"
-        complete = quality == "complete"
         rendered = [
             {
                 "start": start.isoformat(),
@@ -663,7 +744,7 @@ class AlertHistory:
         starts = [start for start, _end in intervals]
         for ep in episodes:
             start = max(_parse(ep["observed_started_at"]), lo)
-            end = min(_parse(ep["observed_cleared_at"]) or now, now)
+            end = min(_parse(ep["observed_cleared_at"]) or now, hi)
             if start >= end or not starts:
                 continue
             index = max(0, bisect_right(starts, start) - 1)
@@ -675,14 +756,9 @@ class AlertHistory:
             row["had_gap"] |= ep["had_gap"]
             row["ongoing"] |= ep["observed_cleared_at"] is None
         return {
-            "region_id": region_id,
-            "window_seconds": window_seconds,
-            "percentage": round(100 * duration / window_seconds, 1)
-            if complete
-            else None,
-            "coverage_complete": complete,
+            "spans": intervals,
+            "coverage_complete": quality == "complete",
             "quality": quality,
-            "threat_scope": "any_alert",
             "gap_seconds": round(gap_seconds),
             "count": len(intervals),
             "observed_duration_seconds": round(duration),
