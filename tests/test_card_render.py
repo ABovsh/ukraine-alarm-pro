@@ -84,10 +84,10 @@ def test_fresh_data_needs_no_footer_but_stale_data_is_explicit():
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_full_layout_shows_two_percentage_tiles_and_clock_marks():
+def test_full_layout_shows_two_statistics_rows_and_clock_marks():
     rendered = _render()
     full = rendered["quiet_full"]
-    assert len(re.findall(r'class="kpi[" ]', full)) == 2
+    assert full.count('class="c l"') == 2  # a row each for 24 h and 7 days
     assert "24 год" in full
     assert "7 днів" in full
     # Rolling 24 h strip labelled with real Kyiv clock hours, ending at "now".
@@ -131,12 +131,7 @@ def test_card_is_built_from_the_sections_the_user_picked():
 
 def _table(html: str) -> str:
     """The statistics table: one row per period, headers once."""
-    return html[html.index('class="tbl"'):html.index('class="kpis"')]
-
-
-def _tiles(html: str) -> str:
-    """The same numbers as tiles, shown instead of the table on a narrow card."""
-    return html[html.index('class="kpis"'):]
+    return html[html.index('class="tbl"'):]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -157,6 +152,7 @@ def test_statistics_are_one_table_with_a_row_per_period():
     today = table[table.index(">Сьогодні<"):]
     assert "1 год 15 хв" in today and ">2<" in today and "50 хв" in today and "37 хв" in today
     assert 'class="sec records"' not in full and 'class="hint"' not in full
+    assert 'class="kpi' not in full  # one view: no tiles
     english = _table(rendered["calendar_english"])
     for word in ("Today", "September", "share", "total", "count", "longest", "average"):
         assert word in english, word
@@ -195,17 +191,3 @@ def test_table_rows_columns_and_lamp_are_customisable():
     assert "були перерви в даних: 55 с" in _table(rendered["calendar_full"])  # a week with 55 s
     assert "—" in _table(rendered["calendar_no_percent"])
     assert 'class="k-note"' not in json.dumps(rendered)
-
-
-@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_tiles_are_the_fallback_for_a_card_too_narrow_for_the_table():
-    """Same numbers, same lamp, same items: a phone-sized card gets tiles."""
-    rendered = _render()
-    tiles = _tiles(rendered["calendar_full"])
-    assert len(re.findall(r'class="kpi[" ]', tiles)) == 4
-    assert tiles.count('class="k-bar"') == 4 and tiles.count('class="lamp ok"') == 4
-    assert tiles.count("найдовша") == 4 and tiles.count("середня") == 4
-    assert "29,5 %" in tiles and "35,6 %" in tiles and "Вересень" in tiles
-    bare = _tiles(rendered["calendar_no_details"])
-    assert 'class="k-bar"' not in bare and "найдовша" not in bare and "lamp" not in bare
-    assert len(re.findall(r'class="kpi[" ]', _tiles(rendered["calendar_today_only"]))) == 1

@@ -14,7 +14,7 @@ This project follows [Semantic Versioning](https://semver.org/).
   split between the periods. No new entities.
 - The card's Statistics section is a table with a row per period: 24 h, 7 days, today and
   the current month. Columns: share of time under alert with a bar, total, count, longest
-  and average alert. A card narrower than ~350 px shows the same numbers as tiles. The
+  and average alert. On a narrow card the type and column gaps shrink. The
   editor hides any period and, inside the table, the bar, the total, count, longest and
   average columns and the lamp (`stats.today`, `stats.month`, `stats.bar`, `stats.total`,
   `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`). A small lamp next to each
@@ -25,7 +25,7 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ### 🔧 Changed
 
-- The "Longest and average" section (`records`) is removed: the tiles carry the same
+- The "Longest and average" section (`records`) is removed: the statistics table carries the same
   numbers. A saved `records` is skipped; the rest of the card stays.
 - The journal parses each stored timestamp once, so the 24 h and 7 d recalculation takes
   about 12 ms instead of 29 ms at 9,000 episodes per region.

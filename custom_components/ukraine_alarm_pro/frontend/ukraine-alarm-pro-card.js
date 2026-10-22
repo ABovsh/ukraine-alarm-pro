@@ -557,28 +557,6 @@ class UkraineAlarmProCard extends HTMLElement {
     return { warn, tip: warn ? reasons.join(" · ") : [t.dataOk, ...reasons].join(" · ") };
   }
 
-  // One look for every period: share as the headline with a bar, duration and count, longest and average.
-  _periodHtml(t, stats, label, result, percentage) {
-    const { warn, tip } = this._lamp(t, result, stats);
-    const count = result?.count || 0;
-    const seconds = result?.observed_duration_seconds || 0;
-    const average = result?.average_duration_seconds ?? (count ? seconds / count : null);
-    const row = (name, value) => (value ? `<div class="k-row"><span>${esc(name)}</span><b>${esc(value)}</b></div>` : "");
-    const longest = count && this._shows("stats", "longest") ? span(t, result.longest_duration_seconds || 0) : "";
-    const mean = count && this._shows("stats", "average") && average !== null ? span(t, average) : "";
-    const bar = this._shows("stats", "bar")
-      ? `<div class="k-bar"><i style="width:${Math.min(Math.max(percentage ?? 0, 0), 100).toFixed(1)}%"></i></div>`
-      : "";
-    const totalText = this._shows("stats", "total") ? (result ? span(t, seconds) : "—") : "";
-    const countText = this._shows("stats", "count") ? (!result ? "" : count ? alerts(t, count) : t.noAlerts) : "";
-    const main = totalText || countText ? `<div class="k-row k-main"><span>${esc(totalText)}</span><span>${esc(countText)}</span></div>` : "";
-    const lamp = this._shows("stats", "lamp") && result ? `<i class="lamp ${warn ? "warn" : "ok"}" role="img" aria-label="${esc(tip)}"></i>` : "";
-    return `<div class="kpi"${result && this._shows("stats", "lamp") ? ` title="${esc(tip)}"` : ""}>
-        <div class="k-top"><span class="k-lbl">${lamp}${esc(label)}</span><span class="k-val">${esc(percentage === null ? "—" : this._pct(t, percentage))}</span></div>${bar}
-        ${main}${row(t.longestShort, longest)}${row(t.avgShort, mean)}
-      </div>`;
-  }
-
   _statsHtml(t, stats) {
     const fmt = this._fmt();
     const { day, week } = this._rolling(stats);
@@ -602,11 +580,10 @@ class UkraineAlarmProCard extends HTMLElement {
       calendar?.today ? ["today", t.today, calendar.today, own(calendar.today)] : null,
       calendar?.month ? ["month", monthName(calendar.month), calendar.month, own(calendar.month)] : null,
     ].filter((period) => period && this._shows("stats", period[0]));
-    const tiles = periods.map(([, label, result, percentage]) => this._periodHtml(t, stats, label, result, percentage));
-    return `${this._tableHtml(t, stats, periods)}<div class="kpis">${tiles.join("")}</div>`;
+    return this._tableHtml(t, stats, periods);
   }
 
-  // The same numbers, a line per period: compact on a wide card; a narrow one shows the tiles instead.
+  // A line per period; the columns shrink on a narrow card instead of switching to another view.
   _tableHtml(t, stats, periods) {
     const shown = (item) => this._shows("stats", item);
     const columns = ["total", "count", "longest", "average"].filter(shown);
@@ -870,7 +847,7 @@ const STYLE = `<style>
     color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
   .axis span { position: absolute; top: 0; transform: translateX(-50%); }
   .axis .end { right: 0; transform: none; }
-  /* A line per period on a card wide enough for it; a narrower one shows the same numbers as tiles. */
+  /* A line per period; a narrow card gets smaller type and tighter columns, not another layout. */
   .tbl { display: grid; justify-content: space-between; column-gap: 6px; align-items: center; font-variant-numeric: tabular-nums; font-size: 11px; }
   .tbl .hd { padding-bottom: 3px; font-size: 10.5px; color: var(--secondary-text-color); white-space: nowrap; }
   .tbl .c { padding: 5px 0; white-space: nowrap; border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
@@ -879,24 +856,13 @@ const STYLE = `<style>
   .tbl .p { position: relative; font-size: 13.5px; font-weight: 600; color: var(--primary-text-color); }
   .tbl .p i { position: absolute; left: 0; bottom: 3px; height: 3px; border-radius: 2px; background: var(--primary-color); }
   .tbl .l { color: var(--primary-text-color); font-size: 11.5px; }
-  .kpis { display: none; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-  @container (max-width: 319px) { .tbl { display: none; } .kpis { display: grid; } }
-  .kpi { min-width: 0; padding: 7px 10px 8px; border-radius: 10px; font-variant-numeric: tabular-nums;
-    background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
-  .k-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-  .k-lbl { font-size: 11.5px; line-height: 1.35; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); white-space: nowrap; }
-  .k-bar { height: 4px; margin: 3px 0 5px; border-radius: 2px; overflow: hidden;
-    background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
-  .k-bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary-color); }
-  .k-row { display: flex; justify-content: space-between; gap: 6px; font-size: 11.5px; line-height: 1.4; white-space: nowrap; }
-  .k-row span:first-child { color: var(--secondary-text-color); }
-  .k-row b { font-weight: 500; }
-  .lamp { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; vertical-align: middle; position: relative; top: -1px; }
-  .lamp.ok { background: var(--uap-green); }
-  .lamp.warn { background: var(--uap-yellow); }
-  .k-main span:first-child { color: var(--primary-text-color); }
-  .k-main span:last-child { color: var(--secondary-text-color); }
+  @container (max-width: 319px) {
+    .tbl { column-gap: 4px; font-size: 10px; }
+    .tbl .hd { font-size: 9.5px; }
+    .tbl .p { font-size: 12.5px; }
+    .tbl .l { font-size: 10.5px; }
+  }
+  @container (max-width: 270px) { .tbl { overflow-x: auto; justify-content: start; } }
   .hint { font-size: 11.5px; color: var(--secondary-text-color); }
   ha-card.compact { padding: 10px 12px; }
   ha-card.compact .badge { width: 34px; height: 34px; border-radius: 10px; }
@@ -910,7 +876,6 @@ const STYLE = `<style>
       text-align: left; padding-left: 50px; }
     ha-card.compact .timer { padding-left: 46px; }
     .timer .small { white-space: normal; }
-    .kpis { grid-template-columns: 1fr; }
   }
   .empty { padding: 8px; color: var(--secondary-text-color); }
 </style>`;

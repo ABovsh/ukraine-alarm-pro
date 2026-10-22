@@ -96,7 +96,8 @@ async def test_full_cards_share_requests_and_server_percentages(page):
     await page.wait_for_function("c._stats !== null && c2._stats !== null")
     assert await page.evaluate("calls.length") == 1
     text = await page.evaluate("c.shadowRoot.textContent")
-    assert "60 alerts" in text
+    cells = await page.evaluate("[...c.shadowRoot.querySelectorAll('.tbl .c')].map((el) => el.textContent.trim())")
+    assert "60" in cells  # the count column
     assert "4.2%" in text
     assert "0.6%" in text
     assert await page.evaluate("calls[0].service_data.days") == 7
@@ -170,9 +171,8 @@ async def test_mobile_stale_incomplete_and_partial_are_distinct(page, tmp_path):
     assert "Part of the region" in text
     assert "Data is stale" in text
     # The partial 24 h tile shows a yellow lamp; the reason is in its tooltip.
-    assert await page.evaluate("c.shadowRoot.querySelectorAll('.kpi .lamp.warn').length") == 1
-    assert "Incomplete statistics" in await page.evaluate("c.shadowRoot.querySelector('.kpi .lamp.warn').closest('.kpi').title")
     assert await page.evaluate("c.shadowRoot.querySelectorAll('.tbl .lamp.warn').length") == 1
+    assert "Incomplete statistics" in await page.evaluate("c.shadowRoot.querySelector('.tbl .lamp.warn').closest('.c').title")
     assert await page.evaluate("document.documentElement.scrollWidth <= 360")
     await page.screenshot(path=str(tmp_path / "uap-mobile.png"))
 
@@ -236,39 +236,19 @@ async def test_quiet_timer_reads_the_cleared_sensor_without_journal_calls(page):
     assert "h" in text
 
 
-async def test_all_four_tiles_have_the_same_compact_size(page):
-    """24 h, 7 d, today and the month fill a two-by-two grid, every tile the same size."""
+async def test_the_table_is_the_only_view_and_fits_every_phone_width(page):
+    """No tiles: one table, compact enough for a 360 px phone and not overflowing at any width."""
     await page.evaluate("window.hass=makeHass(); window.c=makeCard(hass)")
     await page.clock.run_for(200)
     await page.wait_for_function("c._stats !== null")
-    tiles = await page.evaluate(
-        "[...c.shadowRoot.querySelectorAll('.sec.stats .kpi')].map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })"
-    )
-    assert len(tiles) == 4
-    assert len({round(width) for _l, _t, width, _h in tiles}) == 1
-    assert len({round(height) for _l, _t, _w, height in tiles}) == 1
-    assert tiles[0][1] == tiles[1][1] and tiles[2][1] == tiles[3][1] and tiles[2][1] > tiles[0][1]
-    assert tiles[0][2] < 200  # compact: half of a phone card, not the full width
-
-
-async def test_the_table_fits_a_wide_card_and_tiles_take_over_on_a_narrow_one(page):
-    await page.evaluate("window.hass=makeHass(); window.c=makeCard(hass)")
-    await page.clock.run_for(200)
-    await page.wait_for_function("c._stats !== null")
-    state = """(() => {
-      const table = c.shadowRoot.querySelector('.tbl'), tiles = c.shadowRoot.querySelector('.kpis');
-      const shown = (el) => getComputedStyle(el).display !== 'none';
-      return { table: shown(table), tiles: shown(tiles), overflow: table.scrollWidth - table.clientWidth,
-        height: table.getBoundingClientRect().height };
-    })()"""
-    narrow = await page.evaluate(state)  # the 360 px test page: a phone-sized card
-    assert narrow["tiles"] and not narrow["table"]
-    # A 390 px phone gives the card about 374 px, 346 inside its padding: the table fits.
-    await page.set_viewport_size({"width": 390, "height": 800})
-    phone = await page.evaluate(state)
-    assert phone["table"] and not phone["tiles"] and phone["overflow"] <= 0
-    await page.set_viewport_size({"width": 430, "height": 800})
-    wide = await page.evaluate(state)
-    assert wide["table"] and not wide["tiles"]
-    assert wide["overflow"] <= 0
-    assert wide["height"] < 150  # five lines, not two rows of tall tiles
+    assert await page.evaluate("c.shadowRoot.querySelector('.kpis') === null")
+    for width in (320, 360, 390, 430, 700):
+        await page.set_viewport_size({"width": width, "height": 800})
+        state = await page.evaluate("""(() => {
+          const table = c.shadowRoot.querySelector('.tbl');
+          return { shown: getComputedStyle(table).display !== 'none', overflow: table.scrollWidth - table.clientWidth,
+            height: table.getBoundingClientRect().height };
+        })()""")
+        assert state["shown"], width
+        assert state["overflow"] <= 0, width
+        assert state["height"] < 150, width  # a header and four lines, never wrapped
