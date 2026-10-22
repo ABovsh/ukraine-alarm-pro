@@ -108,6 +108,7 @@ Object.assign(scenarios, {
     { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null },
     { count: 0, observed_duration_seconds: 0, longest_duration_seconds: 0, average_duration_seconds: null }) }) }],
   calendar_incomplete_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "incomplete", coverage_complete: false }) }) }],
+  calendar_gaps_month: [{}, { layout: "full" }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({}, { quality: "gaps", coverage_complete: false, gap_seconds: 99 }) }) }],
   calendar_today_only: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
   calendar_hidden: [{}, { sections: ["stats"], hide: ["stats.today", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar() }) }],
 });

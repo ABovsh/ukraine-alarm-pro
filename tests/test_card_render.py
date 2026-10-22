@@ -154,10 +154,12 @@ def test_calendar_tiles_handle_quiet_incomplete_and_hidden_items():
     rendered = _render()
     quiet = rendered["calendar_quiet"]
     assert quiet.count("без тривог") >= 2
-    assert "Середня" not in quiet
+    assert "Середня" not in quiet and "title=" not in quiet
     incomplete = rendered["calendar_incomplete_month"]
     assert len(re.findall(r'class="kpi cal partial', incomplete)) == 1
     assert "дані з" in incomplete
+    gaps = rendered["calendar_gaps_month"]
+    assert "з перервами" in gaps and "були перерви в даних: 1 хв" in gaps
     only = rendered["calendar_today_only"]
     assert len(re.findall(r'class="kpi[" ]', only)) == 1
     assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only

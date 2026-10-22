@@ -45,6 +45,7 @@ const I18N = {
     ongoing: "триває",
     journalSince: "дані з",
     gaps: "були перерви в даних",
+    gapsShort: "з перервами",
     incomplete: "Неповна статистика",
     plural: ["тривога", "тривоги", "тривог"],
   },
@@ -85,6 +86,7 @@ const I18N = {
     ongoing: "ongoing",
     journalSince: "data since",
     gaps: "data had gaps",
+    gapsShort: "with gaps",
     incomplete: "Incomplete statistics",
     plural: ["alert", "alerts", "alerts"],
   },
@@ -544,8 +546,11 @@ class UkraineAlarmProCard extends HTMLElement {
       const note = [period.count ? alerts(t, period.count) : t.noAlerts];
       if (period.count > 1) note.push(`${t.longestShort} ${span(t, period.longest_duration_seconds)}`);
       if (period.quality === "incomplete") note.push(since ? `${t.journalSince} ${dayMonth(since, this._hass)}` : t.incomplete);
-      else if (period.quality === "gaps") note.push(t.gaps);
-      const tip = Number.isFinite(period.average_duration_seconds) ? ` title="${esc(`${t.avg} ${span(t, period.average_duration_seconds)}`)}"` : "";
+      else if (period.quality === "gaps") note.push(t.gapsShort);
+      const tips = [];
+      if (Number.isFinite(period.average_duration_seconds)) tips.push(`${t.avg} ${span(t, period.average_duration_seconds)}`);
+      if (period.quality === "gaps") tips.push(`${t.gaps}: ${span(t, period.gap_seconds || 0)}`);
+      const tip = tips.length ? ` title="${esc(tips.join(" · "))}"` : "";
       return `<div class="kpi cal${period.coverage_complete ? "" : " partial"}"${tip}>
         <span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(span(t, period.observed_duration_seconds || 0))}</span><span class="k-sub">${esc(note.join(" · "))}</span>
       </div>`;
