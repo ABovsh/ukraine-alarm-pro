@@ -880,7 +880,7 @@ const STYLE = `<style>
   .tbl .p i { position: absolute; left: 0; bottom: 3px; height: 3px; border-radius: 2px; background: var(--primary-color); }
   .tbl .l { color: var(--primary-text-color); font-size: 11.5px; }
   .kpis { display: none; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-  @container (max-width: 353px) { .tbl { display: none; } .kpis { display: grid; } }
+  @container (max-width: 319px) { .tbl { display: none; } .kpis { display: grid; } }
   .kpi { min-width: 0; padding: 7px 10px 8px; border-radius: 10px; font-variant-numeric: tabular-nums;
     background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .k-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }

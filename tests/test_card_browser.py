@@ -263,6 +263,10 @@ async def test_the_table_fits_a_wide_card_and_tiles_take_over_on_a_narrow_one(pa
     })()"""
     narrow = await page.evaluate(state)  # the 360 px test page: a phone-sized card
     assert narrow["tiles"] and not narrow["table"]
+    # A 390 px phone gives the card about 374 px, 346 inside its padding: the table fits.
+    await page.set_viewport_size({"width": 390, "height": 800})
+    phone = await page.evaluate(state)
+    assert phone["table"] and not phone["tiles"] and phone["overflow"] <= 0
     await page.set_viewport_size({"width": 430, "height": 800})
     wide = await page.evaluate(state)
     assert wide["table"] and not wide["tiles"]
