@@ -12,20 +12,18 @@ This project follows [Semantic Versioning](https://semver.org/).
   `longest_duration_seconds`, `average_duration_seconds`, `quality`,
   `coverage_complete` and `gap_seconds`, plus `month.daily`. An alert across midnight is
   split between the periods. No new entities.
-- The card's Statistics section has three tiles in one format: 24 h, 7 days and the
-  current month. Each shows the share of time under alert (headline and bar), total
-  duration, count, and the longest and average alert. A separate Today section shows the
-  same for today in one full-width row. The editor hides any tile and, inside the tiles
-  and the Today section, the bar, longest and average (`stats.month`, `stats.bar`,
-  `stats.longest`, `stats.average`, `today.bar`, `today.longest`, `today.average`).
-  Incomplete data is written in the tile.
+- The card's Statistics section has four equal tiles in one format: 24 h, 7 days, today
+  and the current month. Each shows the share of time under alert (headline and bar),
+  total duration, count, and the longest and average alert. The editor hides any tile and,
+  inside the tiles, the bar, longest and average (`stats.today`, `stats.month`,
+  `stats.bar`, `stats.longest`, `stats.average`). Incomplete data is written in the tile.
 - `calendar.<period>.percentage`: the share of time under alert over the time the journal
   covers.
 
 ### 🔧 Changed
 
-- The "Longest and average" section (`records`) is replaced by the Today section; a saved
-  `records` opens as `today`.
+- The "Longest and average" section (`records`) is removed: the tiles carry the same
+  numbers. A saved `records` is skipped; the rest of the card stays.
 - The journal parses each stored timestamp once, so the 24 h and 7 d recalculation takes
   about 12 ms instead of 29 ms at 9,000 episodes per region.
 

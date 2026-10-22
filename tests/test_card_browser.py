@@ -38,10 +38,14 @@ window.makeHass = () => {
   const day = { percentage: 4.2, coverage_complete: true, quality: "complete", count: 60,
     observed_duration_seconds: 3600, intervals: [{ start: new Date(Date.now()-3600000).toISOString(), end: new Date(Date.now()).toISOString() }] };
   const week = { ...day, percentage: 0.6 };
+  const period = { quality: "complete", coverage_complete: true, gap_seconds: 0, observed_duration_seconds: 5400,
+    longest_duration_seconds: 3000, average_duration_seconds: 2700 };
   const episode = { observed_started_at: new Date(Date.now()-7200000).toISOString(), observed_cleared_at: new Date(Date.now()-3600000).toISOString() };
   return { states, entities, connection: window.connection, language: "en", locale: { language: "en" }, config: { time_zone: "Europe/Kyiv" },
     callWS: async (request) => { window.calls.push(request); return { response: request.service === "get_summary"
-      ? { rolling_24h: day, rolling_7d: week, rolling_calculated_at: new Date(Date.now()).toISOString(), last_episode: [episode] }
+      ? { rolling_24h: day, rolling_7d: week, rolling_calculated_at: new Date(Date.now()).toISOString(), last_episode: [episode],
+          calendar: { today: { ...period, start: new Date(Date.now()-3600000).toISOString(), count: 2, percentage: 12.5 },
+                      month: { ...period, start: new Date(Date.now()-86400000).toISOString(), count: 40, percentage: 8.1, daily: [] } } }
       : { episodes: [episode] } }; } };
 };
 window.makeCard = (hass, layout="full") => {
@@ -183,7 +187,7 @@ async def test_editor_picks_hides_and_reorders_sections(page):
         "[...ed.querySelectorAll('[data-toggle]')].map((i) => [i.dataset.toggle, i.checked])"
     )
     assert rows[:2] == [["status", True], ["details", True]]
-    assert [key for key, on in rows if not on] == ["timeline", "stats", "today"]
+    assert [key for key, on in rows if not on] == ["timeline", "stats"]
     await page.evaluate("ed.querySelector('[data-toggle=stats]').click()")
     assert await page.evaluate("changes.at(-1)") == {
         "entity": "binary_sensor.uap_31_alert",
@@ -195,15 +199,16 @@ async def test_editor_picks_hides_and_reorders_sections(page):
     await page.evaluate("ed.querySelector('[data-item=\"stats.day\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == ["stats.day"]
     # The remaining tile cannot be hidden too; bar, longest and average never block one.
-    assert not await page.evaluate("ed.querySelector('[data-item=\"stats.week\"]').disabled")
-    await page.evaluate("ed.querySelector('[data-item=\"stats.week\"]').click()")
-    assert await page.evaluate("changes.at(-1).hide") == ["stats.day", "stats.week"]
+    for item in ("week", "today"):
+        assert not await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').disabled")
+        await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
+    assert await page.evaluate("changes.at(-1).hide") == ["stats.day", "stats.week", "stats.today"]
     assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
     for item in ("bar", "longest", "average"):
         assert not await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').disabled")
         await page.evaluate(f"ed.querySelector('[data-item=\"stats.{item}\"]').click()")
     assert await page.evaluate("changes.at(-1).hide") == [
-        "stats.day", "stats.week", "stats.bar", "stats.longest", "stats.average"
+        "stats.day", "stats.week", "stats.today", "stats.bar", "stats.longest", "stats.average"
     ]
     assert await page.evaluate("ed.querySelector('[data-item=\"stats.month\"]').disabled")
     await page.evaluate(
@@ -226,3 +231,18 @@ async def test_quiet_timer_reads_the_cleared_sensor_without_journal_calls(page):
     text = await page.evaluate("c.shadowRoot.textContent")
     assert "no alerts since" in text
     assert "h" in text
+
+
+async def test_all_four_tiles_have_the_same_compact_size(page):
+    """24 h, 7 d, today and the month fill a two-by-two grid, every tile the same size."""
+    await page.evaluate("window.hass=makeHass(); window.c=makeCard(hass)")
+    await page.clock.run_for(200)
+    await page.wait_for_function("c._stats !== null")
+    tiles = await page.evaluate(
+        "[...c.shadowRoot.querySelectorAll('.sec.stats .kpi')].map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; })"
+    )
+    assert len(tiles) == 4
+    assert len({round(width) for _l, _t, width, _h in tiles}) == 1
+    assert len({round(height) for _l, _t, _w, height in tiles}) == 1
+    assert tiles[0][1] == tiles[1][1] and tiles[2][1] == tiles[3][1] and tiles[2][1] > tiles[0][1]
+    assert tiles[0][2] < 200  # compact: half of a phone card, not the full width
