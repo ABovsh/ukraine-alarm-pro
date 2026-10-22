@@ -169,7 +169,9 @@ async def test_mobile_stale_incomplete_and_partial_are_distinct(page, tmp_path):
     text = await page.evaluate("c.shadowRoot.textContent")
     assert "Part of the region" in text
     assert "Data is stale" in text
-    assert "Incomplete statistics" in text
+    # The partial 24 h tile shows a yellow lamp; the reason is in its tooltip.
+    assert await page.evaluate("c.shadowRoot.querySelectorAll('.lamp.warn').length") == 1
+    assert "Incomplete statistics" in await page.evaluate("c.shadowRoot.querySelector('.lamp.warn').closest('.kpi').title")
     assert await page.evaluate("document.documentElement.scrollWidth <= 360")
     await page.screenshot(path=str(tmp_path / "uap-mobile.png"))
 

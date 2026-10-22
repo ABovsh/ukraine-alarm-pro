@@ -170,19 +170,24 @@ def test_tiles_are_customisable_and_say_what_is_missing():
     assert "без тривог" in quiet
     assert "0,0 %" in quiet or "0 %" in quiet
     assert "середня" not in quiet
+    # A small lamp in every tile: green when the data is complete, yellow when it is partial.
+    full = rendered["calendar_full"]
+    assert full.count('class="lamp ok"') == 4 and 'class="lamp warn"' not in full
     gaps = rendered["calendar_gaps_month"]
-    assert "були перерви в даних: 1 хв" in gaps  # tooltip with the exact gap
-    assert 'class="k-note"' not in gaps  # 99 s of a month changes the share by nothing
-    assert 'class="kpi partial' not in gaps
-    assert 'class="k-note">були перерви в даних' in rendered["calendar_big_gaps_month"]
+    assert "були перерви в даних: 55 с" in full  # a week with 55 s of gaps
+    assert 'class="lamp ok"' in gaps  # 99 s of a month changes the share by nothing
+    assert "були перерви в даних: 1 хв" in gaps  # but the tooltip keeps the exact gap
+    assert rendered["calendar_big_gaps_month"].count('class="lamp warn"') == 1
     incomplete = rendered["calendar_incomplete_month"]
-    assert len(re.findall(r'class="kpi partial', incomplete)) == 1
-    assert re.search(r'class="k-note">Неповна статистика: дані з \d\d\.\d\d', incomplete)
-    assert 'class="kpi partial' in rendered["calendar_today_gaps"]
-    stale = rendered["calendar_stale_week"]
-    assert 'class="k-note">' in stale and 'class="kpi partial' in stale
+    assert incomplete.count('class="lamp warn"') == 1
+    assert re.search(r'title="[^"]*Неповна статистика: дані з \d\d\.\d\d', incomplete)
+    assert 'class="lamp warn"' in rendered["calendar_today_gaps"]
+    assert 'class="lamp warn"' in rendered["calendar_stale_week"]
     no_percent = rendered["calendar_no_percent"]
-    assert "—" in no_percent and 'class="kpi partial' in no_percent
+    assert "—" in no_percent and 'class="lamp warn"' in no_percent
+    # The lamp replaces the text under the tile and can be switched off.
+    assert 'class="k-note"' not in json.dumps(rendered)
+    assert "lamp" not in rendered["calendar_no_details"]
     only = rendered["calendar_today_only"]
     assert len(re.findall(r'class="kpi[" ]', only)) == 1
     assert "Сьогодні" in only and "24 год" not in only and "Вересень" not in only

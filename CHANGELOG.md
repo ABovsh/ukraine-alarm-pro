@@ -16,7 +16,8 @@ This project follows [Semantic Versioning](https://semver.org/).
   and the current month. Each shows the share of time under alert (headline and bar),
   total duration, count, and the longest and average alert. The editor hides any tile and,
   inside the tiles, the bar, longest and average (`stats.today`, `stats.month`,
-  `stats.bar`, `stats.longest`, `stats.average`). Incomplete data is written in the tile.
+  `stats.bar`, `stats.longest`, `stats.average`, `stats.lamp`). A small lamp in each tile is
+  green when the data is complete and yellow when it is partial; the tooltip gives the reason.
 - `calendar.<period>.percentage`: the share of time under alert over the time the journal
   covers.
 

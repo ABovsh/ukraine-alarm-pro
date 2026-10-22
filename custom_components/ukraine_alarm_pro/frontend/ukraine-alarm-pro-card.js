@@ -45,7 +45,8 @@ const I18N = {
     ongoing: "триває",
     journalSince: "дані з",
     gaps: "були перерви в даних",
-    gapsShort: "з перервами",
+    dataOk: "Дані повні",
+    sec: "с",
     incomplete: "Неповна статистика",
     plural: ["тривога", "тривоги", "тривог"],
   },
@@ -86,7 +87,8 @@ const I18N = {
     ongoing: "ongoing",
     journalSince: "data since",
     gaps: "data had gaps",
-    gapsShort: "with gaps",
+    dataOk: "Data is complete",
+    sec: "s",
     incomplete: "Incomplete statistics",
     plural: ["alert", "alerts", "alerts"],
   },
@@ -181,7 +183,7 @@ const RETIRED_SECTIONS = ["records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["day", "week", "today", "month", "bar", "longest", "average"],
+  stats: ["day", "week", "today", "month", "bar", "longest", "average", "lamp"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -533,23 +535,25 @@ class UkraineAlarmProCard extends HTMLElement {
     return `${value.toLocaleString(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${t === I18N.en ? "%" : " %"}`;
   }
 
-  // What is missing is written in the tile (a phone has no tooltips); the exact gap rides in the tooltip.
-  _gapNote(t, result, stats) {
+  // A lamp per tile: green when its data is complete, yellow when it is partial. The tooltip says why;
+  // a gap too short to move the share (under 1 % of the period) leaves the lamp green.
+  _lamp(t, result, stats) {
     const quality = result?.quality;
     const length = result?.window_seconds || ((dateOf(result?.end) - dateOf(result?.start)) / 1000) || 0;
-    const gapShare = length ? (result?.gap_seconds || 0) / length : 0;
+    const noticeable = length ? (result?.gap_seconds || 0) / length >= 0.01 : false;
     const since = dateOf(stats.summary?.coverage_start);
-    let note = "";
-    if (quality === "incomplete") note = `${t.incomplete}${since ? `: ${t.journalSince} ${dayMonth(since, this._hass)}` : ""}`;
-    else if (quality === "gaps" && gapShare >= 0.01) note = t.gaps;
-    else if (quality && !["complete", "gaps"].includes(quality)) note = t.incomplete;
-    const tip = [note, quality === "gaps" ? `${t.gaps}: ${span(t, result.gap_seconds || 0)}` : ""].filter(Boolean).join(" · ");
-    return { note, tip, solid: !result || ["complete", "gaps"].includes(quality) };
+    const reasons = [];
+    if (quality === "incomplete") reasons.push(`${t.incomplete}${since ? `: ${t.journalSince} ${dayMonth(since, this._hass)}` : ""}`);
+    else if (quality && !["complete", "gaps"].includes(quality)) reasons.push(t.incomplete);
+    const gap = result?.gap_seconds || 0;
+    if (quality === "gaps") reasons.push(`${t.gaps}: ${gap < 60 ? `${Math.round(gap)} ${t.sec}` : span(t, gap)}`);
+    const warn = Boolean(quality && !["complete", "gaps"].includes(quality)) || (quality === "gaps" && noticeable);
+    return { warn, tip: warn ? reasons.join(" · ") : [t.dataOk, ...reasons].join(" · ") };
   }
 
   // One look for every period: share as the headline with a bar, duration and count, longest and average.
   _periodHtml(t, stats, label, result, percentage) {
-    const { note, tip, solid } = this._gapNote(t, result, stats);
+    const { warn, tip } = this._lamp(t, result, stats);
     const count = result?.count || 0;
     const seconds = result?.observed_duration_seconds || 0;
     const average = result?.average_duration_seconds ?? (count ? seconds / count : null);
@@ -559,9 +563,10 @@ class UkraineAlarmProCard extends HTMLElement {
     const bar = this._shows("stats", "bar")
       ? `<div class="k-bar"><i style="width:${Math.min(Math.max(percentage ?? 0, 0), 100).toFixed(1)}%"></i></div>`
       : "";
-    return `<div class="kpi${solid ? "" : " partial"}"${tip ? ` title="${esc(tip)}"` : ""}>
-        <div class="k-top"><span class="k-lbl">${esc(label)}</span><span class="k-val">${esc(percentage === null ? "—" : this._pct(t, percentage))}</span></div>${bar}
-        <div class="k-row k-main"><span>${esc(result ? span(t, seconds) : "—")}</span><span>${esc(!result ? "" : count ? alerts(t, count) : t.noAlerts)}</span></div>${row(t.longestShort, longest)}${row(t.avgShort, mean)}${note ? `<div class="k-note">${esc(note)}</div>` : ""}
+    const lamp = this._shows("stats", "lamp") && result ? `<i class="lamp ${warn ? "warn" : "ok"}" role="img" aria-label="${esc(tip)}"></i>` : "";
+    return `<div class="kpi"${result && this._shows("stats", "lamp") ? ` title="${esc(tip)}"` : ""}>
+        <div class="k-top"><span class="k-lbl">${lamp}${esc(label)}</span><span class="k-val">${esc(percentage === null ? "—" : this._pct(t, percentage))}</span></div>${bar}
+        <div class="k-row k-main"><span>${esc(result ? span(t, seconds) : "—")}</span><span>${esc(!result ? "" : count ? alerts(t, count) : t.noAlerts)}</span></div>${row(t.longestShort, longest)}${row(t.avgShort, mean)}
       </div>`;
   }
 
@@ -834,15 +839,15 @@ const STYLE = `<style>
   .k-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
   .k-lbl { font-size: 11.5px; line-height: 1.35; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .k-val { font-size: 18px; font-weight: 600; line-height: 1.25; color: var(--primary-text-color); white-space: nowrap; }
-  .kpi.partial .k-val { color: var(--secondary-text-color); }
   .k-bar { height: 4px; margin: 3px 0 5px; border-radius: 2px; overflow: hidden;
     background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
   .k-bar i { display: block; height: 100%; border-radius: 2px; background: var(--primary-color); }
-  .kpi.partial .k-bar i { background: var(--secondary-text-color); }
   .k-row { display: flex; justify-content: space-between; gap: 6px; font-size: 11.5px; line-height: 1.4; white-space: nowrap; }
   .k-row span:first-child { color: var(--secondary-text-color); }
   .k-row b { font-weight: 500; }
-  .k-note { margin-top: 2px; font-size: 10.5px; line-height: 1.3; color: var(--secondary-text-color); }
+  .lamp { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; vertical-align: middle; position: relative; top: -1px; }
+  .lamp.ok { background: var(--uap-green); }
+  .lamp.warn { background: var(--uap-yellow); }
   .k-main span:first-child { color: var(--primary-text-color); }
   .k-main span:last-child { color: var(--secondary-text-color); }
   .hint { font-size: 11.5px; color: var(--secondary-text-color); }
@@ -877,7 +882,7 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
-      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць", bar: "Смужка частки", longest: "Найдовша", average: "Середня" },
+      stats: { day: "24 год", week: "7 днів", today: "Сьогодні", month: "Поточний місяць", bar: "Смужка частки", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних" },
     },
     languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
   },
@@ -893,7 +898,7 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Duration", updated: "Update time" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
-      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month", bar: "Share bar", longest: "Longest", average: "Average" },
+      stats: { day: "24 h", week: "7 days", today: "Today", month: "This month", bar: "Share bar", longest: "Longest", average: "Average", lamp: "Data completeness lamp" },
     },
     languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
   },
