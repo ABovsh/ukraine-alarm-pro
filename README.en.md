@@ -128,8 +128,9 @@ The share for today and the month is the alert duration divided by the part of t
 
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.
-Percentages match the [time-under-alert sensors](#time-under-alert). Incomplete
-statistics, stale data and partial geographical coverage have separate indicators.
+With complete data the percentages match the [time-under-alert sensors](#time-under-alert);
+with gaps the sensors are `unknown` and the card shows the share of the time that has data.
+Incomplete statistics, stale data and partial geographical coverage have separate indicators.
 Cards for the same region share requests and pause them in a hidden tab or offscreen.
 A card without the day strip and statistics makes no
 journal requests: it reads the time since the all clear from

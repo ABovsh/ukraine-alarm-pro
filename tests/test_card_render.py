@@ -182,7 +182,7 @@ def test_table_rows_columns_and_lamp_are_customisable():
     only = _table(rendered["calendar_today_only"])
     assert only.count('class="c l"') == 1 and "Сьогодні" in only and "24 год" not in only
     assert "Вересень" in _table(rendered["calendar_hidden"]) and "Сьогодні" not in _table(rendered["calendar_hidden"])
-    # What is partial gets a yellow lamp, in the table and in the tiles alike.
+    # What is partial gets a yellow lamp.
     assert 'class="lamp warn"' in _table(rendered["calendar_incomplete_month"])
     assert re.search(r'title="[^"]*Неповна статистика: дані з \d\d\.\d\d', _table(rendered["calendar_incomplete_month"]))
     assert 'class="lamp ok"' in _table(rendered["calendar_gaps_month"])  # 99 s of a month
@@ -196,4 +196,6 @@ def test_table_rows_columns_and_lamp_are_customisable():
     assert 'class="lamp warn"' in _table(rendered["calendar_stale_week"])
     assert "були перерви в даних: 55 с" in _table(rendered["calendar_full"])  # a week with 55 s
     assert "—" in _table(rendered["calendar_no_percent"])
+    # A YAML hide of every period leaves no empty table behind.
+    assert 'class="tbl"' not in rendered["calendar_all_periods_hidden"]
     assert 'class="k-note"' not in json.dumps(rendered)

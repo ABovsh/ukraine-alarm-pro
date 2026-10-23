@@ -185,7 +185,7 @@ const dayMonth = (date, hass) =>
 
 // The card is built from sections the user picks and orders in the editor.
 const SECTIONS = ["status", "details", "timeline", "stats"];
-// 0.12 saved a fifth section, "records" (longest and average); the tiles carry both now, so it is dropped.
+// 0.12 saved a fifth section, "records" (longest and average); the statistics table carries both now, so it is dropped.
 const RETIRED_SECTIONS = ["records"];
 // What each section is made of. `hide: [section.item]` drops an item; the ids are part of saved configs.
 const ITEMS = {
@@ -201,7 +201,7 @@ const LEGACY_LAYOUTS = {
 };
 // Sections drawn from the journal's 24 h / 7 d summary.
 const JOURNAL_SECTIONS = ["timeline", "stats"];
-// Of a section's items, these must keep one shown; the rest (bar, longest, average) only trim a tile.
+// Of a section's items, these must keep one shown; the rest (bar, longest, average) only trim the table.
 const REQUIRED = { stats: ["today", "day", "week", "month"] };
 // Hiding `item` would leave its section with nothing to show.
 const lastShown = (section, hide, item) => {
@@ -543,7 +543,7 @@ class UkraineAlarmProCard extends HTMLElement {
     return `${value.toLocaleString(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}${t === I18N.en ? "%" : " %"}`;
   }
 
-  // A lamp per tile: green when its data is complete, yellow when it is partial. The tooltip says why;
+  // A lamp per period: green when its data is complete, yellow when it is partial. The tooltip says why;
   // a gap too short to move the share (under 1 % of the period) leaves the lamp green.
   _lamp(t, result, stats) {
     const quality = result?.quality;
@@ -583,7 +583,7 @@ class UkraineAlarmProCard extends HTMLElement {
       ["week", t.week, week, share(week)],
       calendar?.month ? ["month", monthName(calendar.month), calendar.month, own(calendar.month)] : null,
     ].filter((period) => period && this._shows("stats", period[0]));
-    return this._tableHtml(t, stats, periods);
+    return periods.length ? this._tableHtml(t, stats, periods) : "";
   }
 
   // A line per period; the columns shrink on a narrow card instead of switching to another view.
@@ -869,7 +869,6 @@ const STYLE = `<style>
     .tbl .l { font-size: 10.5px; }
   }
   @container (max-width: 270px) { .tbl { overflow-x: auto; justify-content: start; } }
-  .hint { font-size: 11.5px; color: var(--secondary-text-color); }
   ha-card.compact { padding: 10px 12px; }
   ha-card.compact .badge { width: 34px; height: 34px; border-radius: 10px; }
   ha-card.compact .badge ha-icon { --mdc-icon-size: 20px; }

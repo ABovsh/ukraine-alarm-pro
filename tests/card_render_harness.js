@@ -121,6 +121,7 @@ Object.assign(scenarios, {
   calendar_today_gaps: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar({ quality: "incomplete", coverage_complete: false }) }) }],
   table_share_only: [{}, { sections: ["stats"], hide: ["stats.total", "stats.count", "stats.longest", "stats.average"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling() }) }],
   calendar_today_only: [{}, { sections: ["stats"], hide: ["stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
+  calendar_all_periods_hidden: [{}, { sections: ["stats"], hide: ["stats.today", "stats.day", "stats.week", "stats.month"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling() }) }],
   calendar_hidden: [{}, { sections: ["stats"], hide: ["stats.today"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling(), rolling_7d: rolling({ percentage: null, quality: "gaps", coverage_complete: false, count: 47, observed_duration_seconds: 165413, longest_duration_seconds: 18485, window_seconds: 604800, gap_seconds: 55 }) }) }],
 });
 for (const n of [1, 2, 4, 5, 11, 12, 14, 15, 21, 25, 111]) {
