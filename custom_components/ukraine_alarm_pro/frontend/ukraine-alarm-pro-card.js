@@ -1089,7 +1089,7 @@ const EDITOR_I18N = {
       status: ["Стан", "регіон, тривога чи тихо, тривалість"],
       details: ["Деталі тривоги", "рівень, інші загрози, охоплення, причина"],
       timeline: ["Смуга 24 год", "коли були тривоги за добу"],
-      stats: ["Статистика", "частка часу під тривогою, кількість, найдовша й середня тривога за 24 год, 7 днів, сьогодні й місяць"],
+      stats: ["Статистика", "частка часу під тривогою, кількість, найдовша й середня тривога за 24 год, 7 днів, сьогодні й місяць; графік за місяць"],
     },
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення", mig: "Зліт МіГ-31К" },
@@ -1106,7 +1106,7 @@ const EDITOR_I18N = {
       status: ["Status", "region, alert or quiet, duration"],
       details: ["Alert details", "level, other threats, coverage, reason"],
       timeline: ["24 h strip", "when the alerts were over the day"],
-      stats: ["Statistics", "share of time under alert, count, longest and average alert over 24 h, 7 days, today and this month"],
+      stats: ["Statistics", "share of time under alert, count, longest and average alert over 24 h, 7 days, today and this month; month chart"],
     },
     item: {
       status: { timer: "Duration", updated: "Update time", mig: "MiG-31K take-off" },
@@ -1275,7 +1275,7 @@ const EDITOR_CSS = `
   .top button { border: 0; background: none; color: var(--primary-color); font: inherit; cursor: pointer; }
   .row { display: flex; align-items: center; gap: 4px; min-height: 44px; border-bottom: 1px solid var(--divider-color); }
   .row label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
-  .row input { width: 20px; height: 20px; margin: 0; accent-color: var(--primary-color); }
+  .row input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--primary-color); }
   .row span { display: flex; flex-direction: column; } .row small { color: var(--secondary-text-color); }
   .row.off span { opacity: .55; }
   .row button { display: flex; width: 40px; height: 40px; align-items: center; justify-content: center; border: 0;
@@ -1284,7 +1284,7 @@ const EDITOR_CSS = `
   .row button.open { color: var(--primary-color); }
   .items { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0 10px 30px; border-bottom: 1px solid var(--divider-color); }
   .items label { display: flex; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; }
-  .items input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
+  .items input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--primary-color); }
 `;
 
 // Loaded as an early "extra module": the frontend can swap its element registry

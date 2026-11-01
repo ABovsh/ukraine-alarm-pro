@@ -465,3 +465,22 @@ async def test_list_redraws_at_once_when_only_the_hub_changes(page):
     await page.evaluate("""c.hass = { ...c._hass, states: { ...c._hass.states,
       'binary_sensor.uap_data_stale': { state: 'on', attributes: {}, last_updated: 'b' } } };""")
     assert await page.evaluate("c.shadowRoot.querySelector('.foot') !== null")
+
+
+async def test_editor_checkboxes_keep_their_size_next_to_a_long_hint(page):
+    """The long Statistics hint squeezed its checkbox to half the size of the others."""
+    await page.evaluate("""customElements.define('ha-form', class extends HTMLElement {});
+      window.ed = document.createElement('ukraine-alarm-pro-card-editor');
+      document.body.appendChild(ed);
+      ed.setConfig({ entity: 'binary_sensor.uap_31_alert' });
+      ed.hass = makeHass();
+      ed.querySelector('[data-expand=stats]').click();""")
+    sizes = await page.evaluate("""[...ed.querySelectorAll('.row input')].map((i) => {
+      const r = i.getBoundingClientRect(); return [i.dataset.toggle, r.width, r.height]; })""")
+    assert len(sizes) == 4
+    assert all(width == 20 and height == 20 for _key, width, height in sizes), sizes
+    items = await page.evaluate("[...ed.querySelectorAll('.items input')].map((i) => i.getBoundingClientRect().width)")
+    assert items
+    assert all(width == 18 for width in items), items
+    hint = await page.evaluate("ed.querySelector('[data-toggle=stats]').closest('label').textContent")
+    assert "month chart" in hint
