@@ -3,6 +3,29 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-11-01
+
+### ✨ Added
+
+- `sensor.uap_mig_status`: MiG-31K activity for the whole country, `none`, `takeoff` or
+  `launch` (Kinzhal), with `airfield` and `since` during a take-off. Only the WebSocket
+  carries this data: in polling mode or with stale data the state is `unknown`.
+- `event.uap_mig_event`: `takeoff`, `launch` and `cleared`. A take-off from before Home
+  Assistant started is not announced as a new one.
+- The card shows a line during a take-off or launch; hide it with `status.mig`.
+- Several regions in one card: **Regions** in the editor or `entities:` in YAML show a
+  line per region with the state, duration and the 24 h share. A tap opens that region.
+  This view makes no journal calls. A one-region card is unchanged.
+- A chart of the current month under the statistics table: a bar per day, its height the
+  hours under alert out of 24. Hide it with `stats.chart`.
+
+### 🔧 Changed
+
+- Existing cards with the Statistics section show the month chart unless it is hidden.
+- The last-confirmed stamps are saved in a separate small file, so the alert journal is
+  written only when its content changes, not every five minutes. Measured on one
+  installation: 294 bytes per save instead of 970 KB while no alert changed.
+
 ## [0.13.0] - 2026-10-22
 
 ### ✨ Added

@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/default)
-![Version](https://img.shields.io/badge/version-0.13.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.14.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
 
@@ -24,7 +24,10 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
   whether an alert affects the whole region or only part of it.
 - **Modular dashboard card.** Current state, alert duration or time since the all
   clear, alert details, a day strip and statistics for 24 hours, 7 days, today and the month. The card's
-  sections are switched on, off and reordered in its editor.
+  sections are switched on, off and reordered in its editor, and a chart shows the
+  alert hours of the current month. Several regions are shown as a list, a line each.
+- **MiG-31K take-off and Kinzhal launch.** A country-wide sensor, an event and a line on
+  the card. Only the WebSocket carries this data.
 - **Up to 90 days of history.** Local observations are supplemented with official
   air-alert history. That source has no alert levels or alerts declared for an individual hromada.
 - **Events and notification blueprints.** Alert start, escalation, new threats,
@@ -456,7 +459,7 @@ with your integration and Home Assistant versions, a description and relevant di
 
 ## Updating
 
-Version **0.13.0** is a stable release. Back up Home Assistant first. To roll back,
+Version **0.14.0** is a stable release. Back up Home Assistant first. To roll back,
 choose the earlier version in HACS and restart HA.
 
 Update through HACS, restart Home Assistant and reload the page containing the card.
