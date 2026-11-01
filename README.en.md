@@ -125,7 +125,7 @@ hide:                               # optional: section items not to show
 language: auto                      # auto (Home Assistant language), uk or en
 ```
 
-Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
+Items for `hide`: `status.timer`, `status.updated`, `status.mig`, `details.level`, `details.types`,
 `details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`, `stats.chart`. The 0.12 `records` section no longer exists: its numbers are in the statistics table, and it is skipped in saved cards. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
 update time, `status` — "Status" and "Alert details", `full` — every section.
@@ -206,6 +206,8 @@ if you rename them, use your own IDs in automations.
 | `sensor.uap_<id>_alert_percentage_24h` | % | time under alert over the last 86,400 seconds |
 | `sensor.uap_<id>_alert_percentage_7d` | % | time under alert over the last 604,800 seconds |
 | `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
+| `sensor.uap_mig_status` | enum | MiG-31K: `none`, `takeoff`, `launch`; see [MiG-31K](#mig-31k) |
+| `event.uap_mig_event` | event | events `takeoff`, `launch`, `cleared` |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
 | `sensor.uap_last_update` | diagnostic | last data received, rounded to a minute |
 | `sensor.uap_active_regions` | diagnostic | how many regions are in alert country-wide |
@@ -303,6 +305,20 @@ time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`
 `added_types`, `removed_types`, `had_gap`, plus `observed_active_since` and
 `active_since_known` — when the integration first saw the current alert and whether that
 was its real start.
+
+### MiG-31K
+
+Country-wide data on a MiG-31K take-off and a Kinzhal missile launch comes from the
+official alert map.
+
+- `sensor.uap_mig_status`: `none`, `takeoff` or `launch`. Attributes during a take-off:
+  `airfield` (`savasleika`, `mozdok` or `unknown`) and `since`.
+- `unknown` means there is no data: only the WebSocket carries it, so in polling mode
+  or with stale data the state is unknown, not `none`.
+- `event.uap_mig_event` fires when the state changes. A take-off from before Home
+  Assistant started is not announced as a new one.
+- The card shows a line only during a take-off or launch. Tapping it opens the sensor;
+  hide it with `status.mig`.
 
 ## Alert history
 

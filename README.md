@@ -127,7 +127,7 @@ hide:                               # необов'язково: пункти р
 language: uk                        # auto (як у Home Assistant), uk або en
 ```
 
-Пункти для `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
+Пункти для `hide`: `status.timer`, `status.updated`, `status.mig`, `details.level`, `details.types`,
 `details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`, `stats.chart`. Розділ `records` із версії 0.12 більше не існує: його числа є в таблиці статистики, а в збережених картках він пропускається. Картки, збережені з
 `layout:` до версії 0.12, відкриваються з відповідними розділами: `compact` — «Стан»
 без часу оновлення, `status` — «Стан» і «Деталі тривоги», `full` — усі розділи.
@@ -211,6 +211,8 @@ condition:
 | `sensor.uap_<id>_alert_percentage_24h` | % | частка часу під тривогою за останні 86 400 секунд |
 | `sensor.uap_<id>_alert_percentage_7d` | % | частка часу під тривогою за останні 604 800 секунд |
 | `event.uap_<id>_event` | event | зміни тривоги в регіоні: одна подія на кожну прийняту зміну |
+| `sensor.uap_mig_status` | enum | МіГ-31К: `none`, `takeoff`, `launch`; див. [МіГ-31К](#міг-31к) |
+| `event.uap_mig_event` | event | події `takeoff`, `launch`, `cleared` |
 | `sensor.uap_transport` | діагностична | `websocket` або `polling` |
 | `sensor.uap_last_update` | діагностична | час останніх отриманих даних, округлений до хвилини |
 | `sensor.uap_active_regions` | діагностична | скільки регіонів у тривозі по всій країні |
@@ -310,6 +312,20 @@ condition:
 `added_types`, `removed_types`, `had_gap`, а також `observed_active_since` і
 `active_since_known` — коли інтеграція вперше побачила поточну тривогу і чи це був її
 справжній початок.
+
+### МіГ-31К
+
+Дані про зліт МіГ-31К і пуск ракети «Кинджал» для всієї країни беруться з офіційної
+карти тривог.
+
+- `sensor.uap_mig_status`: `none` — немає, `takeoff` — зліт, `launch` — пуск. Атрибути
+  під час зльоту: `airfield` (`savasleika`, `mozdok` або `unknown`) і `since`.
+- `unknown` означає, що даних немає: їх передає лише WebSocket, тож у режимі
+  опитування або за застарілих даних стан невідомий, а не `none`.
+- `event.uap_mig_event` спрацьовує на зміну стану. Зліт, який відбувся ще до
+  запуску Home Assistant, не оголошується як новий.
+- Картка показує рядок лише під час зльоту або пуску. Натискання відкриває сенсор,
+  сховати рядок — `status.mig`.
 
 ## Журнал тривог
 

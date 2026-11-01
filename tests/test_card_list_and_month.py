@@ -90,3 +90,27 @@ def test_list_lines_shorten_the_official_hromada_name():
     assert "Гатненська громада" in html and "територіальна" not in html
     # Another threat keeps its own name, with the level word after it.
     assert "Загроза артобстрілу" in html and "жовтий" in html
+
+
+def test_mig_line_shows_only_during_a_flight():
+    rendered = _render()
+    takeoff = rendered["mig_takeoff"]
+    assert 'class="mig takeoff"' in takeoff and 'data-entity="sensor.uap_mig_status"' in takeoff
+    assert "Зліт МіГ-31К" in takeoff and "Саваслейка" in takeoff and "з 15:05" in takeoff
+    # A launch is the urgent one, and it names the missile.
+    launch = rendered["mig_launch"]
+    assert 'class="mig launch"' in launch and "Пуск «Кинджала»" in launch and "Моздок" in launch
+    # No airfield and no time are left out, not invented.
+    field = rendered["mig_unknown_field"]
+    assert "Зліт МіГ-31К" in field and "· з" not in field and "unknown" not in field
+    for name in ("mig_none", "mig_no_data", "mig_hidden", "quiet_status"):
+        assert 'class="mig' not in rendered[name], name
+    assert "Kinzhal launch" in rendered["mig_english"] and "Savasleyka" in rendered["mig_english"]
+
+
+def test_mig_line_does_not_depend_on_the_status_section_and_tops_the_list():
+    rendered = _render()
+    assert 'class="mig takeoff"' in rendered["mig_no_status_section"]
+    listed = rendered["mig_list"]
+    assert listed.index('class="mig takeoff"') < listed.index('class="lrow')
+    assert 'class="mig' not in rendered["mig_list_hidden"]

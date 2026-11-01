@@ -55,6 +55,8 @@ const I18N = {
     plural: ["тривога", "тривоги", "тривог"],
     levelWord: { yellow: "жовтий", red: "червоний", unrecognized: "рівень не вказано" },
     clearedAt: "відбій",
+    mig: { takeoff: "Зліт МіГ-31К", launch: "Пуск «Кинджала» з МіГ-31К" },
+    airfields: { savasleika: "Саваслейка", mozdok: "Моздок" },
     chartTitle: "години тривоги",
     max: "макс.",
   },
@@ -105,6 +107,8 @@ const I18N = {
     plural: ["alert", "alerts", "alerts"],
     levelWord: { yellow: "yellow", red: "red", unrecognized: "level not specified" },
     clearedAt: "cleared",
+    mig: { takeoff: "MiG-31K take-off", launch: "Kinzhal launch from MiG-31K" },
+    airfields: { savasleika: "Savasleyka", mozdok: "Mozdok" },
     chartTitle: "alert hours",
     max: "max",
   },
@@ -197,7 +201,7 @@ const SECTIONS = ["status", "details", "timeline", "stats"];
 const RETIRED_SECTIONS = ["records"];
 // What each section is made of. `hide: [section.item]` drops an item; the ids are part of saved configs.
 const ITEMS = {
-  status: ["timer", "updated"],
+  status: ["timer", "updated", "mig"],
   details: ["level", "types", "coverage", "reason"],
   stats: ["today", "day", "week", "month", "bar", "total", "count", "longest", "average", "lamp", "chart"],
 };
@@ -489,6 +493,7 @@ class UkraineAlarmProCard extends HTMLElement {
       updated: hub(hass, "last_update"),
       percentage24h: sibling(hass, "alert_percentage_24h", rid),
       percentage7d: sibling(hass, "alert_percentage_7d", rid),
+      mig: hub(hass, "mig_status"),
     };
     this._entityCache = { registry: hass.entities, configured: this._config.entity, ids };
     return ids;
@@ -496,7 +501,8 @@ class UkraineAlarmProCard extends HTMLElement {
 
   _stateKey() {
     if (this._config?.entities && this._hass) {
-      return this._list().flatMap((row) => Object.values(row))
+      const rows = this._list();
+      return [...rows.flatMap((row) => Object.values(row)), ...Object.values(this._listCache.hubs)]
         .map((id) => { const s = id && this._hass.states[id]; return s ? `${s.state}|${s.last_updated}` : "-"; })
         .join(";") + `;${this._hass.locale?.language};${this._config.language}`;
     }
@@ -690,7 +696,7 @@ class UkraineAlarmProCard extends HTMLElement {
     }
     patchDOM(this.shadowRoot, `${STYLE}
       <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0" role="button" aria-label="${esc(view.name)}: ${esc(view.title)}">
-        ${parts.join("\n")}
+        ${this._migHtml(t, ids.mig)}${parts.join("\n")}
       </ha-card>`);
     this._bindOpen();
   }
@@ -711,6 +717,17 @@ class UkraineAlarmProCard extends HTMLElement {
     });
   }
 
+  // A country-wide line, only while a MiG-31K is up; an unknown status draws nothing.
+  _migHtml(t, id) {
+    const state = id && this._hass.states[id];
+    if (!state || !t.mig[state.state] || this._config.hide.includes("status.mig")) return "";
+    const since = dateOf(state.attributes.since);
+    const parts = [t.mig[state.state], t.airfields[state.attributes.airfield],
+      since && `${t.since} ${hhmm(since, this._fmt())}`].filter(Boolean);
+    return `<div class="mig ${esc(state.state)}" data-entity="${esc(id)}" role="button" tabindex="0">`
+      + `<ha-icon icon="mdi:airplane-alert"></ha-icon><span>${esc(parts.join(" · "))}</span></div>`;
+  }
+
   // The listed regions that exist, each with the sensors its row reads.
   _list() {
     const hass = this._hass;
@@ -728,15 +745,18 @@ class UkraineAlarmProCard extends HTMLElement {
         percentage24h: sibling(hass, "alert_percentage_24h", rid),
       };
     });
-    this._listCache = { registry: hass.entities, configured: this._config.entities, rows };
+    const hubs = { stale: hub(hass, "data_stale"), mig: hub(hass, "mig_status") };
+    this._listCache = { registry: hass.entities, configured: this._config.entities, rows, hubs };
     return rows;
   }
 
   _renderList(t) {
     const hass = this._hass;
     const fmt = this._fmt();
-    const stale = hass.states[hub(hass, "data_stale")]?.state === "on";
-    const rows = this._list().map((ids) => {
+    const listed = this._list();
+    const { hubs } = this._listCache;
+    const stale = hass.states[hubs.stale]?.state === "on";
+    const rows = listed.map((ids) => {
       const st = (id) => (id ? hass.states[id] : undefined);
       const alert = st(ids.alert);
       const threat = st(ids.threat);
@@ -773,7 +793,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const head = this._config.name ? `<div class="lhead">${esc(this._config.name)}</div>` : "";
     const note = stale ? `<div class="foot"><span class="dot"></span>${esc(t.staleNote)}</div>` : "";
     const body = rows.length ? rows.join("") : `<div class="empty">${esc(t.notFound)}</div>`;
-    patchDOM(this.shadowRoot, `${STYLE}<ha-card class="list">${head}${note}${body}</ha-card>`);
+    patchDOM(this.shadowRoot, `${STYLE}<ha-card class="list">${head}${this._migHtml(t, hubs.mig)}${note}${body}</ha-card>`);
     this._bindOpen();
   }
 
@@ -1023,6 +1043,12 @@ const STYLE = `<style>
   .bar { height: 100%; display: flex; align-items: flex-end; }
   .bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--primary-color) 70%, transparent); }
   .bar.top i { background: var(--primary-color); }
+  /* A MiG-31K in the air, for the whole country. */
+  .mig { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 8px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
+    color: var(--primary-text-color); --mig: var(--uap-yellow); background: color-mix(in srgb, var(--mig) 18%, transparent); }
+  .mig.launch { --mig: var(--uap-red); background: color-mix(in srgb, var(--mig) 30%, transparent); }
+  .mig ha-icon { --mdc-icon-size: 16px; display: flex; flex: none; color: var(--mig); }
+  ha-card.list .mig { margin: 6px 0 2px; }
   /* Several regions: a line each. */
   ha-card.list { padding: 6px 14px; }
   .lhead { padding: 6px 0 2px; font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
@@ -1060,7 +1086,7 @@ const EDITOR_I18N = {
       stats: ["Статистика", "частка часу під тривогою, кількість, найдовша й середня тривога за 24 год, 7 днів, сьогодні й місяць"],
     },
     item: {
-      status: { timer: "Тривалість", updated: "Час оновлення" },
+      status: { timer: "Тривалість", updated: "Час оновлення", mig: "Зліт МіГ-31К" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
       stats: { today: "Сьогодні", day: "24 год", week: "7 днів", month: "Поточний місяць", bar: "Смужка частки", total: "Разом", count: "Кількість", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних", chart: "Графік за місяць" },
     },
@@ -1077,7 +1103,7 @@ const EDITOR_I18N = {
       stats: ["Statistics", "share of time under alert, count, longest and average alert over 24 h, 7 days, today and this month"],
     },
     item: {
-      status: { timer: "Duration", updated: "Update time" },
+      status: { timer: "Duration", updated: "Update time", mig: "MiG-31K take-off" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
       stats: { today: "Today", day: "24 h", week: "7 days", month: "This month", bar: "Share bar", total: "Total", count: "Count", longest: "Longest", average: "Average", lamp: "Data completeness lamp", chart: "Month chart" },
     },

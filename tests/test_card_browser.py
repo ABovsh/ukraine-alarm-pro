@@ -442,3 +442,26 @@ async def test_editor_picks_several_regions(page):
     await page.evaluate(pick % "[]")
     config = await page.evaluate("changes.at(-1)")
     assert "entity" not in config and "entities" not in config
+
+
+async def test_list_redraws_at_once_when_only_the_hub_changes(page):
+    """A take-off or stale data must not wait for the 30-second tick, and a tap
+    on the MiG line opens the MiG sensor, not a region."""
+    await page.evaluate("window.hass = makeHass()")
+    await page.evaluate(_add_region("692", "Hatne"))
+    await page.evaluate("""hass.states['sensor.uap_mig_status'] = { state: 'none', attributes: {}, last_updated: 'a' };
+      hass.entities['sensor.uap_mig_status'] = { platform: 'ukraine_alarm_pro', translation_key: 'mig_status' };
+      window.c = document.createElement('ukraine-alarm-pro-card');
+      c.setConfig({ entities: ['binary_sensor.uap_31_alert', 'binary_sensor.uap_692_alert'], language: 'en' });
+      c.hass = hass;
+      c.addEventListener('hass-more-info', (e) => window.opened.push(e.detail.entityId));
+      document.body.appendChild(c);""")
+    assert await page.evaluate("c.shadowRoot.querySelector('.mig')") is None
+    await page.evaluate("""c.hass = { ...hass, states: { ...hass.states,
+      'sensor.uap_mig_status': { state: 'takeoff', attributes: { airfield: 'mozdok', since: '' }, last_updated: 'b' } } };""")
+    assert "Mozdok" in await page.evaluate("c.shadowRoot.querySelector('.mig').textContent")
+    await page.evaluate("c.shadowRoot.querySelector('.mig').click()")
+    assert await page.evaluate("opened.at(-1)") == "sensor.uap_mig_status"
+    await page.evaluate("""c.hass = { ...c._hass, states: { ...c._hass.states,
+      'binary_sensor.uap_data_stale': { state: 'on', attributes: {}, last_updated: 'b' } } };""")
+    assert await page.evaluate("c.shadowRoot.querySelector('.foot') !== null")

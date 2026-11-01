@@ -162,6 +162,25 @@ const listScenarios = {
   list_missing: [alertRed, { entities: ["binary_sensor.uap_31_alert", "binary_sensor.uap_999_alert"] }],
   list_long_name: [{}, { entities: ["binary_sensor.uap_31_alert", "binary_sensor.uap_700_alert"] }],
 };
+// The country-wide MiG-31K status, in the single card and the list.
+const withMig = (hs, state, attributes = {}) => {
+  hs.states["sensor.uap_mig_status"] = { state, attributes, last_updated: "a" };
+  hs.entities["sensor.uap_mig_status"] = reg("mig_status");
+  return hs;
+};
+const migTakeoff = { airfield: "savasleika", since: iso(25) };
+const migScenarios = {
+  mig_takeoff: [{}, { layout: "status" }, "takeoff", migTakeoff],
+  mig_launch: [{}, { layout: "status" }, "launch", { airfield: "mozdok", since: iso(25) }],
+  mig_unknown_field: [{}, { layout: "status" }, "takeoff", { airfield: "unknown", since: "" }],
+  mig_none: [{}, { layout: "status" }, "none", {}],
+  mig_no_data: [{}, { layout: "status" }, "unknown", {}],
+  mig_hidden: [{}, { layout: "status", hide: ["status.mig"] }, "takeoff", migTakeoff],
+  mig_english: [{ language: "en" }, { layout: "status", language: "en" }, "launch", migTakeoff],
+  mig_no_status_section: [alertRed, { sections: ["details"] }, "takeoff", migTakeoff],
+  mig_list: [{}, LIST, "takeoff", migTakeoff],
+  mig_list_hidden: [{}, { ...LIST, hide: ["status.mig"] }, "takeoff", migTakeoff],
+};
 // A month of daily totals: September 2026 up to the 15th.
 const daily = Array.from({ length: 15 }, (_, i) => ({
   date: `2026-09-${String(i + 1).padStart(2, "0")}`, count: [0, 3600, 43200, 7200, 86400, 600][i % 6] ? (i % 3) + 1 : 0, observed_duration_seconds: [0, 3600, 43200, 7200, 86400, 600][i % 6],
@@ -184,6 +203,14 @@ for (const [name, [h, config]] of Object.entries(listScenarios)) {
   card._render();
   out[name] = card.shadowRoot.innerHTML.split("</style>").pop().replace(/\s+/g, " ").trim();
   out[`${name}_size`] = card.getCardSize();
+}
+for (const [name, [h, config, state, attributes]] of Object.entries(migScenarios)) {
+  const card = new Card();
+  Object.defineProperty(card, "isConnected", { value: false });
+  card.setConfig(config);
+  card.hass = withMig(config.entities ? listRegions(hass(h)) : hass(h), state, attributes);
+  card._render();
+  out[name] = card.shadowRoot.innerHTML.split("</style>").pop().replace(/\s+/g, " ").trim();
 }
 out.list_stub_editor_round_trip = (() => { const c = new Card(); c.setConfig(LIST); return c._config.entities; })();
 for (const [name, [h, config, stats]] of Object.entries(scenarios)) {
