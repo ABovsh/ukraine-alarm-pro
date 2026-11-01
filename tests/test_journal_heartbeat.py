@@ -50,7 +50,7 @@ async def test_nothing_new_writes_nothing():
 
 
 async def test_an_alert_still_writes_the_journal():
-    _history, clock, main, _beat = await _quiet_journal()
+    history, clock, main, _beat = await _quiet_journal()
     saved = main.saves
     clock["now"] += timedelta(minutes=5)
     history.handle_event("started", _payload("started", clock["now"], active=True))
