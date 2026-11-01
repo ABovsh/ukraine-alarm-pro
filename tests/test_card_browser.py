@@ -307,7 +307,7 @@ async def test_editor_picks_hides_and_reorders_sections(page):
     labels = await page.evaluate("[...ed.querySelectorAll('.items label')].map((l) => [l.querySelector('input').dataset.item, l.textContent.trim()])")
     assert [item for item, _text in labels] == [
         "stats.today", "stats.day", "stats.week", "stats.month", "stats.bar", "stats.total", "stats.count",
-        "stats.longest", "stats.average", "stats.lamp",
+        "stats.longest", "stats.average", "stats.lamp", "stats.chart",
     ]
     assert all(text for _item, text in labels), labels
     await page.evaluate("ed.querySelector('[data-item=\"stats.day\"]').click()")
@@ -379,3 +379,66 @@ async def test_the_table_is_the_only_view_and_fits_every_phone_width(page):
           return [r.width, r.height, getComputedStyle(el).backgroundColor];
         })()""")
         assert lamp[0] >= 6 and lamp[1] >= 6 and lamp[2] != "rgba(0, 0, 0, 0)", width
+
+
+def _add_region(rid: str, name: str, alert: str = "off") -> str:
+    return f"""(() => {{
+      const add = (id, key, state, attributes={{}}) => {{
+        hass.states[id] = {{ state, attributes: {{ region_id: '{rid}', ...attributes }}, last_updated: 'a' }};
+        hass.entities[id] = {{ platform: 'ukraine_alarm_pro', translation_key: key }};
+      }};
+      add('binary_sensor.uap_{rid}_alert', 'alert', '{alert}');
+      add('sensor.uap_{rid}_threat', 'threat', 'none', {{ region_name: '{name}' }});
+      add('sensor.uap_{rid}_alert_cleared', 'alert_cleared', new Date(Date.now() - 3600000).toISOString());
+      add('sensor.uap_{rid}_alert_percentage_24h', 'alert_percentage_24h', '12.5');
+    }})()"""
+
+
+async def test_region_list_reads_states_only_and_opens_the_tapped_region(page):
+    """A list of regions makes no journal calls; a tap or Enter on a row opens
+    that region, not the first one."""
+    await page.evaluate("window.hass = makeHass()")
+    await page.evaluate(_add_region("692", "Hatne"))
+    await page.evaluate("""window.c = document.createElement('ukraine-alarm-pro-card');
+      c.setConfig({ entities: ['binary_sensor.uap_31_alert', 'binary_sensor.uap_692_alert'], language: 'en' });
+      c.hass = hass;
+      c.addEventListener('hass-more-info', (e) => window.opened.push(e.detail.entityId));
+      document.body.appendChild(c);""")
+    await page.clock.run_for(700000)
+    assert await page.evaluate("calls.length") == 0
+    assert await page.evaluate("c.shadowRoot.querySelectorAll('.lrow').length") == 2
+    await page.evaluate("c.shadowRoot.querySelectorAll('.lrow')[1].click()")
+    assert await page.evaluate("opened.at(-1)") == "binary_sensor.uap_692_alert"
+    await page.evaluate("""(() => { const row = c.shadowRoot.querySelectorAll('.lrow')[0]; row.focus();
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true })); })()""")
+    assert await page.evaluate("opened.at(-1)") == "binary_sensor.uap_31_alert"
+    # Rows stay one line each on a phone; the 24 h share gives way on a very narrow card.
+    for width in (300, 360, 430):
+        await page.set_viewport_size({"width": width, "height": 800})
+        heights = await page.evaluate("[...c.shadowRoot.querySelectorAll('.lrow')].map((r) => r.getBoundingClientRect().height)")
+        assert all(h < 60 for h in heights), (width, heights)
+
+
+async def test_editor_picks_several_regions(page):
+    await page.evaluate("""customElements.define('ha-form', class extends HTMLElement {});
+      window.changes = [];
+      window.ed = document.createElement('ukraine-alarm-pro-card-editor');
+      ed.addEventListener('config-changed', (e) => changes.push(e.detail.config));
+      document.body.appendChild(ed);
+      ed.setConfig({ entity: 'binary_sensor.uap_31_alert' });
+      ed.hass = makeHass();""")
+    assert await page.evaluate("ed._form.data.entity") == ["binary_sensor.uap_31_alert"]
+    assert await page.evaluate("ed.querySelector('.note').textContent") == ""
+    pick = """ed._form.dispatchEvent(new CustomEvent('value-changed', {detail:{value:{
+      entity: %s, name:'', language:'auto'}}, bubbles:true}));"""
+    await page.evaluate(pick % "['binary_sensor.uap_31_alert', 'binary_sensor.uap_692_alert']")
+    config = await page.evaluate("changes.at(-1)")
+    assert config["entities"] == ["binary_sensor.uap_31_alert", "binary_sensor.uap_692_alert"]
+    assert "entity" not in config
+    assert "list" in await page.evaluate("ed.querySelector('.note').textContent")
+    await page.evaluate(pick % "['binary_sensor.uap_692_alert']")
+    config = await page.evaluate("changes.at(-1)")
+    assert config["entity"] == "binary_sensor.uap_692_alert" and "entities" not in config
+    await page.evaluate(pick % "[]")
+    config = await page.evaluate("changes.at(-1)")
+    assert "entity" not in config and "entities" not in config

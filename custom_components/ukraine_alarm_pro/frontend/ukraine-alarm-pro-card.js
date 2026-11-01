@@ -53,6 +53,10 @@ const I18N = {
     countH: "к-сть",
     incomplete: "Неповна статистика",
     plural: ["тривога", "тривоги", "тривог"],
+    levelWord: { yellow: "жовтий", red: "червоний", unrecognized: "рівень не вказано" },
+    clearedAt: "відбій",
+    chartTitle: "години тривоги",
+    max: "макс.",
   },
   en: {
     alert: "Alert",
@@ -99,6 +103,10 @@ const I18N = {
     countH: "count",
     incomplete: "Incomplete statistics",
     plural: ["alert", "alerts", "alerts"],
+    levelWord: { yellow: "yellow", red: "red", unrecognized: "level not specified" },
+    clearedAt: "cleared",
+    chartTitle: "alert hours",
+    max: "max",
   },
 };
 
@@ -191,7 +199,7 @@ const RETIRED_SECTIONS = ["records"];
 const ITEMS = {
   status: ["timer", "updated"],
   details: ["level", "types", "coverage", "reason"],
-  stats: ["today", "day", "week", "month", "bar", "total", "count", "longest", "average", "lamp"],
+  stats: ["today", "day", "week", "month", "bar", "total", "count", "longest", "average", "lamp", "chart"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
@@ -224,6 +232,11 @@ function normalizeConfig(config) {
     throw new Error(`sections: choose from ${SECTIONS.join(", ")}`);
   }
   const hide = [...new Set([...(Array.isArray(rest.hide) ? rest.hide : []), ...(legacy?.hide || [])])].filter(validItem);
+  // Several regions make a list; a list of one is the usual card for that region.
+  const listed = Array.isArray(rest.entities) ? [...new Set(rest.entities.filter((id) => typeof id === "string" && id))] : [];
+  delete rest.entities;
+  if (listed.length > 1) rest.entities = listed;
+  else if (listed.length === 1 && !rest.entity) rest.entity = listed[0];
   return { ...rest, sections: [...new Set(sections)], hide };
 }
 const STATS_FRESH_ACTIVE = 300000;
@@ -394,9 +407,11 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   getCardSize() {
-    // The statistics table: a header and a line per period.
+    if (this._config?.entities) return Math.max(1, Math.ceil(this._config.entities.length * 0.8 + (this._config.name ? 0.5 : 0)));
+    // The statistics table: a header and a line per period, and the month chart under it.
     const periods = ["stats.day", "stats.week", "stats.today", "stats.month"].filter((id) => !this._config?.hide?.includes(id)).length;
-    const weight = { status: 1, details: 1, timeline: 0.5, stats: 0.5 + 0.5 * periods };
+    const chart = this._config?.hide?.includes("stats.chart") ? 0 : 1.5;
+    const weight = { status: 1, details: 1, timeline: 0.5, stats: 0.5 + 0.5 * periods + chart };
     return Math.max(1, Math.ceil((this._config?.sections || SECTIONS).reduce((sum, section) => sum + weight[section], 0)));
   }
 
@@ -419,7 +434,8 @@ class UkraineAlarmProCard extends HTMLElement {
   // Statistics come from the journal services: fetched again after every alert
   // event, and on a timer so ongoing durations and the 24 h window move.
   _maybeRefresh() {
-    if (!this._hass || !this._config || this._loading || !this._visible()) return;
+    // The list reads entity states only; it never calls the journal.
+    if (!this._hass || !this._config || this._config.entities || this._loading || !this._visible()) return;
     const ids = this._entities();
     const rid = ids && regionIdOf(this._hass, ids.alert);
     if (!rid) return;
@@ -479,6 +495,11 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   _stateKey() {
+    if (this._config?.entities && this._hass) {
+      return this._list().flatMap((row) => Object.values(row))
+        .map((id) => { const s = id && this._hass.states[id]; return s ? `${s.state}|${s.last_updated}` : "-"; })
+        .join(";") + `;${this._hass.locale?.language};${this._config.language}`;
+    }
     const ids = this._hass && this._config ? this._entities() : null;
     if (!ids) return "none";
     return Object.values(ids)
@@ -583,7 +604,37 @@ class UkraineAlarmProCard extends HTMLElement {
       ["week", t.week, week, share(week)],
       calendar?.month ? ["month", monthName(calendar.month), calendar.month, own(calendar.month)] : null,
     ].filter((period) => period && this._shows("stats", period[0]));
-    return periods.length ? this._tableHtml(t, stats, periods) : "";
+    const table = periods.length ? this._tableHtml(t, stats, periods) : "";
+    const chart = calendar?.month && this._shows("stats", "chart") ? this._monthChartHtml(t, calendar.month, monthName(calendar.month)) : "";
+    return table + chart;
+  }
+
+  // Hours under alert per day of the current month; days still to come stay empty.
+  _monthChartHtml(t, month, name) {
+    const daily = Array.isArray(month.daily) ? month.daily : [];
+    const match = /^(\d{4})-(\d{2})-/.exec(daily[0]?.date || "");
+    if (!match) return "";
+    const [year, mon] = [Number(match[1]), Number(match[2])];
+    const days = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+    const byDay = new Map(daily.map((day) => [Number(String(day.date).slice(8, 10)), day]));
+    const label = (day) => `${String(day).padStart(2, "0")}.${String(mon).padStart(2, "0")}`;
+    let top = null;
+    for (const [day, entry] of byDay) {
+      if ((entry.observed_duration_seconds || 0) > (top?.seconds || 0)) top = { day, seconds: entry.observed_duration_seconds };
+    }
+    const bars = Array.from({ length: days }, (_, i) => {
+      const entry = byDay.get(i + 1);
+      if (!entry) return `<div class="bar future"></div>`;
+      const seconds = Math.max(entry.observed_duration_seconds || 0, 0);
+      const title = seconds ? `${label(i + 1)} · ${span(t, seconds)} · ${alerts(t, entry.count || 0)}` : `${label(i + 1)} · ${t.noAlerts}`;
+      const height = Math.min(seconds / 86400, 1) * 100;
+      return `<div class="bar${top?.day === i + 1 ? " top" : ""}" title="${esc(title)}"><i style="height:${(seconds ? Math.max(height, 2) : 0).toFixed(1)}%"></i></div>`;
+    }).join("");
+    const hint = top ? `${t.max} ${label(top.day)} · ${span(t, top.seconds)}` : t.noAlerts;
+    const axis = [1, 8, 15, 22, 29].filter((day) => day <= days)
+      .map((day) => `<span style="left:${(((day - 0.5) / days) * 100).toFixed(2)}%">${day}</span>`).join("");
+    return `<div class="mchart"><div class="mtitle"><span>${esc(name)} · ${esc(t.chartTitle)}</span><span class="mhint">${esc(hint)}</span></div>`
+      + `<div class="mbars"><span class="mgrid"></span>${bars}</div><div class="axis">${axis}</div></div>`;
   }
 
   // A line per period; the columns shrink on a narrow card instead of switching to another view.
@@ -621,6 +672,7 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!this._hass || !this._config) return;
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const t = lang(this._hass, this._config.language);
+    if (this._config.entities) { this._renderList(t); return; }
     const ids = this._entities();
     if (!ids) {
       patchDOM(this.shadowRoot, `${STYLE}<ha-card><div class="empty">${esc(t.notFound)}</div></ha-card>`);
@@ -640,15 +692,89 @@ class UkraineAlarmProCard extends HTMLElement {
       <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0" role="button" aria-label="${esc(view.name)}: ${esc(view.title)}">
         ${parts.join("\n")}
       </ha-card>`);
+    this._bindOpen();
+  }
+
+  // A tap opens the region's alert entity: the row's in the list, the card's otherwise.
+  _bindOpen() {
     const card = this.shadowRoot.querySelector("ha-card");
-    if (this._eventCard !== card) {
-      this._eventCard = card;
-      const open = () => { const id = this._entities()?.alert; if (id) this._moreInfo(id); };
-      card.addEventListener("click", open);
-      card.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
-      });
-    }
+    if (!card || this._eventCard === card) return;
+    this._eventCard = card;
+    const open = (event) => {
+      const row = event?.composedPath?.().find((el) => el?.dataset?.entity);
+      const id = row ? row.dataset.entity : !this._config.entities && this._entities()?.alert;
+      if (id) this._moreInfo(id);
+    };
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(event); }
+    });
+  }
+
+  // The listed regions that exist, each with the sensors its row reads.
+  _list() {
+    const hass = this._hass;
+    const cached = this._listCache;
+    if (cached && cached.registry === hass.entities && cached.configured === this._config.entities &&
+        cached.rows.every((row) => hass.states[row.alert])) return cached.rows;
+    const rows = this._config.entities.filter((id) => hass.states[id]).map((alert) => {
+      const rid = regionIdOf(hass, alert);
+      return {
+        alert,
+        threat: sibling(hass, "threat", rid),
+        level: sibling(hass, "air_alert_level", rid),
+        started: sibling(hass, "alert_started", rid),
+        cleared: sibling(hass, "alert_cleared", rid),
+        percentage24h: sibling(hass, "alert_percentage_24h", rid),
+      };
+    });
+    this._listCache = { registry: hass.entities, configured: this._config.entities, rows };
+    return rows;
+  }
+
+  _renderList(t) {
+    const hass = this._hass;
+    const fmt = this._fmt();
+    const stale = hass.states[hub(hass, "data_stale")]?.state === "on";
+    const rows = this._list().map((ids) => {
+      const st = (id) => (id ? hass.states[id] : undefined);
+      const alert = st(ids.alert);
+      const threat = st(ids.threat);
+      const flags = {
+        active: alert.state === "on",
+        noData: ["unavailable", "unknown"].includes(alert.state),
+        stale,
+        air: st(ids.level)?.state,
+        types: String(threat?.attributes?.active_threat_types || "").split(",").filter(Boolean),
+      };
+      // A line is narrow: an air alert with a known level says only the level.
+      const word = flags.active && t.levelWord[flags.air];
+      let sub = esc(titleOf(t, flags));
+      if (word && flags.types[0] === "air") sub = `<b class="lv ${esc(flags.air)}">${esc(t.level[flags.air])}</b>`;
+      else if (word) sub += ` · <b class="lv ${esc(flags.air)}">${esc(word)}</b>`;
+      let time = "";
+      if (flags.active) {
+        const since = dateOf(known(st(ids.started))?.state);
+        if (since) time = `${esc(duration(t, since))}<div class="lsub">${esc(t.since)} ${esc(hhmm(since, fmt))}</div>`;
+      } else if (!flags.noData && !stale) {
+        const cleared = dateOf(known(st(ids.cleared))?.state);
+        if (cleared) {
+          const day = Date.now() - cleared > 86400000 ? `${dayMonth(cleared, fmt)} ` : "";
+          time = `${esc(duration(t, cleared))}<div class="lsub">${esc(t.clearedAt)} ${esc(day)}${esc(hhmm(cleared, fmt))}</div>`;
+        }
+      }
+      const share = known(st(ids.percentage24h));
+      const value = share && Number.isFinite(Number(share.state)) ? this._pct(t, Number(share.state)) : "—";
+      const name = shortName(threat?.attributes?.region_name || alert.attributes.friendly_name || ids.alert);
+      return `<div class="lrow ${statusOf(flags)}" data-entity="${esc(ids.alert)}" role="button" tabindex="0" aria-label="${esc(name)}: ${esc(titleOf(t, flags))}">`
+        + `<span class="ldot"></span><div class="lname">${esc(name)}<div class="lsub">${sub}</div></div>`
+        + `<div class="ltime">${time}</div><div class="lpct">${esc(value)}<div class="lsub">${esc(t.last24)}</div></div></div>`;
+    });
+    const head = this._config.name ? `<div class="lhead">${esc(this._config.name)}</div>` : "";
+    const note = stale ? `<div class="foot"><span class="dot"></span>${esc(t.staleNote)}</div>` : "";
+    const body = rows.length ? rows.join("") : `<div class="empty">${esc(t.notFound)}</div>`;
+    patchDOM(this.shadowRoot, `${STYLE}<ha-card class="list">${head}${note}${body}</ha-card>`);
+    this._bindOpen();
   }
 
   // Everything the markup needs, read once from the entities.
@@ -778,6 +904,9 @@ function titleOf(t, { noData, active, stale, types }) {
   return stale ? t.stale : t.quiet;
 }
 
+// "… територіальна громада" is the official name; a list line keeps "… громада".
+const shortName = (name) => String(name).replace(/\s+територіальна громада$/u, " громада");
+
 // Without the level chip, the level sits next to the region name.
 function levelSuffix(t, view) {
   const text = view.active && t.level[view.air];
@@ -883,12 +1012,46 @@ const STYLE = `<style>
     .timer .small { white-space: normal; }
   }
   .empty { padding: 8px; color: var(--secondary-text-color); }
+  /* The month chart: a bar per day, the height is the hours under alert out of 24. */
+  .mchart { margin-top: 10px; }
+  .mtitle { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 11.5px; color: var(--primary-text-color); }
+  .mtitle span:first-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mtitle .mhint { color: var(--secondary-text-color); white-space: nowrap; }
+  .mbars { position: relative; height: 64px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; align-items: end;
+    border-bottom: 1px solid color-mix(in srgb, var(--primary-text-color) 15%, transparent); }
+  .mgrid { position: absolute; left: 0; right: 0; bottom: 50%; border-top: 1px dashed color-mix(in srgb, var(--primary-text-color) 15%, transparent); }
+  .bar { height: 100%; display: flex; align-items: flex-end; }
+  .bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--primary-color) 70%, transparent); }
+  .bar.top i { background: var(--primary-color); }
+  /* Several regions: a line each. */
+  ha-card.list { padding: 6px 14px; }
+  .lhead { padding: 6px 0 2px; font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
+  ha-card.list .foot { padding: 6px 0 0; }
+  .lrow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px 0; cursor: pointer;
+    --accent: var(--uap-green); }
+  .lrow + .lrow { border-top: 1px solid color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
+  .lrow.red, .lrow.alert { --accent: var(--uap-red); }
+  .lrow.yellow { --accent: var(--uap-yellow); }
+  .lrow.stale, .lrow.nodata { --accent: var(--uap-gray); }
+  .lrow:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; border-radius: 6px; }
+  .ldot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  .lrow.red .ldot, .lrow.alert .ldot, .lrow.yellow .ldot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .lname { min-width: 0; font-size: 14px; font-weight: 600; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lsub { font-size: 11.5px; font-weight: 400; line-height: 1.3; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lv { font-weight: 600; }
+  .lv.red { color: var(--uap-red); }
+  .lv.yellow { color: color-mix(in srgb, var(--uap-yellow) 75%, var(--primary-text-color)); }
+  .ltime, .lpct { text-align: right; font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--primary-text-color); }
+  .lrow.quiet .ltime { font-weight: 500; color: var(--secondary-text-color); }
+  .lpct { font-size: 13px; min-width: 52px; }
+  @container (max-width: 300px) { .lrow { grid-template-columns: 10px minmax(0, 1fr) auto; } .lpct { display: none; } }
 </style>`;
 
 // Editor words, in Home Assistant's language; the card's own `language` is a setting in it.
 const EDITOR_I18N = {
   uk: {
-    entity: "Регіон", name: "Назва", language: "Мова картки",
+    entity: "Регіони", name: "Назва", language: "Мова картки",
+    listNote: "Кілька регіонів показуються списком: рядок на регіон. Розділи нижче стосуються картки одного регіону.",
     head: "Розділи", reset: "Скинути", up: "Вище", down: "Нижче", items: "Що показувати",
     names: {
       status: ["Стан", "регіон, тривога чи тихо, тривалість"],
@@ -899,12 +1062,13 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Тривалість", updated: "Час оновлення" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
-      stats: { today: "Сьогодні", day: "24 год", week: "7 днів", month: "Поточний місяць", bar: "Смужка частки", total: "Разом", count: "Кількість", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних" },
+      stats: { today: "Сьогодні", day: "24 год", week: "7 днів", month: "Поточний місяць", bar: "Смужка частки", total: "Разом", count: "Кількість", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних", chart: "Графік за місяць" },
     },
     languages: { auto: "Як у Home Assistant", uk: "Українська", en: "English" },
   },
   en: {
-    entity: "Region", name: "Name", language: "Card language",
+    entity: "Regions", name: "Name", language: "Card language",
+    listNote: "Several regions are shown as a list, a line each. The sections below apply to a one-region card.",
     head: "Sections", reset: "Reset", up: "Move up", down: "Move down", items: "What to show",
     names: {
       status: ["Status", "region, alert or quiet, duration"],
@@ -915,7 +1079,7 @@ const EDITOR_I18N = {
     item: {
       status: { timer: "Duration", updated: "Update time" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
-      stats: { today: "Today", day: "24 h", week: "7 days", month: "This month", bar: "Share bar", total: "Total", count: "Count", longest: "Longest", average: "Average", lamp: "Data completeness lamp" },
+      stats: { today: "Today", day: "24 h", week: "7 days", month: "This month", bar: "Share bar", total: "Total", count: "Count", longest: "Longest", average: "Average", lamp: "Data completeness lamp", chart: "Month chart" },
     },
     languages: { auto: "As in Home Assistant", uk: "Українська", en: "English" },
   },
@@ -923,8 +1087,13 @@ const EDITOR_I18N = {
 
 class UkraineAlarmProCardEditor extends HTMLElement {
   setConfig(config) {
-    const { sections, hide } = normalizeConfig(config);
-    this._config = { ...config, sections, hide };
+    const { sections, hide, entity, entities } = normalizeConfig(config);
+    const next = { ...config, sections, hide };
+    delete next.entity;
+    delete next.entities;
+    if (entity) next.entity = entity;
+    if (entities) next.entities = entities;
+    this._config = next;
     this._render();
   }
 
@@ -1015,7 +1184,7 @@ class UkraineAlarmProCardEditor extends HTMLElement {
   _render() {
     if (!this._config || typeof document === "undefined") return;
     if (!this._list) {
-      this.innerHTML = `<style>${EDITOR_CSS}</style><div class="form"></div><div class="top"><b></b><button type="button" class="reset"></button></div><div class="list"></div>`;
+      this.innerHTML = `<style>${EDITOR_CSS}</style><div class="form"></div><div class="note"></div><div class="top"><b></b><button type="button" class="reset"></button></div><div class="list"></div>`;
       this._list = this.querySelector(".list");
       this.addEventListener("click", (event) => {
         const button = event.target.closest?.("button");
@@ -1029,6 +1198,7 @@ class UkraineAlarmProCardEditor extends HTMLElement {
       });
     }
     const l = this._labels();
+    this.querySelector(".note").textContent = this._config.entities ? l.listNote : "";
     this.querySelector(".top b").textContent = l.head;
     this.querySelector(".top .reset").textContent = l.reset;
     this._list.innerHTML = this._sectionsHtml();
@@ -1040,8 +1210,14 @@ class UkraineAlarmProCardEditor extends HTMLElement {
         event.stopPropagation();
         const { entity, name, language } = event.detail.value;
         const next = { ...this._config };
+        // One region is `entity`; several are `entities` and make the card a list.
+        const picked = (Array.isArray(entity) ? entity : [entity]).filter(Boolean);
+        delete next.entity;
+        delete next.entities;
+        if (picked.length > 1) next.entities = picked;
+        else if (picked.length === 1) next.entity = picked[0];
         // Empty fields and the "auto" language are defaults, not written into YAML.
-        for (const [key, value] of Object.entries({ entity, name, language })) {
+        for (const [key, value] of Object.entries({ name, language })) {
           if (value && value !== "auto") next[key] = value; else delete next[key];
         }
         this._config = next;
@@ -1051,16 +1227,18 @@ class UkraineAlarmProCardEditor extends HTMLElement {
     }
     this._form.hass = this._hass;
     this._form.schema = [
-      { name: "entity", selector: { entity: { filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } } },
+      { name: "entity", selector: { entity: { multiple: true, filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } } },
       { name: "name", selector: { text: {} } },
       { name: "language", selector: { select: { mode: "dropdown", options: Object.entries(l.languages).map(([value, label]) => ({ value, label })) } } },
     ];
-    this._form.data = { entity: this._config.entity, name: this._config.name, language: this._config.language || "auto" };
+    this._form.data = { entity: this._config.entities || (this._config.entity ? [this._config.entity] : []),
+      name: this._config.name, language: this._config.language || "auto" };
   }
 }
 
 const EDITOR_CSS = `
   .form { margin-bottom: 12px; }
+  .note:not(:empty) { margin: -4px 0 12px; font-size: 13px; color: var(--secondary-text-color); }
   .top { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; }
   .top button { border: 0; background: none; color: var(--primary-color); font: inherit; cursor: pointer; }
   .row { display: flex; align-items: center; gap: 4px; min-height: 44px; border-bottom: 1px solid var(--divider-color); }

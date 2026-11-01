@@ -129,7 +129,63 @@ for (const n of [1, 2, 4, 5, 11, 12, 14, 15, 21, 25, 111]) {
   scenarios[`plural_en_${n}`] = [{ language: "en" }, { layout: "full", language: "en" }, { episodes: quietEpisodes, summary: summary({ count: n }) }];
 }
 
+// Another region next to 31, for the several-regions list.
+function addRegion(hs, { rid, name, alert = "off", threat = "none", types = "", level = "none", started = "unknown",
+  cleared = "unknown", pct = undefined }) {
+  const add = (id, key, state, attributes = {}) => {
+    hs.states[id] = { state, attributes: { region_id: rid, ...attributes }, last_updated: "a" };
+    hs.entities[id] = reg(key);
+  };
+  add(`binary_sensor.uap_${rid}_alert`, "alert", alert);
+  add(`sensor.uap_${rid}_threat`, "threat", threat, { region_name: name, active_threat_types: types });
+  add(`sensor.uap_${rid}_air_alert_level`, "air_alert_level", level);
+  add(`sensor.uap_${rid}_alert_started`, "alert_started", started);
+  add(`sensor.uap_${rid}_alert_cleared`, "alert_cleared", cleared);
+  if (pct !== undefined) add(`sensor.uap_${rid}_alert_percentage_24h`, "alert_percentage_24h", pct, { coverage_complete: true });
+  return hs;
+}
+const LIST = { entities: ["binary_sensor.uap_31_alert", "binary_sensor.uap_692_alert", "binary_sensor.uap_695_alert"] };
+const listRegions = (hs) => {
+  addRegion(hs, { rid: "692", name: "Гатненська громада", cleared: iso(135), pct: "71.04" });
+  addRegion(hs, { rid: "695", name: "Кожанська громада", alert: "on", threat: "air", types: "air", level: "yellow", started: iso(612), pct: "unknown" });
+  addRegion(hs, { rid: "700", name: "Гатненська територіальна громада", alert: "on", threat: "artillery", types: "artillery,air", level: "yellow", started: iso(5) });
+  hs.states["sensor.uap_31_alert_percentage_24h"] = { state: "58.4", attributes: { region_id: "31" }, last_updated: "a" };
+  hs.entities["sensor.uap_31_alert_percentage_24h"] = reg("alert_percentage_24h");
+  return hs;
+};
+const listScenarios = {
+  list_mixed: [alertRed, LIST],
+  list_named: [alertRed, { ...LIST, name: "Мої регіони" }],
+  list_stale: [{ ...alertRed, stale: "on" }, LIST],
+  list_one: [alertRed, { entities: ["binary_sensor.uap_31_alert"] }],
+  list_english: [{ ...alertRed, language: "en" }, { ...LIST, language: "en" }],
+  list_missing: [alertRed, { entities: ["binary_sensor.uap_31_alert", "binary_sensor.uap_999_alert"] }],
+  list_long_name: [{}, { entities: ["binary_sensor.uap_31_alert", "binary_sensor.uap_700_alert"] }],
+};
+// A month of daily totals: September 2026 up to the 15th.
+const daily = Array.from({ length: 15 }, (_, i) => ({
+  date: `2026-09-${String(i + 1).padStart(2, "0")}`, count: [0, 3600, 43200, 7200, 86400, 600][i % 6] ? (i % 3) + 1 : 0, observed_duration_seconds: [0, 3600, 43200, 7200, 86400, 600][i % 6],
+}));
+const monthStats = (extra = {}) => ({ episodes: quietEpisodes, summary: summary({ calendar: { ...calendar(), month: { ...calendar().month, daily } }, rolling_24h: rolling(), ...extra }) });
+Object.assign(scenarios, {
+  month_chart: [{}, { sections: ["stats"] }, monthStats()],
+  month_chart_hidden: [{}, { sections: ["stats"], hide: ["stats.chart"] }, monthStats()],
+  month_chart_english: [{ language: "en" }, { sections: ["stats"], language: "en" }, monthStats()],
+  month_chart_no_daily: [{}, { sections: ["stats"] }, { episodes: quietEpisodes, summary: summary({ calendar: calendar(), rolling_24h: rolling() }) }],
+  month_chart_quiet: [{}, { sections: ["stats"] }, { episodes: quietEpisodes, summary: summary({ calendar: { ...calendar(), month: { ...calendar().month, daily: daily.map((d) => ({ ...d, count: 0, observed_duration_seconds: 0 })) } } }) }],
+});
+
 const out = {};
+for (const [name, [h, config]] of Object.entries(listScenarios)) {
+  const card = new Card();
+  Object.defineProperty(card, "isConnected", { value: false });
+  card.setConfig(config);
+  card.hass = listRegions(hass(h));
+  card._render();
+  out[name] = card.shadowRoot.innerHTML.split("</style>").pop().replace(/\s+/g, " ").trim();
+  out[`${name}_size`] = card.getCardSize();
+}
+out.list_stub_editor_round_trip = (() => { const c = new Card(); c.setConfig(LIST); return c._config.entities; })();
 for (const [name, [h, config, stats]] of Object.entries(scenarios)) {
   const card = new Card();
   Object.defineProperty(card, "isConnected", { value: false });
