@@ -70,17 +70,25 @@ requires the region-list source to be available.
 
 ## Dashboard card
 
-The card is part of the integration; there is nothing else to install. It is built
-from sections: switch on the ones you need in the card editor and set their order there.
+The card is part of the integration; there is nothing else to install. Its view depends
+on how many regions you select: one region gives the full card, several give a compact
+list. You can combine them, for example a list of all regions and a full card for yours.
 
-<img src="docs/images/status-card.jpg" alt="Ukraine Alarm Pro card: status, day strip and statistics for 24 hours, 7 days, today and the month" width="420">
+| Several regions | One region |
+| --- | --- |
+| <img src="docs/images/card-regions.png" alt="Compact list: a line per region with the state, duration and share of time under alert over 24 h" width="400"> | <img src="docs/images/card-full.png" alt="Full card: status, alert details, day strip, statistics table and month chart" width="400"> |
+
+The values in the screenshots are examples.
+
+The full card is built from sections: switch on the ones you need in the card editor and
+set their order there.
 
 | Section | What it shows | Items you can hide |
 | --- | --- | --- |
-| Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time |
+| Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time, the MiG-31K line |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
-| Statistics | a table with a row per period (today since local midnight, 24 h, 7 days, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card the type and column gaps shrink | each period; the bar, the total, count, longest and average columns; the lamp |
+| Statistics | a table with a row per period (today since local midnight, 24 h, 7 days, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card the type and column gaps shrink | each period; the bar, the total, count, longest and average columns; the lamp; the month chart |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
   level is shown next to the region name.
@@ -95,15 +103,17 @@ Enter or Space opens the same sensor.
 
 1. After installing the integration, reload Home Assistant in your browser or app.
 2. On a dashboard, choose **Edit dashboard → Add card** and find **Ukraine Alarm Pro**.
-3. In **Regions**, pick your region's alert sensor.
-   With a single region, the card selects it automatically. Several regions are
-   shown as a list: a line per region with its state, duration and the share of
-   time under alert over 24 h. Tapping a line opens that region.
+3. In **Regions**, pick your region's alert sensor. **Add entity** adds another region.
+   If the integration has a single region, the card selects it automatically. Several
+   regions are shown as a list: a line per region with its state, duration and the share
+   of time under alert over 24 h. Tapping a line opens that region.
 4. In the **Sections** list, tick the sections you need and order them with the arrows.
    The slider button next to a section opens its items. Optionally set **Name**
    (for example, "Home") and **Card language**.
 5. Press **Save**. Sections apply to a one-region card; to see the details and
    statistics of several regions, add a card for each.
+
+<img src="docs/images/card-editor.png" alt="Card editor: regions, name, language, sections and the items of the Statistics section" width="400">
 
 For YAML-mode dashboards, add the resource manually:
 `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
