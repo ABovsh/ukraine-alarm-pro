@@ -92,12 +92,15 @@ Enter or Space opens the same sensor.
 
 1. After installing the integration, reload Home Assistant in your browser or app.
 2. On a dashboard, choose **Edit dashboard → Add card** and find **Ukraine Alarm Pro**.
-3. In **Region**, pick your region's alert sensor.
-   With a single region, the card selects it automatically.
+3. In **Regions**, pick your region's alert sensor.
+   With a single region, the card selects it automatically. Several regions are
+   shown as a list: a line per region with its state, duration and the share of
+   time under alert over 24 h. Tapping a line opens that region.
 4. In the **Sections** list, tick the sections you need and order them with the arrows.
    The slider button next to a section opens its items. Optionally set **Name**
    (for example, "Home") and **Card language**.
-5. Press **Save**. Add one card per region.
+5. Press **Save**. Sections apply to a one-region card; to see the details and
+   statistics of several regions, add a card for each.
 
 For YAML-mode dashboards, add the resource manually:
 `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
@@ -108,6 +111,9 @@ If the card does not appear, see [Help](#help).
 ```yaml
 type: custom:ukraine-alarm-pro-card
 entity: binary_sensor.uap_31_alert  # optional with a single region
+# entities:                         # instead of entity: several regions, a line each
+#   - binary_sensor.uap_31_alert
+#   - binary_sensor.uap_692_alert
 name: Home                          # optional
 sections:                           # optional; without it, every section in this order
   - status
@@ -120,9 +126,13 @@ language: auto                      # auto (Home Assistant language), uk or en
 ```
 
 Items for `hide`: `status.timer`, `status.updated`, `details.level`, `details.types`,
-`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`. The 0.12 `records` section no longer exists: its numbers are in the statistics table, and it is skipped in saved cards. Cards saved with
+`details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`, `stats.chart`. The 0.12 `records` section no longer exists: its numbers are in the statistics table, and it is skipped in saved cards. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
 update time, `status` — "Status" and "Alert details", `full` — every section.
+
+Under the table is a chart of the current month: a bar per day, its height the hours
+under alert out of 24. The longest day is highlighted. The tooltip on a bar gives the
+date, duration and number of alerts. Hide the chart with `stats.chart`.
 
 The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. A lamp next to the period name is green when the data is complete and yellow when it is partial (the journal does not cover the whole period, stale data, or gaps over 1% of the period). The tooltip gives the reason.
 
