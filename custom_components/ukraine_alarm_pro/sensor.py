@@ -47,6 +47,7 @@ async def async_setup_entry(
             TransportSensor(coordinator, entry.entry_id),
             ActiveRegionsSensor(coordinator, entry.entry_id),
             LastUpdateSensor(coordinator, entry.entry_id),
+            MigStatusSensor(coordinator, entry.entry_id),
         ]
     )
     async_add_entities(entities)
@@ -206,6 +207,40 @@ class AlertStartedSensor(RegionSensor):
     @property
     def extra_state_attributes(self):
         return {"region_id": self._region_id}
+
+
+class MigStatusSensor(UapStalenessEntity, SensorEntity):
+    """MiG-31K activity for the whole country: none, takeoff or launch.
+
+    Unknown on polling or stale data. No state_class, and attributes that hold
+    still during a flight, so it writes a row per transition only.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_entity_category = None
+    _attr_options: ClassVar[list[str]] = ["none", "takeoff", "launch"]
+    _attr_translation_key = "mig_status"
+
+    def __init__(self, coordinator, entry_id) -> None:
+        super().__init__(coordinator, entry_id)
+        self._attr_unique_id = f"{entry_id}_mig_status"
+        self.entity_id = "sensor.uap_mig_status"
+
+    @callback
+    def _publish_key(self):
+        return self.coordinator.mig_state
+
+    @property
+    def native_value(self) -> str | None:
+        mig = self.coordinator.mig_state
+        return None if mig is None else mig.status
+
+    @property
+    def extra_state_attributes(self):
+        mig = self.coordinator.mig_state
+        if mig is None or mig.status == "none":
+            return {}
+        return {"airfield": mig.airfield, "since": mig.since}
 
 
 class TransportSensor(UapDiagnosticEntity, SensorEntity):

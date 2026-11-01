@@ -107,6 +107,43 @@ class Alert:
         return level
 
 
+@dataclass(frozen=True)
+class MigState:
+    """MiG-31K activity on the official map: none, takeoff or launch (Kinzhal)."""
+
+    status: str = "none"
+    airfield: str = ""
+    since: str = ""
+
+
+_MIG_AIRFIELDS = {"Savasleika": "savasleika", "Mozdok": "mozdok"}
+
+
+def parse_mig(raw: Any) -> MigState | None:
+    """Read the additive MiG fields; None means the feed says nothing about them.
+
+    Only the WebSocket feed carries them. Damage here must never cost the alert
+    map, and must never read as a confirmed "no MiG" either.
+    """
+    alerts = raw.get("migAlerts") if isinstance(raw, dict) else None
+    if not isinstance(alerts, list):
+        return None
+    notes = raw.get("mapNotifications")
+    notes = notes if isinstance(notes, dict) else {}
+    if not alerts and notes.get("hasMig") is not True:
+        return MigState()
+    first = alerts[0] if alerts and isinstance(alerts[0], dict) else {}
+    kind = first.get("type", notes.get("migType"))
+    stamp = first.get("startDate", notes.get("lastMigUpdateTime"))
+    # The feed marks "no time" with .NET's zero date.
+    since = stamp if isinstance(stamp, str) and not stamp.startswith("0001-") else ""
+    return MigState(
+        status="launch" if notes.get("migRockets") is True else "takeoff",
+        airfield=_MIG_AIRFIELDS.get(kind, "unknown") if isinstance(kind, str) else "unknown",
+        since=since,
+    )
+
+
 @dataclass
 class Snapshot:
     """Active alerts across all regions at one point in time."""
@@ -115,6 +152,8 @@ class Snapshot:
     # Region names as the feed spells them, for display in attributes. Both
     # transports carry them, so no separate region-tree request is needed.
     names: dict[str, str] = field(default_factory=dict)
+    # None: this feed carries no MiG data (polling, a restored map).
+    mig: MigState | None = None
 
     @property
     def active_region_count(self) -> int:
@@ -220,7 +259,7 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
             _parse_alert(alert, region_id, where=f"{where} alert {i}")
             for i, alert in enumerate(active)
         ]
-    return Snapshot(regions=regions, names=names)
+    return Snapshot(regions=regions, names=names, mig=parse_mig(raw))
 
 
 # Sorts an unparsable stamp oldest rather than dropping the alert.

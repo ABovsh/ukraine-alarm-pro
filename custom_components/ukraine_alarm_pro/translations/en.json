@@ -90,6 +90,14 @@
       },
       "alert_percentage_7d": {
         "name": "{region} time under alert — 7 days"
+      },
+      "mig_status": {
+        "name": "MiG-31K status",
+        "state": {
+          "none": "None",
+          "takeoff": "Take-off",
+          "launch": "Kinzhal launch"
+        }
       }
     },
     "binary_sensor": {
@@ -113,6 +121,18 @@
               "cleared": "Alert cleared",
               "data_stale": "Data stale",
               "resynced": "Data resynchronized"
+            }
+          }
+        }
+      },
+      "mig": {
+        "name": "MiG-31K events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "takeoff": "MiG-31K take-off",
+              "launch": "Kinzhal launch",
+              "cleared": "MiG-31K cleared"
             }
           }
         }

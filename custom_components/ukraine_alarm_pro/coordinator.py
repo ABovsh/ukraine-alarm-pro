@@ -18,6 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from . import backfill
+from .api.supervisor import MODE_WS
 from .const import (
     CONF_REGIONS,
     DOMAIN,
@@ -39,7 +40,14 @@ from .history import (
     heartbeat_storage_key,
     history_storage_key,
 )
-from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
+from .models import (
+    Alert,
+    MigState,
+    RegionView,
+    Snapshot,
+    parse_alert_levels,
+    region_view,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,6 +93,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.percentages: dict[tuple[str, int], dict[str, Any]] = {}
         self._percentage_listeners: list = []
         self._health_listeners: list = []
+        self._mig: MigState | None = None
+        self._mig_announced: str | None = None
+        self._mig_event_listeners: list = []
         self._region_detail_listeners: list = []
         self._backfill_lock = asyncio.Lock()
         self._views: dict[str, RegionView] = {}
@@ -274,8 +285,43 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if clock_jump or affected:
             self.async_update_percentages(region_ids=None if clock_jump else affected)
         self.changed_regions = None
+        if snap.mig is not None:
+            self._accept_mig(snap.mig)
         if was_stale:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
+
+    @callback
+    def _accept_mig(self, mig: MigState) -> None:
+        """Publish the status, then a transition seen on the live feed.
+
+        The first status of a run is no transition: a flight already under way
+        at start-up must not be announced again after every restart.
+        """
+        if mig != self._mig:
+            self._mig = mig
+            for listener in tuple(self._health_listeners):
+                listener()
+        previous = self._mig_announced
+        self._mig_announced = mig.status
+        if previous is None or previous == mig.status:
+            return
+        # A launch flag going down mid-flight is not a new take-off.
+        if previous == "launch" and mig.status == "takeoff":
+            return
+        event_type = "cleared" if mig.status == "none" else mig.status
+        for listener in tuple(self._mig_event_listeners):
+            listener(event_type, {"airfield": mig.airfield, "since": mig.since})
+
+    @property
+    def mig_state(self) -> MigState | None:
+        """Known only on a live WebSocket; polling carries no MiG data."""
+        if self.supervisor.mode != MODE_WS or self.is_stale:
+            return None
+        return self._mig
+
+    def add_mig_event_listener(self, listener):
+        self._mig_event_listeners.append(listener)
+        return lambda: self._mig_event_listeners.remove(listener)
 
     @callback
     def _publish_events(self, *, was_stale: bool, changed: bool) -> None:

@@ -32,6 +32,7 @@ async def async_get_config_entry_diagnostics(
             "seconds_since_cross_check": coordinator.supervisor.seconds_since_check,
             "snapshot_revision": coordinator.supervisor.snapshot_revision,
         },
+        "mig": asdict(coordinator.mig_state) if coordinator.mig_state else None,
         "configured_regions": {
             rid: {
                 "name": info.get("name"),

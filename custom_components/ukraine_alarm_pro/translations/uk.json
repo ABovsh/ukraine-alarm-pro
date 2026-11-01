@@ -90,6 +90,14 @@
       },
       "alert_percentage_7d": {
         "name": "{region} час під тривогою — 7 днів"
+      },
+      "mig_status": {
+        "name": "Стан МіГ-31К",
+        "state": {
+          "none": "Немає",
+          "takeoff": "Зліт",
+          "launch": "Пуск «Кинджала»"
+        }
       }
     },
     "binary_sensor": {
@@ -113,6 +121,18 @@
               "cleared": "Відбій",
               "data_stale": "Дані застаріли",
               "resynced": "Дані синхронізовано"
+            }
+          }
+        }
+      },
+      "mig": {
+        "name": "Події МіГ-31К",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "takeoff": "Зліт МіГ-31К",
+              "launch": "Пуск «Кинджала»",
+              "cleared": "Відбій МіГ-31К"
             }
           }
         }

@@ -344,13 +344,14 @@ class AlertHistory:
         that a steady stream of events could postpone forever.
         """
         async with self._flush_lock:
+            # Daily retention; a feed with no news still has to trim old episodes.
+            self._prune()
             if self._version == self._saved_version:
                 if self._beat_store is not None and self._beat_version != self._beat_saved:
                     beat = self._beat_version
                     await self._beat_store.async_save({"confirmed": dict(self._confirmed)})
                     self._beat_saved = beat
                 return
-            self._prune()
             version = self._version
             beat = self._beat_version
             await self._store.async_save(

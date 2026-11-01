@@ -20,10 +20,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(
+    entities: list[EventEntity] = [
         RegionAlertEvent(coordinator, entry.entry_id, rid, info)
         for rid, info in entry.data[CONF_REGIONS].items()
-    )
+    ]
+    entities.append(MigEvent(coordinator, entry.entry_id))
+    async_add_entities(entities)
 
 
 class RegionAlertEvent(UapEntity, EventEntity):
@@ -56,6 +58,36 @@ class RegionAlertEvent(UapEntity, EventEntity):
         self.async_on_remove(
             self.coordinator.events.add_listener(self._region_id, self._on_event)
         )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Map updates are not events; only transitions write this entity."""
+
+    @callback
+    def _on_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        self._trigger_event(event_type, payload)
+        self.async_write_ha_state()
+
+
+class MigEvent(UapEntity, EventEntity):
+    """MiG-31K transitions on the live feed; a row only when one fires."""
+
+    _attr_event_types = ["takeoff", "launch", "cleared"]  # noqa: RUF012
+    _attr_translation_key = "mig"
+
+    def __init__(self, coordinator, entry_id) -> None:
+        super().__init__(coordinator, entry_id)
+        # Not "_event": region cleanup reads that suffix as "<region>_event".
+        self._attr_unique_id = f"{entry_id}_mig_events"
+        self.entity_id = "event.uap_mig_event"
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self.coordinator.add_mig_event_listener(self._on_event))
 
     @callback
     def _handle_coordinator_update(self) -> None:
