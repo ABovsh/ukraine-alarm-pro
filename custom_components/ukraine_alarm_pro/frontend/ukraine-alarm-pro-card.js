@@ -750,9 +750,21 @@ class UkraineAlarmProCard extends HTMLElement {
     return rows;
   }
 
+  // How long the alert or the quiet has lasted; nothing when the data cannot say.
+  _rowTime(t, flags, started, cleared) {
+    const fmt = this._fmt();
+    if (flags.active) {
+      const since = dateOf(known(started)?.state);
+      return since ? `${esc(duration(t, since))}<div class="lsub">${esc(t.since)} ${esc(hhmm(since, fmt))}</div>` : "";
+    }
+    const ended = !flags.noData && !flags.stale ? dateOf(known(cleared)?.state) : null;
+    if (!ended) return "";
+    const day = Date.now() - ended > 86400000 ? `${dayMonth(ended, fmt)} ` : "";
+    return `${esc(duration(t, ended))}<div class="lsub">${esc(t.clearedAt)} ${esc(day)}${esc(hhmm(ended, fmt))}</div>`;
+  }
+
   _renderList(t) {
     const hass = this._hass;
-    const fmt = this._fmt();
     const listed = this._list();
     const { hubs } = this._listCache;
     const stale = hass.states[hubs.stale]?.state === "on";
@@ -772,17 +784,7 @@ class UkraineAlarmProCard extends HTMLElement {
       let sub = esc(titleOf(t, flags));
       if (word && flags.types[0] === "air") sub = `<b class="lv ${esc(flags.air)}">${esc(t.level[flags.air])}</b>`;
       else if (word) sub += ` · <b class="lv ${esc(flags.air)}">${esc(word)}</b>`;
-      let time = "";
-      if (flags.active) {
-        const since = dateOf(known(st(ids.started))?.state);
-        if (since) time = `${esc(duration(t, since))}<div class="lsub">${esc(t.since)} ${esc(hhmm(since, fmt))}</div>`;
-      } else if (!flags.noData && !stale) {
-        const cleared = dateOf(known(st(ids.cleared))?.state);
-        if (cleared) {
-          const day = Date.now() - cleared > 86400000 ? `${dayMonth(cleared, fmt)} ` : "";
-          time = `${esc(duration(t, cleared))}<div class="lsub">${esc(t.clearedAt)} ${esc(day)}${esc(hhmm(cleared, fmt))}</div>`;
-        }
-      }
+      const time = this._rowTime(t, flags, st(ids.started), st(ids.cleared));
       const share = known(st(ids.percentage24h));
       const value = share && Number.isFinite(Number(share.state)) ? this._pct(t, Number(share.state)) : "—";
       const name = shortName(threat?.attributes?.region_name || alert.attributes.friendly_name || ids.alert);
@@ -925,7 +927,11 @@ function titleOf(t, { noData, active, stale, types }) {
 }
 
 // "… територіальна громада" is the official name; a list line keeps "… громада".
-const shortName = (name) => String(name).replace(/\s+територіальна громада$/u, " громада");
+const OFFICIAL_HROMADA = " територіальна громада";
+const shortName = (name) => {
+  const text = String(name);
+  return text.endsWith(OFFICIAL_HROMADA) ? `${text.slice(0, -OFFICIAL_HROMADA.length)} громада` : text;
+};
 
 // Without the level chip, the level sits next to the region name.
 function levelSuffix(t, view) {
