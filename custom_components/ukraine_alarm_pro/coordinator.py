@@ -33,7 +33,12 @@ from .events import (
     AlertEventHub,
     RegionState,
 )
-from .history import HISTORY_STORAGE_VERSION, AlertHistory, history_storage_key
+from .history import (
+    HISTORY_STORAGE_VERSION,
+    AlertHistory,
+    heartbeat_storage_key,
+    history_storage_key,
+)
 from .models import Alert, RegionView, Snapshot, parse_alert_levels, region_view
 
 _LOGGER = logging.getLogger(__name__)
@@ -90,7 +95,12 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 hass,
                 HISTORY_STORAGE_VERSION,
                 history_storage_key(entry.entry_id),
-            )
+            ),
+            heartbeat_store=Store(
+                hass,
+                HISTORY_STORAGE_VERSION,
+                heartbeat_storage_key(entry.entry_id),
+            ),
         )
 
     async def async_restore(self) -> None:

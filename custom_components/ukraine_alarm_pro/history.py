@@ -52,6 +52,10 @@ def history_storage_key(entry_id: str) -> str:
     return f"{DOMAIN}.history.{entry_id}"
 
 
+def heartbeat_storage_key(entry_id: str) -> str:
+    return f"{DOMAIN}.heartbeat.{entry_id}"
+
+
 @lru_cache(maxsize=32768)
 def _parse_text(stamp: str) -> datetime | None:
     try:
@@ -101,8 +105,14 @@ class AlertHistory:
         now: Callable[[], datetime] = dt_util.utcnow,
         max_days: int = MAX_HISTORY_DAYS,
         max_episodes: int = MAX_HISTORY_EPISODES,
+        heartbeat_store: Any = None,
     ) -> None:
         self._store = store
+        # The "last confirmed" stamps move on every snapshot; kept in a small
+        # store of their own so a quiet feed never rewrites the whole journal.
+        self._beat_store = heartbeat_store
+        self._beat_version = 0
+        self._beat_saved = 0
         self._now = now
         self._max_age = timedelta(days=max_days)
         self._max_episodes = max_episodes
@@ -214,10 +224,30 @@ class AlertHistory:
             # History before this moment is unknown, not empty.
             self._created_at = self._now().isoformat()
             self._version += 1
+        await self._async_load_heartbeat()
         self._index = {}
         for ep in self._completed:
             self._index.setdefault(ep["region_id"], []).append(ep)
         self._prune()
+
+    async def _async_load_heartbeat(self) -> None:
+        """Take each newer stamp; a damaged heartbeat only loses freshness."""
+        if self._beat_store is None:
+            return
+        try:
+            stored = await self._beat_store.async_load()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Journal heartbeat unreadable: %s", err)
+            return
+        raw = stored.get("confirmed") if isinstance(stored, dict) else None
+        if not isinstance(raw, dict):
+            return
+        for rid, stamp in raw.items():
+            newer = _parse(stamp)
+            if not isinstance(rid, str) or newer is None:
+                continue
+            if rid in self._confirmed and newer > _parse(self._confirmed[rid]):
+                self._confirmed[rid] = stamp
 
     def confirm(self, region_ids: Iterable[str], at: datetime) -> None:
         """Confirm continuity, including unchanged/quiet snapshots.
@@ -228,6 +258,7 @@ class AlertHistory:
         """
         at = at.astimezone(dt_util.UTC)
         stamp = at.isoformat()
+        changed = self._beat_store is None
         for rid in region_ids:
             previous = _parse(self._confirmed.get(rid))
             if rid in self._resync and previous is not None:
@@ -238,9 +269,13 @@ class AlertHistory:
                 self._gaps.setdefault(rid, []).append((opened.isoformat(), stamp))
             if previous is not None and at < previous:
                 self._gaps.setdefault(rid, []).append((stamp, previous.isoformat()))
+            # Only a moved stamp is heartbeat-only; anything else is content.
+            changed |= opened is not None or previous is None or at < previous
             self._live_since.setdefault(rid, stamp)
             self._confirmed[rid] = stamp
-        self._version += 1
+        self._beat_version += 1
+        if changed:
+            self._version += 1
 
     def mark_gap(self, region_ids: Iterable[str]) -> None:
         """Keep gaps even when the last known state was quiet."""
@@ -310,9 +345,14 @@ class AlertHistory:
         """
         async with self._flush_lock:
             if self._version == self._saved_version:
+                if self._beat_store is not None and self._beat_version != self._beat_saved:
+                    beat = self._beat_version
+                    await self._beat_store.async_save({"confirmed": dict(self._confirmed)})
+                    self._beat_saved = beat
                 return
             self._prune()
             version = self._version
+            beat = self._beat_version
             await self._store.async_save(
                 deepcopy(
                     {
@@ -335,6 +375,8 @@ class AlertHistory:
                 )
             )
             self._saved_version = version
+            # The journal carries the same stamps.
+            self._beat_saved = beat
 
     def cursor(self, region_id: str, now: datetime) -> datetime:
         return max(
