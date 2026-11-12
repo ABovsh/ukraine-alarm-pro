@@ -1189,6 +1189,7 @@ const STYLE = `<style>
   ha-card.list .country { margin: 6px 0 2px; }
   /* How long an alert here usually lasts. */
   .typ { margin-top: 9px; }
+  .typ + .sec, .typ + .foot { margin-top: 10px; }
   .typbar { position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
   .typbar i { position: absolute; left: 0; top: 0; bottom: 0; max-width: 100%; border-radius: 3px; background: var(--accent); }
   .typbar b { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px;
