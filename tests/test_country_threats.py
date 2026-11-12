@@ -69,7 +69,8 @@ def test_missing_or_damaged_data_is_unknown_and_never_costs_the_map():
     assert parse_country({"alerts": [], "mapNotifications": "x"}) is None
     assert parse_country([]) is None
     snap = parse_alert_payload({"alerts": [{"regionId": "31", "activeAlerts": []}], "mapNotifications": 7})
-    assert "31" in snap.regions and snap.country is None
+    assert "31" in snap.regions
+    assert snap.country is None
     # One damaged flag does not invent a threat.
     assert parse_country(_feed(hasBallistics="yes"))["ballistics"] == CountryThreat()
 
@@ -85,7 +86,8 @@ async def test_sensors_follow_the_feed(hass: HomeAssistant, enable_custom_integr
     await hass.async_block_till_done()
     assert hass.states.get(SENSORS["ballistics"]).state == "active"
     carriers = hass.states.get(SENSORS["missile_carriers"])
-    assert carriers.state == "launch" and carriers.attributes["since"] == "2026-11-12T18:05:00Z"
+    assert carriers.state == "launch"
+    assert carriers.attributes["since"] == "2026-11-12T18:05:00Z"
     assert "since" not in hass.states.get(SENSORS["tactical_aviation"]).attributes
     assert "state_class" not in carriers.attributes
 

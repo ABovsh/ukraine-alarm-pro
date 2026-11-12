@@ -22,8 +22,10 @@ async def test_list_discovers_regions_and_sensors_that_arrive_after_the_first_re
     await page.evaluate("c.hass = { ...hass, states: full }")
     rows = await page.evaluate("[...c.shadowRoot.querySelectorAll('.lrow')].map((r) => r.textContent)")
     assert len(rows) == 2
-    assert "Kyiv" in rows[0] and "4.2%" in rows[0]
-    assert "Hatne" in rows[1] and "12.5%" in rows[1]
+    assert "Kyiv" in rows[0]
+    assert "4.2%" in rows[0]
+    assert "Hatne" in rows[1]
+    assert "12.5%" in rows[1]
 
 
 async def test_editor_keeps_its_controls_while_home_assistant_states_change(page):

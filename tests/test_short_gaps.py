@@ -67,7 +67,8 @@ async def test_alert_that_ended_during_the_restart_stays_a_gap():
     clock["now"] = T0 + timedelta(minutes=10)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["quality"] == "gaps" and result["coverage_complete"] is False
+    assert result["quality"] == "gaps"
+    assert result["coverage_complete"] is False
     # Under 1 % of the window: the share is still given, over the covered time.
     assert result["percentage"] == 3.5
 
@@ -78,7 +79,8 @@ async def test_alert_that_began_during_the_restart_stays_a_gap():
     clock["now"] = T0 + timedelta(minutes=10)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["quality"] == "gaps" and result["coverage_complete"] is False
+    assert result["quality"] == "gaps"
+    assert result["coverage_complete"] is False
     assert result["percentage"] == 0.6
 
 
@@ -88,7 +90,8 @@ async def test_long_quiet_gap_is_not_bridged():
     clock["now"] = T0 + timedelta(hours=1)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["quality"] == "gaps" and result["coverage_complete"] is False
+    assert result["quality"] == "gaps"
+    assert result["coverage_complete"] is False
     assert result["gap_seconds"] == 360
     assert result["percentage"] == 0.0
 

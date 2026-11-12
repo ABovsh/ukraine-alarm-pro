@@ -808,9 +808,7 @@ class UkraineAlarmProCard extends HTMLElement {
       chips.push([key, state.state, ids[key], icon, [text, since && `${t.since} ${hhmm(since, this._fmt())}`]]);
     }
     if (!chips.length) return "";
-    return `<div class="country">${chips.map(([key, state, id, icon, parts]) =>
-      `<span class="ct ${key} ${esc(state)}" data-more="${esc(id)}" role="button" tabindex="0">`
-      + `<ha-icon icon="${icon}"></ha-icon><span>${esc(parts.filter(Boolean).join(" · "))}</span></span>`).join("")}</div>`;
+    return `<div class="country">${chips.map(countryChip).join("")}</div>`;
   }
 
   // The listed regions that exist, each with the sensors its row reads.
@@ -957,8 +955,7 @@ class UkraineAlarmProCard extends HTMLElement {
   // The reasons without their "(… рівень)" tail, when the level chip carries them.
   _mergedReasons(view) {
     if (!view.active || !hasLevel(view) || !this._shows("details", "level") || !this._shows("details", "reason")) return null;
-    const names = [...new Set((view.level?.attributes?.reasons || [])
-      .map((reason) => String(reason).replace(/\s*\([^)]*\)\s*$/, "").trim()).filter(Boolean))];
+    const names = [...new Set((view.level?.attributes?.reasons || []).map(withoutLevel).filter(Boolean))];
     return names.length ? names : null;
   }
 
@@ -993,7 +990,7 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!typical || !since || !this._shows("status", "typical")) return "";
     const median = typical.median_seconds;
     const upper = typical.p75_seconds;
-    if (!(median > 0) || !(upper > 0)) return "";
+    if (!positive(median) || !positive(upper)) return "";
     const elapsed = Math.max((Date.now() - since.getTime()) / 1000, 0);
     const scale = Math.max(upper * 1.25, elapsed);
     const at = (seconds) => `${((seconds / scale) * 100).toFixed(1)}%`;
@@ -1026,6 +1023,16 @@ const COUNTRY = [
   ["missile_carriers", "mdi:ferry"],
 ];
 const countryHubs = (hass) => Object.fromEntries(COUNTRY.map(([key]) => [key, hub(hass, key)]));
+const countryChip = ([key, state, id, icon, parts]) =>
+  `<span class="ct ${key} ${esc(state)}" data-more="${esc(id)}" role="button" tabindex="0">`
+  + `<ha-icon icon="${icon}"></ha-icon><span>${esc(parts.filter(Boolean).join(" · "))}</span></span>`;
+// "Ракетна загроза (червоний рівень)" -> "Ракетна загроза": drop a trailing "(…)".
+const withoutLevel = (reason) => {
+  const text = String(reason).trim();
+  const open = text.lastIndexOf("(");
+  return (text.endsWith(")") && open >= 0 ? text.slice(0, open) : text).trim();
+};
+const positive = (value) => Number.isFinite(value) && value > 0;
 const hasLevel = (view) => ["red", "yellow", "unrecognized"].includes(view.air);
 const HOLD_MS = 500;
 const DOUBLE_TAP_MS = 250;

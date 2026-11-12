@@ -18,7 +18,8 @@ async def test_a_gap_under_one_percent_still_gives_the_share():
     history.confirm(["31"], clock["now"])
     for window in (DAY, 7 * DAY):
         result = history.rolling("31", window)
-        assert result["quality"] == "gaps" and result["coverage_complete"] is False
+        assert result["quality"] == "gaps"
+        assert result["coverage_complete"] is False
         assert result["gap_seconds"] == 360
         known = window - result["gap_seconds"]
         assert result["percentage"] == round(100 * result["observed_duration_seconds"] / known, 1)
@@ -43,7 +44,8 @@ async def test_other_doubts_still_leave_the_share_unknown():
     clock["now"] = T0 + timedelta(hours=1)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["quality"] == "incomplete" and result["percentage"] is None
+    assert result["quality"] == "incomplete"
+    assert result["percentage"] is None
 
 
 async def _alerts(minutes, *, now=T0, extra=()):
@@ -74,7 +76,8 @@ async def test_an_ongoing_alert_is_not_part_of_its_own_typical_duration():
     history.handle_event("started", _payload("started", T0 - timedelta(hours=5), active=True,
                                              declared=(T0 - timedelta(hours=5)).isoformat()))
     typical = history.summary("31", 7)["typical"]
-    assert typical["count"] == 10 and typical["median_seconds"] == 1800
+    assert typical["count"] == 10
+    assert typical["median_seconds"] == 1800
 
 
 async def test_too_few_alerts_give_no_typical_duration():

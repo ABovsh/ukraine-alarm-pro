@@ -90,7 +90,9 @@ async def test_an_alert_shows_how_long_it_usually_lasts(page):
     await page.clock.run_for(200)
     await page.wait_for_function("c.shadowRoot.querySelector('.typ')")
     text = await page.evaluate("c.shadowRoot.querySelector('.typ').textContent")
-    assert "Usually ~33 min" in text and "one in four over 1 h 10 min" in text and "90 days" in text
+    assert "Usually ~33 min" in text
+    assert "one in four over 1 h 10 min" in text
+    assert "90 days" in text
     bar = await page.evaluate("c.shadowRoot.querySelector('.typbar i').style.width")
     assert 0 < float(bar.rstrip("%")) < 100
     assert await page.evaluate("calls.map((call) => call.service)") == ["get_summary"]
@@ -138,7 +140,8 @@ async def test_tap_and_hold_run_the_configured_actions(page):
         hold_action: { action: 'more-info' } });""")
     await page.evaluate("c.shadowRoot.querySelector('ha-card').click()")
     tap = await page.evaluate("events")
-    assert tap[0][0] == "hass-action" and tap[0][1]["action"] == "tap"
+    assert tap[0][0] == "hass-action"
+    assert tap[0][1]["action"] == "tap"
     assert tap[0][1]["config"]["entity"] == "binary_sensor.uap_31_alert"
     assert tap[0][1]["config"]["tap_action"] == {"action": "navigate", "navigation_path": "/alarm"}
     await page.evaluate("""events.length = 0; const card = c.shadowRoot.querySelector('ha-card');
@@ -192,7 +195,8 @@ async def test_editor_sets_tap_and_hold_actions(page):
       ed.setConfig({ entity: 'binary_sensor.uap_31_alert', hold_action: { action: 'more-info' } });
       ed.hass = makeHass();""")
     names = await page.evaluate("ed._form.schema.map((field) => field.name)")
-    assert "tap_action" in names and "hold_action" in names
+    assert "tap_action" in names
+    assert "hold_action" in names
     assert await page.evaluate("ed._form.data.hold_action") == {"action": "more-info"}
     assert await page.evaluate("ed._form.computeLabel({ name: 'tap_action' })") == "Tap action"
     await page.evaluate("""ed._form.dispatchEvent(new CustomEvent('value-changed', { detail: { value: {
@@ -202,4 +206,5 @@ async def test_editor_sets_tap_and_hold_actions(page):
     assert "hold_action" not in config
     labels = await page.evaluate("""(() => { ed.querySelector('[data-expand=status]').click();
       return [...ed.querySelectorAll('.items label')].map((l) => l.textContent); })()""")
-    assert "Country-wide threats" in labels and "Usual length" in labels
+    assert "Country-wide threats" in labels
+    assert "Usual length" in labels
