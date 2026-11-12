@@ -536,12 +536,14 @@ class UkraineAlarmProCard extends HTMLElement {
     const day = current(summary?.rolling_24h, ids?.percentage24h);
     const week = current(summary?.rolling_7d, ids?.percentage7d);
     const hi = dateOf(summary?.rolling_calculated_at)?.getTime() || Date.now();
-    return { day, week, hi, incomplete: !complete(day) || !complete(week) };
+    return { day, week, hi };
   }
 
   _timelineHtml(t, stats) {
     const fmt = this._fmt();
-    const { day, hi, incomplete } = this._rolling(stats);
+    const { day, hi } = this._rolling(stats);
+    // The strip draws only the last 24 hours: a gap earlier in the week does not hatch it.
+    const incomplete = !complete(day);
     // Complete 24 h union supplied by the same calculation as the sensors.
     const lo = hi - 86400000;
     const segments = (day?.intervals || []).map((interval) => {
@@ -729,12 +731,16 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   // The listed regions that exist, each with the sensors its row reads.
+  // After a restart states arrive one by one while the registry stays the same:
+  // a region or sensor still missing is looked up again on the next update.
   _list() {
     const hass = this._hass;
     const cached = this._listCache;
+    const present = this._config.entities.filter((id) => hass.states[id]);
+    const found = (ids) => Object.values(ids).every((id) => id && hass.states[id]);
     if (cached && cached.registry === hass.entities && cached.configured === this._config.entities &&
-        cached.rows.every((row) => hass.states[row.alert])) return cached.rows;
-    const rows = this._config.entities.filter((id) => hass.states[id]).map((alert) => {
+        cached.rows.length === present.length && cached.rows.every(found) && found(cached.hubs)) return cached.rows;
+    const rows = present.map((alert) => {
       const rid = regionIdOf(hass, alert);
       return {
         alert,
@@ -1129,9 +1135,15 @@ class UkraineAlarmProCardEditor extends HTMLElement {
     this._render();
   }
 
+  // HA sets `hass` on every state change. Redrawing the section list then would
+  // drop keyboard focus and lose a click pressed across the update, so only a
+  // language change (or the first `hass`) redraws; the form just gets the new one.
   set hass(hass) {
+    const before = this._labels();
+    const first = !this._hass;
     this._hass = hass;
-    this._render();
+    if (first || !this._form || this._labels() !== before) this._render();
+    else this._form.hass = hass;
   }
 
   _labels() {
