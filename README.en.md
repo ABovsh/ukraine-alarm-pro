@@ -77,7 +77,7 @@ list. You can combine them, for example a list of all regions and a full card fo
 
 | Several regions | One region |
 | --- | --- |
-| <img src="docs/images/card-regions.png" alt="Compact list: country-wide threats, a line per region with the state, duration and share of time under alert over 24 h" width="400"> | <img src="docs/images/card-full.png" alt="Full card: country-wide threats, status, how long alerts usually last, alert details, day strip, statistics table and month chart" width="400"> |
+| <img src="docs/images/card-regions-0.15.png" alt="Compact list: country-wide threats, a line per region with the state, duration and share of time under alert over 24 h" width="400"> | <img src="docs/images/card-full-0.15.png" alt="Full card: country-wide threats, status, how long alerts usually last, alert details, day strip, statistics table and month chart" width="400"> |
 
 The values in the screenshots are examples.
 
@@ -123,7 +123,7 @@ tapped. A country-wide threat label always opens its own sensor.
 5. Press **Save**. Sections apply to a one-region card; to see the details and
    statistics of several regions, add a card for each.
 
-<img src="docs/images/card-editor.png" alt="Card editor: regions, name, language, tap and hold actions, sections and the items of the Status section" width="400">
+<img src="docs/images/card-editor-0.15.png" alt="Card editor: regions, name, language, tap and hold actions, sections and the items of the Status section" width="400">
 
 For YAML-mode dashboards, add the resource manually:
 `/ukraine_alarm_pro/ukraine-alarm-pro-card.js`, type `module`.
