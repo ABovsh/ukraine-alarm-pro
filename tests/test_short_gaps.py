@@ -1,5 +1,8 @@
 """A Home Assistant restart must not hide the alert percentages for a week.
 
+Since 0.15 an unbridged gap under 1 % of the window still gives a share
+(see test_typical_and_small_gaps.py); these cases check what is bridged.
+
 2026-10-18 the live journal of region 31 held six 15–66 s gaps, one per
 restart; each made the 24 h share unknown for a day and the 7 d share for a
 week. A short gap with the same state on both sides and no alert starting or
@@ -64,8 +67,9 @@ async def test_alert_that_ended_during_the_restart_stays_a_gap():
     clock["now"] = T0 + timedelta(minutes=10)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["percentage"] is None
-    assert result["quality"] == "gaps"
+    assert result["quality"] == "gaps" and result["coverage_complete"] is False
+    # Under 1 % of the window: the share is still given, over the covered time.
+    assert result["percentage"] == 3.5
 
 
 async def test_alert_that_began_during_the_restart_stays_a_gap():
@@ -73,7 +77,9 @@ async def test_alert_that_began_during_the_restart_stays_a_gap():
     history, clock = await _restart(store, T0 + timedelta(seconds=40), active=True)
     clock["now"] = T0 + timedelta(minutes=10)
     history.confirm(["31"], clock["now"])
-    assert history.rolling("31", DAY)["percentage"] is None
+    result = history.rolling("31", DAY)
+    assert result["quality"] == "gaps" and result["coverage_complete"] is False
+    assert result["percentage"] == 0.6
 
 
 async def test_long_quiet_gap_is_not_bridged():
@@ -82,8 +88,9 @@ async def test_long_quiet_gap_is_not_bridged():
     clock["now"] = T0 + timedelta(hours=1)
     history.confirm(["31"], clock["now"])
     result = history.rolling("31", DAY)
-    assert result["percentage"] is None
+    assert result["quality"] == "gaps" and result["coverage_complete"] is False
     assert result["gap_seconds"] == 360
+    assert result["percentage"] == 0.0
 
 
 async def test_alert_that_cleared_right_before_the_restart_is_bridged():

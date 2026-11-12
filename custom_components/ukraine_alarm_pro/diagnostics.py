@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
+from .models import COUNTRY_THREATS
 
 
 async def async_get_config_entry_diagnostics(
@@ -33,6 +34,10 @@ async def async_get_config_entry_diagnostics(
             "snapshot_revision": coordinator.supervisor.snapshot_revision,
         },
         "mig": asdict(coordinator.mig_state) if coordinator.mig_state else None,
+        "country": {
+            key: asdict(threat) if (threat := coordinator.country_state(key)) else None
+            for key in COUNTRY_THREATS
+        },
         "configured_regions": {
             rid: {
                 "name": info.get("name"),

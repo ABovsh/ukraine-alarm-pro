@@ -144,6 +144,67 @@ def parse_mig(raw: Any) -> MigState | None:
     )
 
 
+@dataclass(frozen=True)
+class CountryThreat:
+    """One country-wide threat on the official map: none, active or launch."""
+
+    status: str = "none"
+    since: str = ""
+
+
+# Sensor key -> the feed's flag, its launch flag and their update stamps.
+# Ballistics has no separate launch flag.
+COUNTRY_THREATS: dict[str, tuple[str, str | None, str, str | None]] = {
+    "ballistics": ("hasBallistics", None, "lastBallisticsUpdateTime", None),
+    "strategic_aviation": (
+        "hasStrategicAviation",
+        "strategicAviationRockets",
+        "lastStrategicAviationUpdateTime",
+        "lastStrategicAviationRocketsUpdateTime",
+    ),
+    "tactical_aviation": (
+        "hasTacticalAviation",
+        "tacticalAviationRockets",
+        "lastTacticalAviationUpdateTime",
+        "lastTacticalAviationRocketsUpdateTime",
+    ),
+    "missile_carriers": (
+        "hasBoats",
+        "boatsRockets",
+        "lastBoatsUpdateTime",
+        "lastBoatsRocketsUpdateTime",
+    ),
+}
+
+
+def _stamp(value: Any) -> str:
+    # The feed marks "no time" with .NET's zero date.
+    return value if isinstance(value, str) and not value.startswith("0001-") else ""
+
+
+def parse_country(raw: Any) -> dict[str, CountryThreat] | None:
+    """Read the country-wide threats; None means the feed says nothing about them.
+
+    Only the WebSocket feed carries `mapNotifications`. As with the MiG, a
+    launch flag counts only together with its threat, and anything but a
+    real `true` reads as no threat rather than inventing one.
+    """
+    notes = raw.get("mapNotifications") if isinstance(raw, dict) else None
+    if not isinstance(notes, dict):
+        return None
+    threats = {}
+    for key, (flag, rockets, stamp, rockets_stamp) in COUNTRY_THREATS.items():
+        if notes.get(flag) is not True:
+            threats[key] = CountryThreat()
+        elif rockets and notes.get(rockets) is True:
+            threats[key] = CountryThreat(
+                "launch", _stamp(notes.get(rockets_stamp)) or _stamp(notes.get(stamp))
+            )
+        else:
+            threats[key] = CountryThreat("active", _stamp(notes.get(stamp)))
+    return threats
+
+
 @dataclass
 class Snapshot:
     """Active alerts across all regions at one point in time."""
@@ -154,6 +215,8 @@ class Snapshot:
     names: dict[str, str] = field(default_factory=dict)
     # None: this feed carries no MiG data (polling, a restored map).
     mig: MigState | None = None
+    # None: this feed carries no country-wide threats (polling, a restored map).
+    country: dict[str, CountryThreat] | None = None
 
     @property
     def active_region_count(self) -> int:
@@ -259,7 +322,9 @@ def parse_alert_payload(raw: dict[str, Any] | list[dict[str, Any]]) -> Snapshot:
             _parse_alert(alert, region_id, where=f"{where} alert {i}")
             for i, alert in enumerate(active)
         ]
-    return Snapshot(regions=regions, names=names, mig=parse_mig(raw))
+    return Snapshot(
+        regions=regions, names=names, mig=parse_mig(raw), country=parse_country(raw)
+    )
 
 
 # Sorts an unparsable stamp oldest rather than dropping the alert.

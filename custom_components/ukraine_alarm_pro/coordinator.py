@@ -42,6 +42,7 @@ from .history import (
 )
 from .models import (
     Alert,
+    CountryThreat,
     MigState,
     RegionView,
     Snapshot,
@@ -96,6 +97,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._mig: MigState | None = None
         self._mig_announced: str | None = None
         self._mig_event_listeners: list = []
+        self._country: dict[str, CountryThreat] | None = None
         self._region_detail_listeners: list = []
         self._backfill_lock = asyncio.Lock()
         self._views: dict[str, RegionView] = {}
@@ -287,6 +289,11 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.changed_regions = None
         if snap.mig is not None:
             self._accept_mig(snap.mig)
+        # A poll cross-check carries none of it and keeps the live status.
+        if snap.country is not None and snap.country != self._country:
+            self._country = snap.country
+            for listener in tuple(self._health_listeners):
+                listener()
         if was_stale:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
@@ -318,6 +325,12 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if self.supervisor.mode != MODE_WS or self.is_stale:
             return None
         return self._mig
+
+    def country_state(self, key: str) -> CountryThreat | None:
+        """Like the MiG: known only on a live WebSocket with fresh data."""
+        if self.supervisor.mode != MODE_WS or self.is_stale or self._country is None:
+            return None
+        return self._country.get(key)
 
     def add_mig_event_listener(self, listener):
         self._mig_event_listeners.append(listener)

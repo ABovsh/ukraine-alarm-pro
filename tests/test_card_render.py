@@ -121,7 +121,7 @@ def test_card_is_built_from_the_sections_the_user_picked():
     assert "7 днів" in week
     assert "24 год" not in week
     sizes = {row[0]: row for row in map(tuple, rendered["card_size"])}
-    assert sizes["status"][1] == "status.updated"  # legacy compact
+    assert sizes["status"][1] == "status.updated,status.typical"  # legacy compact
     assert ("status,details", "") in {row[:2] for row in sizes.values()}
     assert "timeline" in rendered["card_size"][0][0]  # legacy full = every section
     assert rendered["card_size"][3][0] == rendered["card_size"][0][0]  # unknown layout = full

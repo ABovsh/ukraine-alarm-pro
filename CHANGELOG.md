@@ -3,6 +3,43 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### ✨ Added
+
+- Country-wide threats from the official map: `sensor.uap_ballistics` (`none`, `active`),
+  `sensor.uap_strategic_aviation`, `sensor.uap_tactical_aviation` and
+  `sensor.uap_missile_carriers` (`none`, `active`, `launch`), with `since` when the map
+  gives a time. Like the MiG-31K status they are `unknown` in polling mode or with stale
+  data, and write a row only on a change.
+- The card's MiG-31K line is now a line of labels for every active country-wide threat.
+  A label opens its sensor. `status.mig` hides the whole line.
+- During an alert the card shows how long alerts in the region usually last: the median
+  and the length one in four alerts exceed, over 90 days, with a bar for the current
+  alert. Needs at least 10 finished alerts; hide it with `status.typical`. `get_summary`
+  returns the same figures as `typical` (`count`, `median_seconds`, `p75_seconds`, `days`).
+- `tap_action`, `hold_action` and `double_tap_action`, as in Home Assistant's standard
+  cards; the editor sets the first two. Without them a tap opens the region as before.
+
+### 🔧 Changed
+
+- `alert_percentage_24h` and `alert_percentage_7d` keep a value when the data gaps in the
+  window add up to less than 1% of it, such as after a restart; the share is taken over
+  the time that has data. `quality` stays `gaps` and `coverage_complete` `false`. Longer
+  gaps still give `unknown`.
+- The level label carries the map's reason: "Ракетна загроза · червоний" instead of
+  "Червоний рівень" plus a separate reason line. The line returns when the level label
+  is hidden.
+- Cards saved with `layout: compact` also hide the usual length.
+
+### 🐛 Fixed
+
+- The 24 h strip was hatched as incomplete when a gap was anywhere in the last 7 days.
+- After a Home Assistant restart the list of regions could miss a region, or its time and
+  share, until the page was reloaded.
+- The card editor redrew its section list on every state change in Home Assistant,
+  losing focus and sometimes a click.
+
 ## [0.14.0] - 2026-11-01
 
 ### ✨ Added

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import statistics
 import uuid
 from bisect import bisect_right
 from collections.abc import Callable, Iterable
@@ -44,6 +45,11 @@ _FIELDS = (
 
 # A gap this short with no alert edge at or across it hides nothing.
 BRIDGEABLE_GAP_SECONDS = 300
+# A rolling share is still reported when its gaps stay under this part of the window.
+SMALL_GAP_SHARE = 0.01
+# "Usually lasts": closed alerts of the last TYPICAL_DAYS, from TYPICAL_MIN_ALERTS on.
+TYPICAL_DAYS = 90
+TYPICAL_MIN_ALERTS = 10
 # The first snapshot after a gap stamps any transition at the gap's end.
 _EDGE_TOLERANCE = timedelta(seconds=60)
 
@@ -644,6 +650,35 @@ class AlertHistory:
             # Before this the journal did not exist: incomplete, not zero.
             "coverage_start": self._official_since.get(region_id, self._created_at),
             "rolling": self.rolling(region_id, 86400 if days == 1 else 604800),
+            "typical": self.typical(region_id, now=now),
+        }
+
+    def typical(self, region_id: str, *, now: datetime | None = None) -> dict[str, Any] | None:
+        """Median and upper quartile of the closed alerts of the last 90 days.
+
+        Built from the same union of journal and official intervals as the
+        shares. An alert still running, or cut by the window's start, is left
+        out: its length is not known yet.
+        """
+        now = (now or self._now()).astimezone(dt_util.UTC)
+        lo = now - timedelta(days=TYPICAL_DAYS)
+        window = self._window(region_id, lo, now, now=now, render=False)
+        lengths = sorted(
+            (end - start).total_seconds()
+            for start, end in window["spans"]
+            if start > lo and end < now
+        )
+        if len(lengths) < TYPICAL_MIN_ALERTS:
+            return None
+        floor = _parse(self._official_since.get(region_id, self._created_at))
+        covered = (now - max(lo, floor or lo)).total_seconds()
+        return {
+            "count": len(lengths),
+            "median_seconds": round(statistics.median(lengths)),
+            "p75_seconds": round(
+                statistics.quantiles(lengths, n=4, method="inclusive")[2]
+            ),
+            "days": max(1, round(covered / 86400)),
         }
 
     def rolling(
@@ -656,12 +691,20 @@ class AlertHistory:
         )
         complete = window["coverage_complete"]
         duration = window["observed_duration_seconds"]
+        gap = window["gap_seconds"]
+        # A gap under 1 % of the window (a restart) cannot move the share by
+        # more than that: report it over the covered time, quality stays "gaps".
+        small_gap = window["only_gaps"] and gap < SMALL_GAP_SHARE * window_seconds
+        if complete:
+            percentage = round(100 * duration / window_seconds, 1)
+        elif small_gap:
+            percentage = round(100 * duration / (window_seconds - gap), 1)
+        else:
+            percentage = None
         return {
             "region_id": region_id,
             "window_seconds": window_seconds,
-            "percentage": round(100 * duration / window_seconds, 1)
-            if complete
-            else None,
+            "percentage": percentage,
             "coverage_complete": complete,
             "quality": window["quality"],
             "threat_scope": "any_alert",
@@ -787,6 +830,8 @@ class AlertHistory:
             quality = "incomplete"
         if retained is not None and retained > lo:
             quality = "truncated"
+        # "gaps" outranks the two above in `quality`; remember it was the only doubt.
+        only_gaps = bool(holes) and quality == "complete"
         if holes:
             quality = "gaps"
         if opened is not None or region_id in self._resync:
@@ -843,6 +888,7 @@ class AlertHistory:
             "covered_seconds": covered,
             "coverage_complete": quality == "complete",
             "quality": quality,
+            "only_gaps": only_gaps and quality == "gaps",
             "gap_seconds": round(gap_seconds),
             "count": len(intervals),
             "observed_duration_seconds": round(duration),

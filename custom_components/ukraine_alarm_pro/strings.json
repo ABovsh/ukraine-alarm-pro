@@ -98,6 +98,37 @@
           "takeoff": "Take-off",
           "launch": "Kinzhal launch"
         }
+      },
+      "ballistics": {
+        "name": "Ballistic threat",
+        "state": {
+          "none": "None",
+          "active": "Threat"
+        }
+      },
+      "strategic_aviation": {
+        "name": "Strategic aviation",
+        "state": {
+          "none": "None",
+          "active": "In the air",
+          "launch": "Missile launch"
+        }
+      },
+      "tactical_aviation": {
+        "name": "Tactical aviation",
+        "state": {
+          "none": "None",
+          "active": "In the air",
+          "launch": "Missile launch"
+        }
+      },
+      "missile_carriers": {
+        "name": "Missile carriers at sea",
+        "state": {
+          "none": "None",
+          "active": "At sea",
+          "launch": "Missile launch"
+        }
       }
     },
     "binary_sensor": {

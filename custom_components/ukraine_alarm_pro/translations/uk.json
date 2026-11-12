@@ -98,6 +98,37 @@
           "takeoff": "Зліт",
           "launch": "Пуск «Кинджала»"
         }
+      },
+      "ballistics": {
+        "name": "Загроза балістики",
+        "state": {
+          "none": "Немає",
+          "active": "Загроза"
+        }
+      },
+      "strategic_aviation": {
+        "name": "Стратегічна авіація",
+        "state": {
+          "none": "Немає",
+          "active": "У повітрі",
+          "launch": "Пуск ракет"
+        }
+      },
+      "tactical_aviation": {
+        "name": "Тактична авіація",
+        "state": {
+          "none": "Немає",
+          "active": "У повітрі",
+          "launch": "Пуск ракет"
+        }
+      },
+      "missile_carriers": {
+        "name": "Ракетоносії в морі",
+        "state": {
+          "none": "Немає",
+          "active": "У морі",
+          "launch": "Пуск ракет"
+        }
       }
     },
     "binary_sensor": {

@@ -57,6 +57,15 @@ const I18N = {
     clearedAt: "відбій",
     mig: { takeoff: "Зліт МіГ-31К", launch: "Пуск «Кинджала» з МіГ-31К" },
     airfields: { savasleika: "Саваслейка", mozdok: "Моздок" },
+    country: {
+      ballistics: { active: "Загроза балістики" },
+      strategic_aviation: { active: "Стратегічна авіація в повітрі", launch: "Пуск ракет зі стратегічної авіації" },
+      tactical_aviation: { active: "Тактична авіація в повітрі", launch: "Пуск ракет з тактичної авіації" },
+      missile_carriers: { active: "Ракетоносії в морі", launch: "Пуск ракет з кораблів" },
+    },
+    usually: "Зазвичай",
+    oneInFour: "кожна четверта довше",
+    days: "днів",
     chartTitle: "години тривоги",
     max: "макс.",
   },
@@ -109,6 +118,15 @@ const I18N = {
     clearedAt: "cleared",
     mig: { takeoff: "MiG-31K take-off", launch: "Kinzhal launch from MiG-31K" },
     airfields: { savasleika: "Savasleyka", mozdok: "Mozdok" },
+    country: {
+      ballistics: { active: "Ballistic threat" },
+      strategic_aviation: { active: "Strategic aviation airborne", launch: "Missile launch from strategic aviation" },
+      tactical_aviation: { active: "Tactical aviation airborne", launch: "Missile launch from tactical aviation" },
+      missile_carriers: { active: "Missile carriers at sea", launch: "Missile launch from ships" },
+    },
+    usually: "Usually",
+    oneInFour: "one in four over",
+    days: "days",
     chartTitle: "alert hours",
     max: "max",
   },
@@ -201,13 +219,13 @@ const SECTIONS = ["status", "details", "timeline", "stats"];
 const RETIRED_SECTIONS = ["records"];
 // What each section is made of. `hide: [section.item]` drops an item; the ids are part of saved configs.
 const ITEMS = {
-  status: ["timer", "updated", "mig"],
+  status: ["timer", "updated", "typical", "mig"],
   details: ["level", "types", "coverage", "reason"],
   stats: ["today", "day", "week", "month", "bar", "total", "count", "longest", "average", "lamp", "chart"],
 };
 // The 0.11 card's `layout` values, as the sections that show the same things.
 const LEGACY_LAYOUTS = {
-  compact: { sections: ["status"], hide: ["status.updated"] },
+  compact: { sections: ["status"], hide: ["status.updated", "status.typical"] },
   status: { sections: ["status", "details"], hide: [] },
   full: { sections: SECTIONS, hide: [] },
 };
@@ -443,7 +461,9 @@ class UkraineAlarmProCard extends HTMLElement {
     const ids = this._entities();
     const rid = ids && regionIdOf(this._hass, ids.alert);
     if (!rid) return;
-    const full = this._statsOn();
+    const alertOn = this._hass.states[ids.alert].state === "on";
+    // The usual length of an alert comes with the summary, wanted only while one runs.
+    const full = this._statsOn() || (alertOn && this._shows("status", "typical"));
     // Without statistics the journal only supplies "quiet since" for the timer;
     // an active alert gets its start time directly from states.
     // The alert_cleared sensor (0.12+) supplies "quiet since" without a call.
@@ -494,6 +514,7 @@ class UkraineAlarmProCard extends HTMLElement {
       percentage24h: sibling(hass, "alert_percentage_24h", rid),
       percentage7d: sibling(hass, "alert_percentage_7d", rid),
       mig: hub(hass, "mig_status"),
+      ...countryHubs(hass),
     };
     this._entityCache = { registry: hass.entities, configured: this._config.entity, ids };
     return ids;
@@ -542,8 +563,9 @@ class UkraineAlarmProCard extends HTMLElement {
   _timelineHtml(t, stats) {
     const fmt = this._fmt();
     const { day, hi } = this._rolling(stats);
-    // The strip draws only the last 24 hours: a gap earlier in the week does not hatch it.
-    const incomplete = !complete(day);
+    // The strip draws only the last 24 hours: a gap earlier in the week does not hatch it,
+    // nor does a gap too short to withhold the share (under 1 % of the day).
+    const incomplete = !Number.isFinite(day?.percentage);
     // Complete 24 h union supplied by the same calculation as the sensors.
     const lo = hi - 86400000;
     const segments = (day?.intervals || []).map((interval) => {
@@ -698,36 +720,97 @@ class UkraineAlarmProCard extends HTMLElement {
     }
     patchDOM(this.shadowRoot, `${STYLE}
       <ha-card class="${view.status}${compact ? " compact" : ""}" tabindex="0" role="button" aria-label="${esc(view.name)}: ${esc(view.title)}">
-        ${this._migHtml(t, ids.mig)}${parts.join("\n")}
+        ${this._countryHtml(t, ids)}${parts.join("\n")}
       </ha-card>`);
     this._bindOpen();
   }
 
-  // A tap opens the region's alert entity: the row's in the list, the card's otherwise.
+  // A tap opens the region (the row's in the list, the card's otherwise) unless
+  // tap_action says otherwise; hold_action and double_tap_action are HA's usual.
   _bindOpen() {
     const card = this.shadowRoot.querySelector("ha-card");
     if (!card || this._eventCard === card) return;
     this._eventCard = card;
-    const open = (event) => {
-      const row = event?.composedPath?.().find((el) => el?.dataset?.entity);
-      const id = row ? row.dataset.entity : !this._config.entities && this._entities()?.alert;
-      if (id) this._moreInfo(id);
+    const aim = (event) => {
+      const path = event?.composedPath?.() || [];
+      const chip = path.find((el) => el?.dataset?.more);
+      if (chip) return { more: chip.dataset.more };
+      const row = path.find((el) => el?.dataset?.entity);
+      return { entity: row ? row.dataset.entity : !this._config.entities && this._entities()?.alert };
     };
-    card.addEventListener("click", open);
+    let holdTimer = null;
+    let held = false;
+    let start = null;
+    let pending = null;
+    const release = () => { clearTimeout(holdTimer); holdTimer = null; };
+    card.addEventListener("pointerdown", (event) => {
+      held = false;
+      start = [event.clientX, event.clientY];
+      release();
+      const target = aim(event);
+      if (!this._hasAction("hold_action") || !target.entity) return;
+      holdTimer = setTimeout(() => { held = true; holdTimer = null; this._act("hold", target.entity); }, HOLD_MS);
+    });
+    card.addEventListener("pointermove", (event) => {
+      if (holdTimer && start && Math.hypot(event.clientX - start[0], event.clientY - start[1]) > 10) release();
+    });
+    for (const type of ["pointerup", "pointercancel", "pointerleave"]) card.addEventListener(type, release);
+    card.addEventListener("contextmenu", (event) => { if (this._hasAction("hold_action")) event.preventDefault(); });
+    const tap = (event, now) => {
+      const target = aim(event);
+      if (target.more) { this._moreInfo(target.more); return; }
+      if (!target.entity) return;
+      if (now || !this._hasAction("double_tap_action")) { this._act("tap", target.entity); return; }
+      if (pending) { clearTimeout(pending); pending = null; this._act("double_tap", target.entity); return; }
+      pending = setTimeout(() => { pending = null; this._act("tap", target.entity); }, DOUBLE_TAP_MS);
+    };
+    card.addEventListener("click", (event) => {
+      // The release that ends a hold is not also a tap.
+      if (held) { held = false; return; }
+      tap(event, false);
+    });
     card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(event); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); tap(event, true); }
     });
   }
 
-  // A country-wide line, only while a MiG-31K is up; an unknown status draws nothing.
-  _migHtml(t, id) {
-    const state = id && this._hass.states[id];
-    if (!state || !t.mig[state.state] || this._config.hide.includes("status.mig")) return "";
-    const since = dateOf(state.attributes.since);
-    const parts = [t.mig[state.state], t.airfields[state.attributes.airfield],
-      since && `${t.since} ${hhmm(since, this._fmt())}`].filter(Boolean);
-    return `<div class="mig ${esc(state.state)}" data-entity="${esc(id)}" role="button" tabindex="0">`
-      + `<ha-icon icon="mdi:airplane-alert"></ha-icon><span>${esc(parts.join(" · "))}</span></div>`;
+  _hasAction(key) {
+    const action = this._config[key]?.action;
+    return Boolean(action) && action !== "none";
+  }
+
+  // Without a tap_action a tap opens the entity directly, as before; anything
+  // configured goes to Home Assistant's own action handler.
+  _act(action, entity) {
+    if (action === "tap" && !this._config.tap_action) { this._moreInfo(entity); return; }
+    const { tap_action, hold_action, double_tap_action } = this._config;
+    this.dispatchEvent(new CustomEvent("hass-action", { bubbles: true, composed: true,
+      detail: { config: { entity, tap_action, hold_action, double_tap_action }, action } }));
+  }
+
+  // Country-wide threats in one row, only while one is up: the MiG-31K, ballistics,
+  // strategic and tactical aviation, missile carriers. An unknown state draws nothing.
+  // A chip opens its own sensor (`data-more`), not the card's tap action.
+  _countryHtml(t, ids) {
+    if (this._config.hide.includes("status.mig")) return "";
+    const chips = [];
+    const mig = ids.mig && this._hass.states[ids.mig];
+    if (mig && t.mig[mig.state]) {
+      const since = dateOf(mig.attributes.since);
+      const parts = [t.mig[mig.state], t.airfields[mig.attributes.airfield], since && `${t.since} ${hhmm(since, this._fmt())}`];
+      chips.push(["mig", mig.state, ids.mig, "mdi:airplane-alert", parts]);
+    }
+    for (const [key, icon] of COUNTRY) {
+      const state = ids[key] && this._hass.states[ids[key]];
+      const text = state && t.country[key][state.state];
+      if (!text) continue;
+      const since = dateOf(state.attributes.since);
+      chips.push([key, state.state, ids[key], icon, [text, since && `${t.since} ${hhmm(since, this._fmt())}`]]);
+    }
+    if (!chips.length) return "";
+    return `<div class="country">${chips.map(([key, state, id, icon, parts]) =>
+      `<span class="ct ${key} ${esc(state)}" data-more="${esc(id)}" role="button" tabindex="0">`
+      + `<ha-icon icon="${icon}"></ha-icon><span>${esc(parts.filter(Boolean).join(" · "))}</span></span>`).join("")}</div>`;
   }
 
   // The listed regions that exist, each with the sensors its row reads.
@@ -751,7 +834,7 @@ class UkraineAlarmProCard extends HTMLElement {
         percentage24h: sibling(hass, "alert_percentage_24h", rid),
       };
     });
-    const hubs = { stale: hub(hass, "data_stale"), mig: hub(hass, "mig_status") };
+    const hubs = { stale: hub(hass, "data_stale"), mig: hub(hass, "mig_status"), ...countryHubs(hass) };
     this._listCache = { registry: hass.entities, configured: this._config.entities, rows, hubs };
     return rows;
   }
@@ -801,7 +884,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const head = this._config.name ? `<div class="lhead">${esc(this._config.name)}</div>` : "";
     const note = stale ? `<div class="foot"><span class="dot"></span>${esc(t.staleNote)}</div>` : "";
     const body = rows.length ? rows.join("") : `<div class="empty">${esc(t.notFound)}</div>`;
-    patchDOM(this.shadowRoot, `${STYLE}<ha-card class="list">${head}${this._migHtml(t, hubs.mig)}${note}${body}</ha-card>`);
+    patchDOM(this.shadowRoot, `${STYLE}<ha-card class="list">${head}${this._countryHtml(t, hubs)}${note}${body}</ha-card>`);
     this._bindOpen();
   }
 
@@ -855,7 +938,11 @@ class UkraineAlarmProCard extends HTMLElement {
       .slice(1)
       .map((type) => chip(TYPE_ICONS[type] || TYPE_ICONS.unrecognized, t.types[type] || type));
     const levelText = this._shows("details", "level") && t.level[view.air];
-    if (levelText) chips.push(`<span class="chip level ${esc(view.air)}"><span class="dot"></span>${esc(levelText)}</span>`);
+    // The feed's reason already names the level ("Ракетна загроза (червоний рівень)"):
+    // the chip says the threat and the level once, and the reason line goes.
+    const merged = this._mergedReasons(view);
+    const label = merged ? `${merged.join(" · ")} · ${t.levelWord[view.air]}` : levelText;
+    if (levelText) chips.push(`<span class="chip level ${esc(view.air)}"><span class="dot"></span>${esc(label)}</span>`);
     const coverage = this._shows("details", "coverage") ? view.threat?.attributes?.coverage : undefined;
     if (coverage === "whole") chips.push(chip("mdi:map", t.whole));
     if (coverage === "unrecognized") chips.push(chip("mdi:map-search", t.unknownCoverage));
@@ -867,6 +954,14 @@ class UkraineAlarmProCard extends HTMLElement {
     return chips;
   }
 
+  // The reasons without their "(… рівень)" tail, when the level chip carries them.
+  _mergedReasons(view) {
+    if (!view.active || !hasLevel(view) || !this._shows("details", "level") || !this._shows("details", "reason")) return null;
+    const names = [...new Set((view.level?.attributes?.reasons || [])
+      .map((reason) => String(reason).replace(/\s*\([^)]*\)\s*$/, "").trim()).filter(Boolean))];
+    return names.length ? names : null;
+  }
+
   // The update time rides quietly in the region line; stale data turns it red.
   _meta(t, view) {
     const updated = dateOf(known(view.updated)?.state);
@@ -876,10 +971,11 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 
   _sectionHtml(section, t, view) {
-    if (section === "status") return this._headHtml(t, view);
+    if (section === "status") return this._headHtml(t, view) + this._typicalHtml(t, view);
     if (section === "details") {
       const chips = this._chips(t, view);
-      const reasons = view.active && this._shows("details", "reason") ? (view.level?.attributes?.reasons || []).join(" · ") : "";
+      const reasons = view.active && this._shows("details", "reason") && !this._mergedReasons(view)
+        ? (view.level?.attributes?.reasons || []).join(" · ") : "";
       if (!chips.length && !reasons) return "";
       const chipsHtml = chips.length ? `<div class="chips">${chips.join("")}</div>` : "";
       const reasonsHtml = reasons ? `<div class="reasons">${esc(reasons)}</div>` : "";
@@ -888,6 +984,23 @@ class UkraineAlarmProCard extends HTMLElement {
     if (!view.journal) return "";
     const html = { timeline: this._timelineHtml, stats: this._statsHtml }[section].call(this, t, view.journal);
     return html ? `<div class="sec ${section}">${html}</div>` : "";
+  }
+
+  // How long an alert here usually lasts, against how long this one has run.
+  _typicalHtml(t, view) {
+    const typical = view.journal?.summary?.typical;
+    const since = view.active && dateOf(known(view.started)?.state);
+    if (!typical || !since || !this._shows("status", "typical")) return "";
+    const median = typical.median_seconds;
+    const upper = typical.p75_seconds;
+    if (!(median > 0) || !(upper > 0)) return "";
+    const elapsed = Math.max((Date.now() - since.getTime()) / 1000, 0);
+    const scale = Math.max(upper * 1.25, elapsed);
+    const at = (seconds) => `${((seconds / scale) * 100).toFixed(1)}%`;
+    return `<div class="typ" title="${esc(alerts(t, typical.count))}"><div class="typbar"><i style="width:${at(elapsed)}"></i>`
+      + `<b style="left:${at(median)}"></b><b style="left:${at(upper)}"></b></div>`
+      + `<div class="typtxt"><span>${esc(t.usually)} ~${esc(span(t, median))}, ${esc(t.oneInFour)} ${esc(span(t, upper))}</span>`
+      + `<span>${esc(typical.days)} ${esc(t.days)}</span></div></div>`;
   }
 
   _headHtml(t, view) {
@@ -905,6 +1018,18 @@ class UkraineAlarmProCard extends HTMLElement {
   }
 }
 
+// Country-wide threat sensors, in the feed's order, with their chip icons.
+const COUNTRY = [
+  ["ballistics", "mdi:rocket-launch"],
+  ["strategic_aviation", "mdi:airplane"],
+  ["tactical_aviation", "mdi:airplane-takeoff"],
+  ["missile_carriers", "mdi:ferry"],
+];
+const countryHubs = (hass) => Object.fromEntries(COUNTRY.map(([key]) => [key, hub(hass, key)]));
+const hasLevel = (view) => ["red", "yellow", "unrecognized"].includes(view.air);
+const HOLD_MS = 500;
+const DOUBLE_TAP_MS = 250;
+
 const STATUS_ICONS = {
   red: "mdi:alarm-light",
   yellow: "mdi:alarm-light",
@@ -913,8 +1038,6 @@ const STATUS_ICONS = {
   stale: "mdi:cloud-off-outline",
   nodata: "mdi:timer-sand",
 };
-
-const complete = (result) => Boolean(result?.coverage_complete) && Number.isFinite(result.percentage);
 
 const known = (state) => (state && !["unknown", "unavailable"].includes(state.state) ? state : null);
 
@@ -1055,12 +1178,24 @@ const STYLE = `<style>
   .bar { height: 100%; display: flex; align-items: flex-end; }
   .bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--primary-color) 70%, transparent); }
   .bar.top i { background: var(--primary-color); }
-  /* A MiG-31K in the air, for the whole country. */
-  .mig { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; padding: 5px 8px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
-    color: var(--primary-text-color); --mig: var(--uap-yellow); background: color-mix(in srgb, var(--mig) 18%, transparent); }
-  .mig.launch { --mig: var(--uap-red); background: color-mix(in srgb, var(--mig) 30%, transparent); }
-  .mig ha-icon { --mdc-icon-size: 16px; display: flex; flex: none; color: var(--mig); }
-  ha-card.list .mig { margin: 6px 0 2px; }
+  /* Country-wide threats: the MiG-31K, ballistics, aviation, missile carriers. */
+  .country { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+  .ct { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px;
+    font-weight: 600; line-height: 1.3; color: var(--primary-text-color); --c: var(--uap-yellow);
+    background: color-mix(in srgb, var(--c) 18%, transparent); cursor: pointer; }
+  .ct.launch, .ct.ballistics { --c: var(--uap-red); background: color-mix(in srgb, var(--c) 28%, transparent); }
+  .ct ha-icon { --mdc-icon-size: 15px; display: flex; flex: none; color: var(--c); }
+  .ct:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  ha-card.list .country { margin: 6px 0 2px; }
+  /* How long an alert here usually lasts. */
+  .typ { margin-top: 9px; }
+  .typbar { position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); }
+  .typbar i { position: absolute; left: 0; top: 0; bottom: 0; max-width: 100%; border-radius: 3px; background: var(--accent); }
+  .typbar b { position: absolute; top: -3px; width: 2px; height: 11px; margin-left: -1px; border-radius: 1px;
+    background: var(--primary-text-color); opacity: .5; }
+  .typtxt { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11.5px; color: var(--secondary-text-color); }
+  .typtxt span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .typtxt span:last-child { flex: none; }
   /* Several regions: a line each. */
   ha-card.list { padding: 6px 14px; }
   .lhead { padding: 6px 0 2px; font-size: 14px; font-weight: 600; color: var(--primary-text-color); }
@@ -1089,6 +1224,7 @@ const STYLE = `<style>
 const EDITOR_I18N = {
   uk: {
     entity: "Регіони", name: "Назва", language: "Мова картки",
+    tap_action: "Дія при натисканні", hold_action: "Дія при утриманні",
     listNote: "Кілька регіонів показуються списком: рядок на регіон. Розділи нижче стосуються картки одного регіону.",
     head: "Розділи", reset: "Скинути", up: "Вище", down: "Нижче", items: "Що показувати",
     names: {
@@ -1098,7 +1234,7 @@ const EDITOR_I18N = {
       stats: ["Статистика", "частка часу під тривогою, кількість, найдовша й середня тривога за 24 год, 7 днів, сьогодні й місяць; графік за місяць"],
     },
     item: {
-      status: { timer: "Тривалість", updated: "Час оновлення", mig: "Зліт МіГ-31К" },
+      status: { timer: "Тривалість", updated: "Час оновлення", typical: "Зазвичай триває", mig: "Загрози по країні" },
       details: { level: "Рівень", types: "Інші загрози", coverage: "Охоплення", reason: "Причина" },
       stats: { today: "Сьогодні", day: "24 год", week: "7 днів", month: "Поточний місяць", bar: "Смужка частки", total: "Разом", count: "Кількість", longest: "Найдовша", average: "Середня", lamp: "Індикатор повноти даних", chart: "Графік за місяць" },
     },
@@ -1106,6 +1242,7 @@ const EDITOR_I18N = {
   },
   en: {
     entity: "Regions", name: "Name", language: "Card language",
+    tap_action: "Tap action", hold_action: "Hold action",
     listNote: "Several regions are shown as a list, a line each. The sections below apply to a one-region card.",
     head: "Sections", reset: "Reset", up: "Move up", down: "Move down", items: "What to show",
     names: {
@@ -1115,7 +1252,7 @@ const EDITOR_I18N = {
       stats: ["Statistics", "share of time under alert, count, longest and average alert over 24 h, 7 days, today and this month; month chart"],
     },
     item: {
-      status: { timer: "Duration", updated: "Update time", mig: "MiG-31K take-off" },
+      status: { timer: "Duration", updated: "Update time", typical: "Usual length", mig: "Country-wide threats" },
       details: { level: "Level", types: "Other threats", coverage: "Coverage", reason: "Reason" },
       stats: { today: "Today", day: "24 h", week: "7 days", month: "This month", bar: "Share bar", total: "Total", count: "Count", longest: "Longest", average: "Average", lamp: "Data completeness lamp", chart: "Month chart" },
     },
@@ -1252,7 +1389,7 @@ class UkraineAlarmProCardEditor extends HTMLElement {
       this._form.computeLabel = (field) => this._labels()[field.name];
       this._form.addEventListener("value-changed", (event) => {
         event.stopPropagation();
-        const { entity, name, language } = event.detail.value;
+        const { entity, name, language, tap_action, hold_action } = event.detail.value;
         const next = { ...this._config };
         // One region is `entity`; several are `entities` and make the card a list.
         const picked = (Array.isArray(entity) ? entity : [entity]).filter(Boolean);
@@ -1264,6 +1401,9 @@ class UkraineAlarmProCardEditor extends HTMLElement {
         for (const [key, value] of Object.entries({ name, language })) {
           if (value && value !== "auto") next[key] = value; else delete next[key];
         }
+        for (const [key, value] of Object.entries({ tap_action, hold_action })) {
+          if (value && typeof value === "object") next[key] = value; else delete next[key];
+        }
         this._config = next;
         this._emit({});
       });
@@ -1274,9 +1414,12 @@ class UkraineAlarmProCardEditor extends HTMLElement {
       { name: "entity", selector: { entity: { multiple: true, filter: [{ integration: DOMAIN, domain: "binary_sensor", device_class: "safety" }] } } },
       { name: "name", selector: { text: {} } },
       { name: "language", selector: { select: { mode: "dropdown", options: Object.entries(l.languages).map(([value, label]) => ({ value, label })) } } },
+      { name: "tap_action", selector: { ui_action: {} } },
+      { name: "hold_action", selector: { ui_action: {} } },
     ];
     this._form.data = { entity: this._config.entities || (this._config.entity ? [this._config.entity] : []),
-      name: this._config.name, language: this._config.language || "auto" };
+      name: this._config.name, language: this._config.language || "auto",
+      tap_action: this._config.tap_action, hold_action: this._config.hold_action };
   }
 }
 

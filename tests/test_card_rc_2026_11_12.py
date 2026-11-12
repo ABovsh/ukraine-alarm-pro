@@ -61,3 +61,9 @@ async def test_24h_strip_is_marked_incomplete_only_by_the_24h_data(page):
         attributes: { region_id: '31', quality: 'gaps', coverage_complete: false } } } };""")
     await page.evaluate("c._render()")
     assert await page.evaluate("c.shadowRoot.querySelector('.strip').className") == "strip incomplete"
+    # A share given despite a short gap leaves the strip plain.
+    await page.evaluate("""c.hass = { ...hass, states: { ...hass.states, 'sensor.uap_31_alert_percentage_24h': {
+        ...hass.states['sensor.uap_31_alert_percentage_24h'], state: '3.1', last_updated: 'c',
+        attributes: { region_id: '31', quality: 'gaps', coverage_complete: false } } } };""")
+    await page.evaluate("c._render()")
+    assert await page.evaluate("c.shadowRoot.querySelector('.strip').className") == "strip"

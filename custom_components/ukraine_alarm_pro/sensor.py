@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
-from .models import AIR_LEVEL_OPTIONS, RegionView, ThreatLevel
+from .models import AIR_LEVEL_OPTIONS, COUNTRY_THREATS, RegionView, ThreatLevel
 
 # Keep live lists bounded; recorder separately omits selected large attributes.
 MAX_LISTED_ALERTS = 25
@@ -49,6 +49,9 @@ async def async_setup_entry(
             LastUpdateSensor(coordinator, entry.entry_id),
             MigStatusSensor(coordinator, entry.entry_id),
         ]
+    )
+    entities.extend(
+        CountryThreatSensor(coordinator, entry.entry_id, key) for key in COUNTRY_THREATS
     )
     async_add_entities(entities)
 
@@ -241,6 +244,48 @@ class MigStatusSensor(UapStalenessEntity, SensorEntity):
         if mig is None or mig.status == "none":
             return {}
         return {"airfield": mig.airfield, "since": mig.since}
+
+
+class CountryThreatSensor(UapStalenessEntity, SensorEntity):
+    """A country-wide threat: ballistics, strategic or tactical aviation, missile carriers.
+
+    Same contract as the MiG status: unknown on polling or stale data, no
+    state_class, a `since` that holds still while the threat lasts, so it
+    writes a row per transition only.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_entity_category = None
+
+    def __init__(self, coordinator, entry_id, key: str) -> None:
+        # The base constructor already reads `_publish_key`.
+        self._key = key
+        super().__init__(coordinator, entry_id)
+        # Ballistics has no launch flag in the feed.
+        self._attr_options = (
+            ["none", "active"]
+            if COUNTRY_THREATS[key][1] is None
+            else ["none", "active", "launch"]
+        )
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{entry_id}_{key}"
+        self.entity_id = f"sensor.uap_{key}"
+
+    @callback
+    def _publish_key(self):
+        return self.coordinator.country_state(self._key)
+
+    @property
+    def native_value(self) -> str | None:
+        threat = self.coordinator.country_state(self._key)
+        return None if threat is None else threat.status
+
+    @property
+    def extra_state_attributes(self):
+        threat = self.coordinator.country_state(self._key)
+        if threat is None or threat.status == "none" or not threat.since:
+            return {}
+        return {"since": threat.since}
 
 
 class TransportSensor(UapDiagnosticEntity, SensorEntity):

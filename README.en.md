@@ -26,8 +26,9 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
   clear, alert details, a day strip and statistics for 24 hours, 7 days, today and the month. The card's
   sections are switched on, off and reordered in its editor, and a chart shows the
   alert hours of the current month. Several regions are shown as a list, a line each.
-- **MiG-31K take-off and Kinzhal launch.** A country-wide sensor, an event and a line on
-  the card. Only the WebSocket carries this data.
+- **Country-wide threats.** MiG-31K take-off and Kinzhal launch, ballistic threat,
+  strategic and tactical aviation, missile carriers at sea: separate sensors and a line on
+  the card for the whole country. Only the WebSocket carries this data.
 - **Up to 90 days of history.** Local observations are supplemented with official
   air-alert history. That source has no alert levels or alerts declared for an individual hromada.
 - **Events and notification blueprints.** Alert start, escalation, new threats,
@@ -85,19 +86,28 @@ set their order there.
 
 | Section | What it shows | Items you can hide |
 | --- | --- | --- |
-| Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear | duration, update time, the MiG-31K line |
+| Status | region name, alert or quiet, how long the alert has lasted or how long since the all clear, and during an alert how long alerts in this region usually last | duration, update time, usual length, country-wide threats |
 | Alert details | level, other threats, coverage (the whole region or part of it) and reason | each of the four |
 | 24 h strip | when the alerts were over the last day, marked at 00:00, 06:00, 12:00 and 18:00 | — |
 | Statistics | a table with a row per period (today since local midnight, 24 h, 7 days, the current month). Columns: share of time under alert with a bar, total, count, longest and average alert. On a narrow card the type and column gaps shrink | each period; the bar, the total, count, longest and average columns; the lamp; the month chart |
 
 - Alert details appear only during an alert. Without the "Alert details" section the
   level is shown next to the region name.
+- The map's reason, such as "Ракетна загроза (червоний рівень)", goes into the level
+  label: "Ракетна загроза · red". It gets a line of its own only when the level label is hidden.
+- "Usually ~33 min, one in four over 1 h 10 min": the median length of the region's
+  finished alerts over 90 days and the length one in four of them exceeds. The line shows
+  only during an alert and with at least 10 alerts in the journal. Its bar shows how long
+  the current alert has run; the marks on it are those two values.
 - When data is stale the card says "No fresh data", not "All quiet", and shows the
   update time in red. An active alert on stale data gets a separate warning.
 - During an alert the card is tinted in the level's colour.
 
 Tapping the card opens the alert sensor with its history. Tab moves focus to the card;
-Enter or Space opens the same sensor.
+Enter or Space opens the same sensor. **Tap action** and **Hold action** in the editor, or
+`tap_action`, `hold_action` and `double_tap_action` in YAML, set another action, as in Home
+Assistant's standard cards. In the list the action applies to the region whose line was
+tapped. A country-wide threat label always opens its own sensor.
 
 ### Adding the card
 
@@ -136,12 +146,17 @@ sections:                           # optional; without it, every section in thi
 hide:                               # optional: section items not to show
   - details.reason
 language: auto                      # auto (Home Assistant language), uk or en
+tap_action:                         # optional; without it a tap opens the region
+  action: navigate
+  navigation_path: /uap-alarm
+hold_action:                        # optional
+  action: more-info
 ```
 
-Items for `hide`: `status.timer`, `status.updated`, `status.mig`, `details.level`, `details.types`,
+Items for `hide`: `status.timer`, `status.updated`, `status.typical`, `status.mig` (the whole country-wide threats line), `details.level`, `details.types`,
 `details.coverage`, `details.reason`, `stats.day`, `stats.week`, `stats.today`, `stats.month`, `stats.bar`, `stats.total`, `stats.count`, `stats.longest`, `stats.average`, `stats.lamp`, `stats.chart`. The 0.12 `records` section no longer exists: its numbers are in the statistics table, and it is skipped in saved cards. Cards saved with
 `layout:` before 0.12 open with the matching sections: `compact` — "Status" without the
-update time, `status` — "Status" and "Alert details", `full` — every section.
+update time and the usual length, `status` — "Status" and "Alert details", `full` — every section.
 
 Under the table is a chart of the current month: a bar per day, its height the hours
 under alert out of 24. The longest day is highlighted. The tooltip on a bar gives the
@@ -152,11 +167,12 @@ The share for today and the month is the alert duration divided by the part of t
 Statistics come from the [alert journal](#alert-history). Fetching official history
 starts five minutes after startup and depends on the source being available.
 With complete data the percentages match the [time-under-alert sensors](#time-under-alert);
-with gaps the sensors are `unknown` and the card shows the share of the time that has data.
+gaps shorter than 1% of the window do not hide the sensors; with longer ones the sensors
+are `unknown` and the card shows the share of the time that has data.
 Incomplete statistics, stale data and partial geographical coverage have separate indicators.
 Cards for the same region share requests and pause them in a hidden tab or offscreen.
-A card without the day strip and statistics makes no
-journal requests: it reads the time since the all clear from
+A card without the day strip and statistics asks the journal only during an alert, for
+the usual length (at most once in 5 minutes); it reads the time since the all clear from
 `sensor.uap_<id>_alert_cleared`. The card creates no database rows. Entities may be renamed: the card finds them by region.
 
 ## Notifications
@@ -219,8 +235,12 @@ if you rename them, use your own IDs in automations.
 | `sensor.uap_<id>_alert_percentage_24h` | % | time under alert over the last 86,400 seconds |
 | `sensor.uap_<id>_alert_percentage_7d` | % | time under alert over the last 604,800 seconds |
 | `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
-| `sensor.uap_mig_status` | enum | MiG-31K: `none`, `takeoff`, `launch`; see [MiG-31K](#mig-31k) |
+| `sensor.uap_mig_status` | enum | MiG-31K: `none`, `takeoff`, `launch`; see [Country-wide threats](#country-wide-threats) |
 | `event.uap_mig_event` | event | events `takeoff`, `launch`, `cleared` |
+| `sensor.uap_ballistics` | enum | ballistic threat: `none`, `active` |
+| `sensor.uap_strategic_aviation` | enum | strategic aviation: `none`, `active` (airborne), `launch` (missile launch) |
+| `sensor.uap_tactical_aviation` | enum | tactical aviation: `none`, `active`, `launch` |
+| `sensor.uap_missile_carriers` | enum | missile carriers at sea: `none`, `active`, `launch` |
 | `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
 | `sensor.uap_last_update` | diagnostic | last data received, rounded to a minute |
 | `sensor.uap_active_regions` | diagnostic | how many regions are in alert country-wide |
@@ -243,7 +263,10 @@ The current alert is included. Intervals are clipped to the window and overlappi
 administrative declarations are counted once. One hour out of 24 is **4.2%**; the
 native value is rounded to 0.1%.
 
-Incomplete coverage produces `unknown`. `quality` and `coverage_complete` describe
+Incomplete coverage produces `unknown`. The exception is data gaps that together take
+less than 1% of the window (14 min 24 s of a day, 1 h 40 min of 7 days): the percentage
+is then taken over the time that has data, `quality` stays `gaps` and `coverage_complete`
+`false`. Such a gap moves the percentage by less than 1%. `quality` and `coverage_complete` describe
 it: `complete` means a fully covered window, `incomplete` means observation began
 inside the window, `gaps` means a recorded outage, `stale` means an ongoing outage
 or waiting for confirmation after startup, `truncated` means the retention cap
@@ -319,10 +342,9 @@ time), `origin` (`live`, `recovery` or `bootstrap`), `previous` and `current` (`
 `active_since_known` — when the integration first saw the current alert and whether that
 was its real start.
 
-### MiG-31K
+### Country-wide threats
 
-Country-wide data on a MiG-31K take-off and a Kinzhal missile launch comes from the
-official alert map.
+Country-wide threat data comes from the official alert map.
 
 - `sensor.uap_mig_status`: `none`, `takeoff` or `launch`. Attributes during a take-off:
   `airfield` (`savasleika`, `mozdok` or `unknown`) and `since`.
@@ -330,8 +352,13 @@ official alert map.
   or with stale data the state is unknown, not `none`.
 - `event.uap_mig_event` fires when the state changes. A take-off from before Home
   Assistant started is not announced as a new one.
-- The card shows a line only during a take-off or launch. Tapping it opens the sensor;
-  hide it with `status.mig`.
+- `sensor.uap_ballistics`, `sensor.uap_strategic_aviation`, `sensor.uap_tactical_aviation`
+  and `sensor.uap_missile_carriers`: `none`, `active` (aviation airborne, ships at sea) or
+  `launch` (missile launch; ballistics has no separate launch). The `since` attribute is the
+  map's time when it gives one. They are `unknown` in polling mode or with stale data too.
+  A sensor writes a new state only on a change.
+- The card shows a line of labels only while at least one threat is active. Tapping a
+  label opens its sensor; hide the line with `status.mig`.
 
 ## Alert history
 
