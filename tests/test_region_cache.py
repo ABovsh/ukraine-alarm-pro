@@ -110,6 +110,8 @@ async def test_no_cache_and_no_network_raises(hass: HomeAssistant):
         {"schema": 99, "tree": REGIONS_TREE, "fetched_at": "2026-09-15T00:00:00+00:00"},
         {"schema": 1, "tree": {"states": []}, "fetched_at": "2026-09-15T00:00:00+00:00"},
         {"schema": 1, "tree": REGIONS_TREE, "fetched_at": "garbage"},
+        # Not written by us: comparing it with an aware clock would raise.
+        {"schema": 1, "tree": REGIONS_TREE, "fetched_at": "2026-09-15T00:00:00"},
         "junk",
     ],
 )
@@ -196,6 +198,16 @@ async def test_stale_cache_is_refreshed_in_the_background(hass: HomeAssistant, h
     hass_storage[REGION_CACHE_KEY]["data"]["fetched_at"] = (
         dt_util.utcnow() - timedelta(days=2)
     ).isoformat()
+    with patch(FETCH, return_value=REGIONS_TREE) as fetch:
+        await async_refresh_region_cache(hass)
+        assert fetch.call_count == 1
+
+
+async def test_a_cache_stamp_without_offset_is_refetched_not_fatal(hass: HomeAssistant, hass_storage):
+    from custom_components.ukraine_alarm_pro.regions import async_refresh_region_cache
+
+    hass_storage[REGION_CACHE_KEY] = {"version": 1, "key": REGION_CACHE_KEY, "data": {
+        "schema": 1, "tree": REGIONS_TREE, "fetched_at": "2026-09-15T00:00:00"}}
     with patch(FETCH, return_value=REGIONS_TREE) as fetch:
         await async_refresh_region_cache(hass)
         assert fetch.call_count == 1

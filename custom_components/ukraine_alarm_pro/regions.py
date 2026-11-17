@@ -113,7 +113,8 @@ async def _async_load_cache(
     if not isinstance(stored, dict) or stored.get("schema") != REGION_CACHE_SCHEMA:
         return None
     fetched_at = dt_util.parse_datetime(str(stored.get("fetched_at", "")))
-    if fetched_at is None:
+    # We always write an offset; a stamp without one is damage, like elsewhere.
+    if fetched_at is None or fetched_at.tzinfo is None:
         return None
     try:
         return validate_region_tree(stored.get("tree")), fetched_at
