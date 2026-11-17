@@ -13,7 +13,7 @@ from test_entities import _setup
 from test_legacy_history_store import legacy_import
 
 from custom_components.ukraine_alarm_pro.const import DOMAIN
-from custom_components.ukraine_alarm_pro.history import _parse
+from custom_components.ukraine_alarm_pro.history import TYPICAL_MIN_ALERTS, _parse
 from custom_components.ukraine_alarm_pro.models import Snapshot
 
 CREATED = datetime(2026, 8, 1, 12, tzinfo=UTC)
@@ -264,3 +264,27 @@ def test_unparseable_stamps_are_ignored_not_fatal():
     assert _parse("2026-10-11T00:00:00") is None
     assert _parse(None) is None
     assert _parse("2026-10-11T00:00:00+00:00") == datetime(2026, 10, 11, tzinfo=UTC)
+
+
+async def test_a_region_added_later_is_covered_from_its_own_first_sight(hass):
+    """Without the official import a region added through Configure has no
+    earlier history: the journal's age must not count as its coverage."""
+    history, clock = await _journal(hass, datetime(2026, 10, 15, 6, tzinfo=UTC))
+    added = datetime(2026, 10, 15, 6, tzinfo=UTC)
+    history.confirm(["31", "692"], added)
+    start = datetime(2026, 10, 16, 6, tzinfo=UTC)
+    for day in range(TYPICAL_MIN_ALERTS):
+        lo = start + timedelta(hours=8 * day)
+        history.handle_event("started", _payload("started", lo, active=True, region="692"))
+        history.handle_event(
+            "cleared", _payload("cleared", lo + timedelta(minutes=6), active=False, region="692")
+        )
+    clock["now"] = datetime(2026, 10, 20, 6, tzinfo=UTC)
+    history.confirm(["31", "692"], clock["now"])
+
+    assert history.summary("692", 7)["coverage_start"] == added.isoformat()
+    assert history.typical("692")["days"] == 5
+    # Five days observed: 3600 / 432000, not over the 19 days since the 1st.
+    assert history.calendar("692")["month"]["percentage"] == 0.8
+    # The region present from the start keeps the journal's coverage.
+    assert history.summary("31", 7)["coverage_start"] == CREATED.isoformat()

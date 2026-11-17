@@ -503,7 +503,7 @@ class AlertHistory:
             "has_gaps": has_gaps,
             "daily": daily,
             # Before this the journal did not exist: incomplete, not zero.
-            "coverage_start": self._official_since.get(region_id, self._created_at),
+            "coverage_start": self._official_since.get(region_id) or self._journal_start(region_id),
             "rolling": self.rolling(region_id, 86400 if days == 1 else 604800),
             "typical": self.typical(region_id, now=now),
         }
@@ -525,7 +525,7 @@ class AlertHistory:
         )
         if len(lengths) < TYPICAL_MIN_ALERTS:
             return None
-        floor = _parse(self._official_since.get(region_id, self._created_at))
+        floor = _parse(self._official_since.get(region_id) or self._journal_start(region_id))
         covered = (now - max(lo, floor or lo)).total_seconds()
         return {
             "count": len(lengths),
@@ -630,6 +630,19 @@ class AlertHistory:
             "gap_seconds": window["gap_seconds"],
         }
 
+    def _journal_start(self, region_id: str) -> str | None:
+        """The journal's start, or a region's first sight if it was added later.
+
+        With no official import, a region added through Configure has no record
+        before it was first seen. Regions first seen with the earliest ones keep
+        the journal's start, which predates per-region tracking.
+        """
+        own = _parse(self._live_since.get(region_id))
+        first = min(filter(None, map(_parse, self._live_since.values())), default=None)
+        if own is not None and first is not None and own > first:
+            return self._live_since[region_id]
+        return self._created_at
+
     def _spans(self, region_id: str, now: datetime) -> list[tuple[datetime, datetime]]:
         """Journal episodes and official intervals; an open episode runs until `now`."""
         spans = [
@@ -727,7 +740,7 @@ class AlertHistory:
                 for stamp in (
                     since,
                     _parse(self._official_since.get(region_id)),
-                    _parse(self._created_at),
+                    _parse(self._journal_start(region_id)),
                 )
                 if stamp
             ),
