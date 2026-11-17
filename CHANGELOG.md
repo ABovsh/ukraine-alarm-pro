@@ -13,6 +13,12 @@ This project follows [Semantic Versioning](https://semver.org/).
   earlier versions (`start_origin: history`) stay in the journal and statistics until
   they leave the 90-day window.
 
+### 🔧 Changed
+
+- While a selected region is under alert, a silent WebSocket is checked against the
+  fallback source after 10 minutes instead of 12, so a stalled connection is replaced
+  sooner. Without an alert in the selected regions the check stays at 12 minutes.
+
 ## [0.15.0] - 2026-11-12
 
 ### ✨ Added

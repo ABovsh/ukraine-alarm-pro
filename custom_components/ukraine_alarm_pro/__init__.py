@@ -210,6 +210,7 @@ async def async_setup_entry(
     )
     store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
     coordinator = AlarmCoordinator(hass, entry, supervisor, store)
+    supervisor.alert_active = coordinator.alert_in_selected_regions
     # Before the transports start, so a snapshot that arrives while the disk
     # read is in flight is not overwritten by the older stored one.
     await coordinator.async_restore()

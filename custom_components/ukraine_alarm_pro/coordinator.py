@@ -44,6 +44,7 @@ from .models import (
     MigState,
     RegionView,
     Snapshot,
+    ThreatLevel,
     parse_alert_levels,
     region_view,
 )
@@ -438,6 +439,14 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
                 snap, region_id, ancestors, descendants
             )
         return view
+
+    def alert_in_selected_regions(self) -> bool:
+        """Any configured region under alert; the watchdog then checks sooner."""
+        for rid, info in self._regions.items():
+            view = self.region_view(rid, info["ancestors"], info.get("descendants", []))
+            if view is not None and view.threat is not ThreatLevel.NONE:
+                return True
+        return False
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""

@@ -13,6 +13,18 @@ STALE_AFTER_SECONDS = 900.0
 # silent WS is refreshed before it counts as stale: one watchdog tick plus a
 # request timeout fit in the margin.
 CROSS_CHECK_AFTER_SECONDS = STALE_AFTER_SECONDS - 180.0
+# While a selected region is under alert, a stalled socket costs the most, so
+# the check comes sooner: CROSS_CHECK_MEDIAN_FACTOR x the median interval
+# between WebSocket publications of the last CROSS_CHECK_WINDOW_SECONDS, within
+# CROSS_CHECK_MIN_SECONDS..CROSS_CHECK_AFTER_SECONDS, once that hour holds at
+# least CROSS_CHECK_MIN_INTERVALS intervals. Otherwise CROSS_CHECK_AFTER_SECONDS.
+# The floor is the request budget: modelled on 7 days of 2026-11 publications,
+# a 120 s floor meant 93 checks a day instead of 5.4; 600 s means 7.4 (+37 %),
+# at most 3 an hour. A raid publishes every ~20 s, so the floor usually wins.
+CROSS_CHECK_MIN_SECONDS = 600.0
+CROSS_CHECK_MEDIAN_FACTOR = 3
+CROSS_CHECK_WINDOW_SECONDS = 3600.0
+CROSS_CHECK_MIN_INTERVALS = 5
 
 # Retired: polling fallback is not a user problem. Kept to clear leftovers.
 ISSUE_WS_UNAVAILABLE = "websocket_unavailable"

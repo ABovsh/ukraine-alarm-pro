@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import random
 import time
+from collections import deque
 from collections.abc import Callable, Coroutine
+from statistics import median
 from typing import Any
 
+from ..const import (
+    CROSS_CHECK_MEDIAN_FACTOR,
+    CROSS_CHECK_MIN_INTERVALS,
+    CROSS_CHECK_MIN_SECONDS,
+    CROSS_CHECK_WINDOW_SECONDS,
+)
 from ..models import Snapshot
 from .errors import TransportError
 
@@ -102,6 +111,10 @@ class TransportSupervisor:
         # Local receipt order, bumped for every accepted snapshot — identical
         # ones included. It orders our own awaits, not the provider's data.
         self.snapshot_revision = 0
+        # When the WebSocket published (HTTP answers excluded), for the
+        # cross-check threshold; and whether a selected region is under alert.
+        self._ws_times: deque[float] = deque(maxlen=200)
+        self.alert_active: Callable[[], bool] | None = None
         self._running = False
         self.mode = MODE_WS
 
@@ -229,7 +242,7 @@ class TransportSupervisor:
                 async for snap in self._ws.stream():
                     failures = 0
                     self._set_mode(MODE_WS)
-                    self._emit(snap)
+                    self._accept_ws(snap)
             except TransportError as err:
                 failures = self._count_failure(failures, started)
                 _LOGGER.debug(
@@ -260,6 +273,28 @@ class TransportSupervisor:
                     self._ws_probe_interval,
                 )
             await asyncio.sleep(delay * (1 + _RNG.random() * 0.2))
+
+    def _accept_ws(self, snap: Snapshot) -> None:
+        self._ws_times.append(time.monotonic())
+        self._emit(snap)
+
+    def cross_check_after(self, now: float) -> float:
+        """Silence before a cross-check: shorter while a selected region is under alert."""
+        try:
+            alert = self.alert_active is not None and self.alert_active()
+        except Exception:  # the watchdog must never die
+            _LOGGER.debug("Alert check for the watchdog failed", exc_info=True)
+            alert = False
+        if not alert:
+            return self._stale_after
+        recent = [t for t in self._ws_times if now - t <= CROSS_CHECK_WINDOW_SECONDS]
+        if len(recent) <= CROSS_CHECK_MIN_INTERVALS:
+            return self._stale_after
+        gaps = [later - earlier for earlier, later in itertools.pairwise(recent)]
+        return min(
+            max(CROSS_CHECK_MEDIAN_FACTOR * median(gaps), CROSS_CHECK_MIN_SECONDS),
+            self._stale_after,
+        )
 
     def _count_failure(self, failures: int, started: float) -> int:
         """Count one WS failure, forgiving the end of a long healthy session.
@@ -344,14 +379,12 @@ class TransportSupervisor:
             if reference is None:
                 reference = now
             age = now - reference
-            if age < self._stale_after:
+            threshold = self.cross_check_after(now)
+            if age < threshold:
                 continue
             # One check (and one warning) per window for a permanently dead
             # feed — without pretending that the attempt delivered data.
-            if (
-                self._last_check is not None
-                and now - self._last_check < self._stale_after
-            ):
+            if self._last_check is not None and now - self._last_check < threshold:
                 continue
             self._last_check = now
             if self._last_success is None:
