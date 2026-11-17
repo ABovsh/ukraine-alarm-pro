@@ -141,6 +141,13 @@ class ChainedPollTransport:
         except TransportError as err:
             self._failures += 1
             last = self._current == len(self._sources) - 1
+            if last and self._current and isinstance(err, RateLimited):
+                # This source's cooldown must not postpone probing the preferred
+                # one. Each transport still enforces its own Retry-After.
+                probe_in = max(
+                    1.0, RETRY_PREFERRED_SECONDS - (time.monotonic() - self._probed_at)
+                )
+                raise RateLimited(min(err.retry_after, probe_in)) from err
             if last or (
                 self._failures < SWITCH_AFTER_FAILURES and not isinstance(err, RateLimited)
             ):

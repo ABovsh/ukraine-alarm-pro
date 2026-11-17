@@ -278,6 +278,61 @@ async def test_the_last_source_failing_keeps_it_and_raises(clock):
     assert chain.source == SOURCE_SIREN
 
 
+@pytest.mark.parametrize("official_retry", [60, 1800])
+async def test_siren_retry_after_does_not_delay_the_preferred_probe(clock, official_retry):
+    """A source's cooldown must not suspend the whole chain's recovery."""
+    from unittest.mock import AsyncMock
+
+    from custom_components.ukraine_alarm_pro.api.supervisor import TransportSupervisor
+
+    server, seen = await _serve({
+        "/mapUpdate": [
+            (503, {}, {"Retry-After": str(official_retry)}),
+            (200, OFFICIAL, {}),
+        ],
+        "/alerts": [(429, {}, {"Retry-After": "3600"})],
+    })
+    try:
+        async with ClientSession() as session:
+            chain = ChainedPollTransport([
+                OfficialPollTransport(session, _url(server, "/mapUpdate")),
+                PollTransport(session, base_url=_url(server)),
+            ])
+            supervisor = TransportSupervisor(ws=AsyncMock(), poll=chain)
+            assert await supervisor._fetch_poll("seed") is None
+            # The supervisor uses this pause for both seed and fallback polling.
+            assert supervisor._next_seed_delay(0) == 600
+            assert [len(seen[path]) for path in ("/mapUpdate", "/alerts")] == [1, 1]
+            clock[0] += 300
+            assert await supervisor._fetch_poll("cross-check") is None
+            assert supervisor._poll_retry_after == 300
+            assert [len(seen[path]) for path in ("/mapUpdate", "/alerts")] == [1, 1]
+            clock[0] += 300
+            snapshot = await supervisor._fetch_poll("seed")
+            if official_retry > 600:
+                # Waking to probe must still respect each server's own cooldown.
+                assert snapshot is None
+                assert supervisor._next_seed_delay(1) == 600
+                assert len(seen["/mapUpdate"]) == 1
+                clock[0] += official_retry - 600
+                snapshot = await supervisor._fetch_poll("seed")
+            assert snapshot.signature == OK_OFFICIAL.signature
+            assert chain.source == SOURCE_OFFICIAL
+            assert [len(seen[path]) for path in ("/mapUpdate", "/alerts")] == [2, 1]
+    finally:
+        await server.close()
+
+
+@pytest.mark.parametrize("single_source", [False, True])
+async def test_a_short_or_single_source_cooldown_is_preserved(clock, single_source):
+    siren = Source(SOURCE_SIREN, RateLimited(60 if not single_source else 3600))
+    sources = [siren] if single_source else [Source(SOURCE_OFFICIAL, RateLimited(60)), siren]
+    chain = ChainedPollTransport(sources)
+    with pytest.raises(RateLimited) as err:
+        await chain.fetch()
+    assert err.value.retry_after == (3600 if single_source else 60)
+
+
 # --- wiring and entities -----------------------------------------------------
 
 
