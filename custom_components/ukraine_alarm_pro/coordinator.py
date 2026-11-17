@@ -19,7 +19,9 @@ from homeassistant.util import dt as dt_util
 from .api.supervisor import MODE_WS
 from .const import (
     CONF_REGIONS,
+    COUNTRY_UNAVAILABLE_AFTER_SECONDS,
     DOMAIN,
+    ISSUE_COUNTRY_FEED_UNAVAILABLE,
     ISSUE_FEED_UNAVAILABLE,
     RESTORE_MAX_AGE_SECONDS,
     SAVE_DELAY_SECONDS,
@@ -74,6 +76,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.started_at = dt_util.utcnow()
         self._started_monotonic = time.monotonic()
         self._last_push_monotonic: float | None = None
+        self._country_monotonic: float | None = None
         self._store = store
         self._saved_active: tuple | None = None
         self._saved_confirmed: datetime | None = None
@@ -288,6 +291,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         if snap.mig is not None:
             self._accept_mig(snap.mig)
         # A poll cross-check carries none of it and keeps the live status.
+        if snap.country is not None:
+            self._country_monotonic = monotonic
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_COUNTRY_FEED_UNAVAILABLE)
         if snap.country is not None and snap.country != self._country:
             self._country = snap.country
             for listener in tuple(self._health_listeners):
@@ -391,18 +397,26 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             if self._last_push_monotonic is not None
             else self._started_monotonic
         )
-        age = time.monotonic() - reference
-        if age > STALE_AFTER_SECONDS:
-            ir.async_create_issue(
-                self.hass,
-                DOMAIN,
-                ISSUE_FEED_UNAVAILABLE,
-                is_fixable=False,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key=ISSUE_FEED_UNAVAILABLE,
-            )
-        else:
-            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
+        now = time.monotonic()
+        no_feed = now - reference > STALE_AFTER_SECONDS
+        country_age = now - (self._country_monotonic or self._started_monotonic)
+        # With no data at all, the general issue says enough.
+        no_country = not no_feed and country_age >= COUNTRY_UNAVAILABLE_AFTER_SECONDS
+        for issue_id, active in (
+            (ISSUE_FEED_UNAVAILABLE, no_feed),
+            (ISSUE_COUNTRY_FEED_UNAVAILABLE, no_country),
+        ):
+            if active:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key=issue_id,
+                )
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:
         """Persist the journal; a failed write stays pending for the next try."""

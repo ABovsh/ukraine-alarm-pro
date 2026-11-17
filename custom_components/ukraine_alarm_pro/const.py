@@ -29,6 +29,12 @@ CROSS_CHECK_MIN_INTERVALS = 5
 # Retired: polling fallback is not a user problem. Kept to clear leftovers.
 ISSUE_WS_UNAVAILABLE = "websocket_unavailable"
 ISSUE_FEED_UNAVAILABLE = "feed_unavailable"
+# Only the WebSocket carries country-wide threats and the MiG status. This long
+# without them (regional polling may still work) is worth a repair issue. The
+# count runs from the last snapshot with country data, or from start-up: a
+# Home Assistant restart starts it again.
+ISSUE_COUNTRY_FEED_UNAVAILABLE = "country_feed_unavailable"
+COUNTRY_UNAVAILABLE_AFTER_SECONDS = 6 * 3600
 
 # Last-known alert map, kept on disk so a restart does not come up blind.
 # Ukraine's reality is that power returns before the uplink does: without this

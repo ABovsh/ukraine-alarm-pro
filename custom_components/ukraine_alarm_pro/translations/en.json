@@ -44,7 +44,11 @@
   "issues": {
     "feed_unavailable": {
       "title": "Alert data unavailable",
-      "description": "No alert data has arrived for 15 minutes from either the official alert map or the fallback source, so the alert state may be out of date. The integration keeps retrying both and clears this issue once data arrives again."
+      "description": "No alert data has arrived for 15 minutes from either the official alert map or the fallback sources, so the alert state may be out of date. The integration keeps retrying all of them and clears this issue once data arrives again."
+    },
+    "country_feed_unavailable": {
+      "title": "Country-wide threat data unavailable",
+      "description": "For 6 hours the official alert map's WebSocket has sent no country-wide data. The MiG-31K, ballistic threat, strategic aviation, tactical aviation and missile carriers sensors are unknown, and the card shows no country-wide line. Regional alerts still arrive from the fallback source. The integration keeps reconnecting and clears this issue once the WebSocket delivers again."
     }
   },
   "entity": {

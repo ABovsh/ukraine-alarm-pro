@@ -36,6 +36,7 @@ from .const import (
     CONF_REGIONS,
     CROSS_CHECK_AFTER_SECONDS,
     DOMAIN,
+    ISSUE_COUNTRY_FEED_UNAVAILABLE,
     ISSUE_FEED_UNAVAILABLE,
     ISSUE_WS_UNAVAILABLE,
     PLATFORMS,
@@ -302,6 +303,7 @@ async def async_unload_entry(
         await entry.runtime_data.async_save_now()
         await entry.runtime_data.async_flush_history()
         ir.async_delete_issue(hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
+        ir.async_delete_issue(hass, DOMAIN, ISSUE_COUNTRY_FEED_UNAVAILABLE)
     return ok
 
 

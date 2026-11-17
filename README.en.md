@@ -517,8 +517,15 @@ regions while the map updates often, the integration cross-checks the map with t
 not change; a mismatch means the WebSocket missed updates, and the integration switches to
 polling. It periodically retries the WebSocket and switches back after receiving data. The
 data channel, the source and the time of the last data received are visible in the
-diagnostic entities. An issue appears under Repairs only when
-neither the WebSocket nor the fallback source has delivered data for 15 minutes.
+diagnostic entities.
+
+Two issues can appear under Repairs:
+
+- **Alert data unavailable** — neither the WebSocket nor the fallback sources have
+  delivered data for 15 minutes.
+- **Country-wide threat data unavailable** — the WebSocket has sent no country-wide data
+  for 6 hours. Regional alerts still arrive from the fallback source, while the MiG-31K and
+  country-wide threat sensors are `unknown`. A Home Assistant restart starts the count again.
 
 Confirmed state is checkpointed at most once every five minutes for an unchanged map
 and at shutdown. Failed writes remain pending for retry. Restored maps expire six

@@ -20,6 +20,9 @@ This project follows [Semantic Versioning](https://semver.org/).
   or a rate limit and tries the official map again at most every 10 minutes. Country-wide
   threats and the MiG-31K still come from the WebSocket only.
 - `sensor.uap_transport` has a `source` attribute: `websocket`, `official_http` or `siren`.
+- A repair issue, "Country-wide threat data unavailable", when the WebSocket has sent no
+  country-wide data for 6 hours while regional alerts keep arriving from a fallback. It
+  clears with the next WebSocket data; a restart starts the count again.
 
 ### 🔧 Changed
 
