@@ -1,7 +1,8 @@
 """Check that the live sources still match what the integration expects.
 
 1. The map page carries the anonymous WebSocket token and URL.
-2. The WebSocket connects and subscribes to the alert map in 20 seconds.
+2. The WebSocket connects, subscribes to the alert map and answers its history
+   request in 20 seconds, as the integration needs.
 3. The official HTTP snapshot parses and keeps its known keys.
 4. The siren.pp.ua fallback parses.
 
@@ -71,6 +72,13 @@ async def check_ws(session: aiohttp.ClientSession, token: str, url: str) -> None
                 )
             )
             await transport._recv_id(sock, 2, pending)
+            # The integration does not connect without an answer to this one.
+            await sock.send_str(
+                json.dumps(
+                    {"id": 3, "method": ws_mod._METHOD_HISTORY, "params": {"channel": ws_mod.CHANNEL}}
+                )
+            )
+            await transport._recv_id(sock, 3, pending)
         finally:
             await sock.close()
 
