@@ -10,6 +10,7 @@ import pytest
 import voluptuous as vol
 from test_alert_history import _hist, _payload
 from test_entities import _setup
+from test_legacy_history_store import legacy_import
 
 from custom_components.ukraine_alarm_pro.const import DOMAIN
 from custom_components.ukraine_alarm_pro.history import _parse
@@ -115,9 +116,9 @@ async def test_overlapping_journal_and_official_make_one_interval(hass):
     end = datetime(2026, 10, 11, 6, tzinfo=UTC)
     _episode(history, start, end)
     history.confirm(["31"], clock["now"])
-    history.merge_official(
-        "31", [(start + timedelta(minutes=5), end + timedelta(minutes=5))],
-        window_start=CREATED,
+    legacy_import(
+        history, "31", [(start + timedelta(minutes=5), end + timedelta(minutes=5))],
+        since=CREATED,
     )
     month = history.calendar("31")["month"]
     assert month["count"] == 1
@@ -235,7 +236,7 @@ async def test_percentage_counts_official_history_before_the_live_feed(hass):
     history, clock = await _journal(hass, datetime(2026, 10, 15, 6, tzinfo=UTC))
     history._live_since["31"] = datetime(2026, 10, 15, 6, tzinfo=UTC).isoformat()
     official = [(datetime(2026, 10, 2, 5, tzinfo=UTC), datetime(2026, 10, 2, 6, tzinfo=UTC))]
-    history.merge_official("31", official, window_start=datetime(2026, 8, 5, tzinfo=UTC))
+    legacy_import(history, "31", official, since=datetime(2026, 8, 5, tzinfo=UTC), episodes=True)
     clock["now"] = datetime(2026, 10, 16, 6, tzinfo=UTC)
     history.confirm(["31"], clock["now"])
 

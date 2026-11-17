@@ -6,18 +6,16 @@ import asyncio
 import logging
 import time
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from . import backfill
 from .api.supervisor import MODE_WS
 from .const import (
     CONF_REGIONS,
@@ -99,7 +97,6 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._mig_event_listeners: list = []
         self._country: dict[str, CountryThreat] | None = None
         self._region_detail_listeners: list = []
-        self._backfill_lock = asyncio.Lock()
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
         self.events = AlertEventHub()
@@ -405,61 +402,6 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
-
-    async def async_backfill_history(self, _now: datetime | None = None) -> None:
-        """One root and seven UTC days at a time; resume failed chunks only."""
-        if self._backfill_lock.locked():
-            return
-        async with self._backfill_lock:
-            await self._async_backfill_chunks()
-
-    async def _async_backfill_chunks(self) -> None:
-        regions = self._regions
-        if not regions:
-            return
-        now = dt_util.utcnow()
-        for root in backfill.root_regions(regions):
-            windows = {
-                rid: window
-                for rid, info in regions.items()
-                if (info.get("ancestors") or [rid])[-1] == root
-                and (window := self.history.backfill_window(rid, now)) is not None
-            }
-            if not windows:
-                continue
-            start = min(lo for lo, _hi in windows.values())
-            target = max(hi for _lo, hi in windows.values())
-            self.history.begin_backfill(windows, target)
-            while start < target:
-                end = min(start + timedelta(days=7), target)
-                try:
-                    records = await backfill._fetch(
-                        async_get_clientsession(self.hass), [root], start, end
-                    )
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Official history root %s will resume at %s: %s",
-                        root,
-                        start.isoformat(),
-                        err,
-                    )
-                    break
-                for rid in windows:
-                    self.history.merge_official(
-                        rid,
-                        backfill.official_intervals(records, rid, regions[rid]),
-                        window_start=start,
-                    )
-                self.history.advance_cursor(windows, end)
-                # Persist progress per chunk. Disk errors leave it dirty, while
-                # cancellation/restart can resume the last successful checkpoint.
-                await self.async_flush_history()
-                start = end
-                await asyncio.sleep(0)
-            else:
-                self.history.finish_backfill(windows)
-                await self.async_flush_history()
-        self.async_update_percentages()
 
     async def async_flush_history(self, _now: datetime | None = None) -> None:
         """Persist the journal; a failed write stays pending for the next try."""

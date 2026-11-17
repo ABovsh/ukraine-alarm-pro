@@ -29,8 +29,8 @@ Updates arrive over WebSocket without an API key; fresh data requires an interne
 - **Country-wide threats.** MiG-31K take-off and Kinzhal launch, ballistic threat,
   strategic and tactical aviation, missile carriers at sea: separate sensors and a line on
   the card for the whole country. Only the WebSocket carries this data.
-- **Up to 90 days of history.** Local observations are supplemented with official
-  air-alert history. That source has no alert levels or alerts declared for an individual hromada.
+- **Up to 90 days of history.** Alerts the integration observed itself: start, all
+  clear, levels and threats of each episode.
 - **Events and notification blueprints.** Alert start, escalation, new threats,
   all clear and data gaps, with messages in Ukrainian or English.
 - **Air alert level and reason.** Yellow or red and the reason, when supplied by
@@ -164,8 +164,7 @@ date, duration and number of alerts. Hide the chart with `stats.chart`.
 
 The share for today and the month is the alert duration divided by the part of the period the journal covers; data gaps inside the period are subtracted. A lamp next to the period name is green when the data is complete and yellow when it is partial (the journal does not cover the whole period, stale data, or gaps over 1% of the period). The tooltip gives the reason.
 
-Statistics come from the [alert journal](#alert-history). Fetching official history
-starts five minutes after startup and depends on the source being available.
+Statistics come from the [alert journal](#alert-history).
 With complete data the percentages match the [time-under-alert sensors](#time-under-alert);
 gaps shorter than 1% of the window do not hide the sensors; with longer ones the sensors
 are `unknown` and the card shows the share of the time that has data.
@@ -278,9 +277,7 @@ A data gap of up to 5 minutes does not count when the region's state is the same
 both sides and no alert started or ended at its edges, so an ordinary Home Assistant
 restart does not hide the percentage. A longer gap, or one with a state change, leaves
 an exact gap from the last confirmation to recovery.
-A percentage becomes available again when that gap leaves its window. Official
-history adds known air alerts; it cannot prove the absence of other threats or close
-all-threat coverage gaps.
+A percentage becomes available again when that gap leaves its window.
 
 One shared calculation runs about every five minutes and after journal changes.
 Sensors publish only a changed rounded value or quality; the card reads those same
@@ -408,19 +405,13 @@ data; `declared_started_at` is the declaration time from the source. If data was
 interrupted or an alert was already active at startup, `had_gap` is `true` and
 `source_start_known` is `false`.
 
-Five minutes after startup and then once a day, the integration requests official alert
-history from the map: 90 days on the first run, the last few days after
-that. When the source is available, this also supplements periods when Home Assistant
-was off. Such episodes have
-`start_origin: history`, the official start and all-clear times and the type `air`: the
-history has no levels. It holds alerts of oblasts, raions and cities; alerts declared
-for a single hromada are not in it. Observed boundaries are preserved; official history may refine an unknown air-alert
-start. Overlaps do not create duplicate episodes. `coverage_start` identifies the
-region's available history, not complete coverage of every threat type.
+The journal holds only what the integration received itself, from its first start on.
+Periods when Home Assistant was off remain gaps. `coverage_start` is where the region's
+journal begins; before it the data is unknown, not zero.
 
-History is fetched in chunks of up to seven days, with persisted progress per region.
-Failed chunks resume on the hourly retry; successful chunks are not requested again.
-Completed downloads refresh daily.
+Versions before 0.16.0 downloaded official air-alert history from the map. Those episodes
+(`start_origin: history`, type `air`, no levels) are kept and counted in statistics until
+they leave the 90-day window.
 
 Completed episodes are kept for up to 90 days and at most 10,000 **per region**; current
 episodes are preserved. Needed history removed by the cap is reported as `truncated`.
@@ -511,7 +502,6 @@ remains available for existing automations.
 
 - [ukrainealarm.com](https://map.ukrainealarm.com/) — primary, push over a WebSocket.
 - [siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, fallback.
-- Alert history for the journal — from the [alert map](https://map.ukrainealarm.com/).
 
 After repeated WebSocket failures, the integration switches to polling siren.pp.ua
 with a 60-second pause between successful requests. Failures use bounded backoff;

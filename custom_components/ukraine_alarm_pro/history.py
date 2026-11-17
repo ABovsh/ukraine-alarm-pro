@@ -125,10 +125,6 @@ class AlertHistory:
         self._active: dict[str, dict[str, Any]] = {}
         self._completed: list[dict[str, Any]] = []
         self._created_at: str | None = None
-        # When the official history was last merged; drives the next window.
-        self._synced_at: str | None = None
-        # Which regions that merge covered; a region added later has none yet.
-        self._synced_regions: set[str] = set()
         self._version = 0
         self._saved_version = 0
         self._flush_lock = asyncio.Lock()
@@ -140,10 +136,10 @@ class AlertHistory:
         self._open_gaps: dict[str, str] = {}
         self._resync: set[str] = set()
         self._retained_from: dict[str, str] = {}
+        # Official history imported by 0.15.0 and earlier: read, never added to,
+        # gone once it leaves the retention window.
         self._official_since: dict[str, str] = {}
         self._official_spans: dict[str, list[tuple[str, str]]] = {}
-        self._cursors: dict[str, str] = {}
-        self._backfill_targets: dict[str, str] = {}
 
     @property
     def version(self) -> int:
@@ -180,22 +176,15 @@ class AlertHistory:
                 ]
             if _parse(stored.get("created_at")) is not None:
                 self._created_at = stored["created_at"]
-            if _parse(stored.get("official_synced_at")) is not None:
-                self._synced_at = stored["official_synced_at"]
-                synced_regions = stored.get("official_synced_regions")
-                if isinstance(synced_regions, list):
-                    self._synced_regions = {str(rid) for rid in synced_regions}
             # Additive schema: v1 episodes stay readable. Old global coverage
-            # did not distinguish air backfill from all threats, so it cannot
+            # did not tell imported air history from all threats, so it cannot
             # certify a new percentage sensor's denominator.
             for key, target in (
                 ("live_since", self._live_since),
                 ("confirmed", self._confirmed),
                 ("retained_from", self._retained_from),
                 ("official_since", self._official_since),
-                ("cursors", self._cursors),
                 ("open_gaps", self._open_gaps),
-                ("backfill_targets", self._backfill_targets),
             ):
                 raw = stored.get(key)
                 if isinstance(raw, dict):
@@ -259,7 +248,7 @@ class AlertHistory:
         """Confirm continuity, including unchanged/quiet snapshots.
 
         A restart or a stale feed leaves an explicit hole from its last real
-        confirmation to recovery. An air-only backfill never closes that hole
+        confirmation to recovery. Imported air-only history never closes that hole
         for the all-threat binary-sensor definition.
         """
         at = at.astimezone(dt_util.UTC)
@@ -365,8 +354,6 @@ class AlertHistory:
                     {
                         "schema_version": 2,
                         "created_at": self._created_at,
-                        "official_synced_at": self._synced_at,
-                        "official_synced_regions": sorted(self._synced_regions),
                         "active": self._active,
                         "episodes": self._completed,
                         "live_since": self._live_since,
@@ -376,144 +363,12 @@ class AlertHistory:
                         "retained_from": self._retained_from,
                         "official_since": self._official_since,
                         "official_spans": self._official_spans,
-                        "cursors": self._cursors,
-                        "backfill_targets": self._backfill_targets,
                     }
                 )
             )
             self._saved_version = version
             # The journal carries the same stamps.
             self._beat_saved = beat
-
-    def cursor(self, region_id: str, now: datetime) -> datetime:
-        return max(
-            now - self._max_age,
-            _parse(self._cursors.get(region_id)) or now - self._max_age,
-        )
-
-    def advance_cursor(self, region_ids: Iterable[str], end: datetime) -> None:
-        for rid in region_ids:
-            previous = _parse(self._cursors.get(rid))
-            self._cursors[rid] = max(previous or end, end).isoformat()
-        self._version += 1
-
-    def backfill_window(
-        self, region_id: str, now: datetime
-    ) -> tuple[datetime, datetime] | None:
-        cursor = self.cursor(region_id, now)
-        target = _parse(self._backfill_targets.get(region_id))
-        if target is not None:
-            if cursor < target:
-                return cursor, target
-            # A durable final chunk can precede the completion marker on
-            # disk when power fails. Heal it before the daily-refresh gate.
-            self._backfill_targets.pop(region_id, None)
-            self._version += 1
-        if cursor >= now - timedelta(hours=24):
-            return None
-        return max(now - self._max_age, cursor - timedelta(days=2)), now
-
-    def begin_backfill(self, region_ids: Iterable[str], target: datetime) -> None:
-        for rid in region_ids:
-            self._backfill_targets[rid] = target.isoformat()
-        self._version += 1
-
-    def finish_backfill(self, region_ids: Iterable[str]) -> None:
-        for rid in region_ids:
-            self._backfill_targets.pop(rid, None)
-        self._version += 1
-
-    def backfill_start(self, now: datetime, region_ids: Iterable[str]) -> datetime:
-        """Where the next official-history window begins.
-
-        The first run covers the whole retention; later runs re-read a couple
-        of days before the last sync, enough to fill any outage since. A region
-        the last sync did not cover (added through Configure) needs it all.
-        """
-        oldest = now - self._max_age
-        synced = _parse(self._synced_at)
-        if synced is None or not set(region_ids) <= self._synced_regions:
-            return oldest
-        return max(oldest, synced - timedelta(days=2))
-
-    def mark_synced(self, now: datetime, region_ids: Iterable[str]) -> None:
-        self._synced_at = now.isoformat()
-        self._synced_regions = set(region_ids)
-        self._version += 1
-
-    def merge_official(
-        self,
-        region_id: str,
-        intervals: list[tuple[datetime, datetime]],
-        *,
-        window_start: datetime,
-    ) -> int:
-        """Add official episodes for periods the journal did not observe.
-
-        What the integration observed wins wherever the two overlap, so a
-        re-run or a slightly different official time never duplicates an
-        episode. Returns how many episodes were added.
-        """
-        now = self._now()
-        added = 0
-        spans = [
-            (_parse(lo), _parse(hi))
-            for lo, hi in self._official_spans.get(region_id, [])
-        ]
-        spans.extend((start, end) for start, end in intervals if start < end <= now)
-        merged = _union(spans)
-        encoded = [(lo.isoformat(), hi.isoformat()) for lo, hi in merged]
-        if encoded != self._official_spans.get(region_id, []):
-            self._official_spans[region_id] = encoded
-            self._version += 1
-        for start, end in _union(intervals):
-            overlapping = [
-                ep
-                for ep in self._episodes(region_id)
-                if start < (_parse(ep["observed_cleared_at"]) or now)
-                and end > _parse(ep["observed_started_at"])
-            ]
-            if end > now:
-                continue
-            if overlapping:
-                for ep in overlapping:
-                    if (
-                        not ep["source_start_known"]
-                        and ep["active_types_seen"] == ["air"]
-                        and start < _parse(ep["observed_started_at"])
-                    ):
-                        ep["observed_started_at"] = start.isoformat()
-                        ep["declared_started_at"] = start.isoformat()
-                        ep["source_start_known"] = True
-                        self._version += 1
-                continue
-            episode = {
-                "episode_id": uuid.uuid4().hex[:12],
-                "region_id": region_id,
-                "observed_started_at": start.isoformat(),
-                "declared_started_at": start.isoformat(),
-                "observed_cleared_at": end.isoformat(),
-                "active_types_seen": ["air"],
-                # The history carries no levels.
-                "maximum_air_level": "none",
-                "had_gap": False,
-                "source_start_known": True,
-                "start_origin": "history",
-            }
-            self._completed.append(episode)
-            self._index.setdefault(region_id, []).append(episode)
-            added += 1
-            self._version += 1  # Invalidate the region index before the next span.
-        created = _parse(self._official_since.get(region_id)) or _parse(
-            self._created_at
-        )
-        if created is None or window_start < created:
-            self._official_since[region_id] = window_start.isoformat()
-            self._version += 1
-        if added:
-            self._version += 1
-            self._prune(region_id)
-        return added
 
     def _prune(self, region_id: str | None = None) -> None:
         now = self._now()

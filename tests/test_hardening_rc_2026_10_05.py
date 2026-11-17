@@ -12,6 +12,7 @@ from test_air_alert_levels import payload as air_payload
 from test_alert_history import FakeStore, _hist, _payload
 from test_card_browser import page as browser_page_fixture
 from test_entities import _setup
+from test_legacy_history_store import legacy_import
 
 from custom_components.ukraine_alarm_pro.api.errors import TransportError
 from custom_components.ukraine_alarm_pro.api.ws import WsTransport
@@ -125,9 +126,9 @@ async def test_retention_frontier_cannot_regress_when_another_source_is_trimmed(
     # Older gap history hits its own cap on the next daily prune.
     clock["now"] = T0
     if source == "episodes":
-        history.merge_official(
-            "31", [(T0 - timedelta(days=3), T0 - timedelta(days=2))],
-            window_start=T0 - timedelta(days=8),
+        legacy_import(
+            history, "31", [(T0 - timedelta(days=3), T0 - timedelta(days=2))],
+            since=T0 - timedelta(days=8), episodes=True,
         )
     else:
         getattr(history, f"_{source}")["31"] = [

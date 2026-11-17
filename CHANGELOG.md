@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - Unreleased
+
+### 🗑️ Removed
+
+- Downloading official air-alert history from the map. Its endpoint no longer answers,
+  and the integration stopped requesting the map page and the history every hour. The
+  journal now holds only what the integration received itself. Episodes imported by
+  earlier versions (`start_origin: history`) stay in the journal and statistics until
+  they leave the 90-day window.
+
 ## [0.15.0] - 2026-11-12
 
 ### ✨ Added

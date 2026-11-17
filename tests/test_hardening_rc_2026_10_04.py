@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 from test_alert_history import FakeStore, _hist, _payload
 from test_entities import _setup
+from test_legacy_history_store import legacy_import
 from test_ws_transport import FakeAlarmServer
 
 from custom_components.ukraine_alarm_pro.api.errors import RateLimited
@@ -142,8 +143,7 @@ async def test_rolling_percentage_fixed_denominator(seconds, expected):
 async def test_official_air_history_is_not_all_threat_coverage():
     history, _ = _hist(now=T0)
     await history.async_load()
-    history.merge_official("31", [], window_start=T0 - timedelta(days=90))
-    history.mark_synced(T0, ["31"])
+    legacy_import(history, "31", [], since=T0 - timedelta(days=90))
     assert history.rolling("31", 86400)["percentage"] is None
 
 
@@ -202,7 +202,7 @@ async def test_rolling_more_than_fifty_episodes_and_overlap_union():
     official = [
         (T0 - timedelta(hours=20), T0 - timedelta(hours=20) + timedelta(minutes=1))
     ] * 2
-    history.merge_official("31", official, window_start=T0 - timedelta(days=7))
+    legacy_import(history, "31", official, since=T0 - timedelta(days=7))
     assert history.rolling("31", 86400)["percentage"] == 4.2
 
 
@@ -245,29 +245,6 @@ async def test_http_calls_share_the_original_revision():
     assert await second is None
     assert poll.fetch.await_count == 1
     await supervisor.stop()
-
-
-async def test_backfill_retries_only_failed_chunks(
-    hass, enable_custom_integrations, monkeypatch
-):
-    entry, _ = await _setup(hass)
-    coordinator = entry.runtime_data
-    fetch = AsyncMock(side_effect=[[], OSError("history down")])
-    monkeypatch.setattr("custom_components.ukraine_alarm_pro.backfill._fetch", fetch)
-    with patch.object(dt_util, "utcnow", return_value=T0):
-        await coordinator.async_backfill_history()
-    # A successful first chunk advances that root's persisted cursor.
-    calls = fetch.call_args_list
-    first_root = calls[0].args[1][0]
-    failed_start = calls[1].args[2]
-    fetch.reset_mock()
-    fetch.side_effect = None
-    fetch.return_value = []
-    with patch.object(dt_util, "utcnow", return_value=T0):
-        await coordinator.async_backfill_history()
-    retry = next(call for call in fetch.call_args_list if call.args[1] == [first_root])
-    assert retry.args[2] == failed_start
-    assert (retry.args[3] - retry.args[2]).total_seconds() <= 7 * 86400
 
 
 async def test_ws_close_cancels_heartbeat_after_close_frame():
@@ -415,9 +392,6 @@ async def test_one_shared_percentage_timer(
     hass, enable_custom_integrations, monkeypatch
 ):
     entry, push = await _setup(hass)
-    # The independent backfill job also starts at five minutes and may
-    # legitimately recalculate percentages after journal changes.
-    monkeypatch.setattr(entry.runtime_data, "_async_backfill_chunks", AsyncMock())
     push(Snapshot())
     listener = MagicMock()
     remove = entry.runtime_data.add_percentage_listener(listener)
@@ -539,33 +513,3 @@ async def test_staleness_is_published_before_regional_transitions(
     assert changed.index("binary_sensor.uap_data_stale") < changed.index(
         "binary_sensor.uap_31_alert"
     )
-
-
-async def test_completed_backfill_checkpoint_recovers_after_power_loss():
-    store = FakeStore()
-    history, _ = _hist(store, now=T0)
-    await history.async_load()
-    history.begin_backfill(["31"], T0)
-    history.advance_cursor(["31"], T0)
-    # Last chunk is durable, but power disappears before finish_backfill flushes.
-    await history.async_flush()
-    restored, _ = _hist(store, now=T0 + timedelta(days=1, seconds=1))
-    await restored.async_load()
-    window = restored.backfill_window("31", T0 + timedelta(days=1, seconds=1))
-    assert window is not None
-    assert window[1] == T0 + timedelta(days=1, seconds=1)
-    assert "31" not in restored._backfill_targets
-
-
-async def test_finished_backfill_marker_is_immediately_durable(
-    hass, enable_custom_integrations, monkeypatch
-):
-    entry, _ = await _setup(hass)
-    coordinator = entry.runtime_data
-    coordinator.history._store = FakeStore()
-    monkeypatch.setattr(
-        "custom_components.ukraine_alarm_pro.backfill._fetch",
-        AsyncMock(return_value=[]),
-    )
-    await coordinator.async_backfill_history()
-    assert coordinator.history._store.data["backfill_targets"] == {}

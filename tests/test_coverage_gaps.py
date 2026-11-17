@@ -13,7 +13,6 @@ from custom_components.ukraine_alarm_pro.api.ws import (
     _publication,
     _replies,
 )
-from custom_components.ukraine_alarm_pro.backfill import parse_ranged_alerts
 from custom_components.ukraine_alarm_pro.regions import (
     async_fetch_regions,
     async_refresh_region_cache,
@@ -92,29 +91,6 @@ async def test_recv_id_gives_up_without_reply():
     ws = _ws_with(*[_text('{"id": 9}')] * 20)
     with pytest.raises(TransportError, match="no reply"):
         await transport._recv_id(ws, 1, [])
-
-
-def test_parse_ranged_alerts_edge_cases():
-    inner = json.dumps(
-        [
-            "junk",
-            {"regionId": True, "startDate": "2026-07-17T06:00:00Z", "endDate": "2026-07-17T07:00:00Z"},
-            {"regionId": 5, "startDate": "bad", "endDate": "2026-07-17T07:00:00Z"},
-            {"regionId": 5, "startDate": 1, "endDate": "2026-07-17T07:00:00Z"},
-            {"regionId": 5, "startDate": "2026-07-17T07:00:00Z", "endDate": "2026-07-17T06:00:00Z"},
-            {"regionId": 7, "startDate": "2026-07-17T06:00:00", "endDate": "2026-07-17T07:00:00Z"},
-        ]
-    )
-    records = parse_ranged_alerts(json.dumps(inner))
-    assert [r[0] for r in records] == ["7"]
-    assert records[0][1].tzinfo is not None
-
-
-def test_parse_ranged_alerts_rejects_unusable_answers():
-    with pytest.raises(ValueError, match="not JSON"):
-        parse_ranged_alerts("<html>")
-    with pytest.raises(ValueError, match="not a list"):
-        parse_ranged_alerts("{}")
 
 
 async def test_refresh_region_cache_ignores_unreadable_copy(hass: HomeAssistant):

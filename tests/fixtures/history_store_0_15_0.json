@@ -1,0 +1,348 @@
+{
+ "active": {},
+ "backfill_targets": {
+  "695": "2026-11-17T10:00:00+00:00"
+ },
+ "confirmed": {
+  "31": "2026-11-17T09:59:00+00:00",
+  "695": "2026-11-17T09:59:00+00:00"
+ },
+ "created_at": "2026-11-07T10:00:00+00:00",
+ "cursors": {
+  "31": "2026-11-17T10:00:00+00:00",
+  "695": "2026-10-01T10:00:00+00:00"
+ },
+ "episodes": [
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-11-09T07:00:00+00:00",
+   "episode_id": "188c867738b1",
+   "had_gap": false,
+   "maximum_air_level": "red",
+   "observed_cleared_at": "2026-11-09T07:40:00+00:00",
+   "observed_started_at": "2026-11-09T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "live"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-11-12T07:00:00+00:00",
+   "episode_id": "a2244b5b1094",
+   "had_gap": false,
+   "maximum_air_level": "red",
+   "observed_cleared_at": "2026-11-12T08:35:00+00:00",
+   "observed_started_at": "2026-11-12T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "live"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-11-15T07:00:00+00:00",
+   "episode_id": "f23b1bdcdf0c",
+   "had_gap": false,
+   "maximum_air_level": "red",
+   "observed_cleared_at": "2026-11-15T07:25:00+00:00",
+   "observed_started_at": "2026-11-15T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "live"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-08-24T10:00:00+00:00",
+   "episode_id": "30e7c3df05a8",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-08-24T10:20:00+00:00",
+   "observed_started_at": "2026-08-24T10:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-08-30T09:00:00+00:00",
+   "episode_id": "35bac491cbf0",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-08-30T09:27:00+00:00",
+   "observed_started_at": "2026-08-30T09:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-09-05T08:00:00+00:00",
+   "episode_id": "c82a0e71bc29",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-09-05T08:34:00+00:00",
+   "observed_started_at": "2026-09-05T08:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-09-11T07:00:00+00:00",
+   "episode_id": "a34f4916348e",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-09-11T07:41:00+00:00",
+   "observed_started_at": "2026-09-11T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-09-17T06:00:00+00:00",
+   "episode_id": "e1d9e405263c",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-09-17T06:48:00+00:00",
+   "observed_started_at": "2026-09-17T06:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-09-23T10:00:00+00:00",
+   "episode_id": "fd1a11993a40",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-09-23T10:55:00+00:00",
+   "observed_started_at": "2026-09-23T10:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-09-29T09:00:00+00:00",
+   "episode_id": "ecb6abe02760",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-09-29T10:02:00+00:00",
+   "observed_started_at": "2026-09-29T09:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-10-05T08:00:00+00:00",
+   "episode_id": "95cccb99d61a",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-10-05T09:09:00+00:00",
+   "observed_started_at": "2026-10-05T08:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-10-11T07:00:00+00:00",
+   "episode_id": "98c23a6cfa9a",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-10-11T08:16:00+00:00",
+   "observed_started_at": "2026-10-11T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-10-17T06:00:00+00:00",
+   "episode_id": "d10a2f69f61a",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-10-17T07:23:00+00:00",
+   "observed_started_at": "2026-10-17T06:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-10-23T10:00:00+00:00",
+   "episode_id": "419e5f10c8e9",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-10-23T11:30:00+00:00",
+   "observed_started_at": "2026-10-23T10:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-10-29T09:00:00+00:00",
+   "episode_id": "30a311463b21",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-10-29T10:37:00+00:00",
+   "observed_started_at": "2026-10-29T09:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-11-04T08:00:00+00:00",
+   "episode_id": "ef8cd33e8366",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-11-04T09:44:00+00:00",
+   "observed_started_at": "2026-11-04T08:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  },
+  {
+   "active_types_seen": [
+    "air"
+   ],
+   "declared_started_at": "2026-11-10T07:00:00+00:00",
+   "episode_id": "775a2430325b",
+   "had_gap": false,
+   "maximum_air_level": "none",
+   "observed_cleared_at": "2026-11-10T08:51:00+00:00",
+   "observed_started_at": "2026-11-10T07:00:00+00:00",
+   "region_id": "31",
+   "source_start_known": true,
+   "start_origin": "history"
+  }
+ ],
+ "gaps": {
+  "31": [
+   [
+    "2026-11-16T10:00:00+00:00",
+    "2026-11-16T11:00:00+00:00"
+   ]
+  ],
+  "695": [
+   [
+    "2026-11-16T10:00:00+00:00",
+    "2026-11-16T11:00:00+00:00"
+   ]
+  ]
+ },
+ "live_since": {
+  "31": "2026-11-07T10:00:00+00:00",
+  "695": "2026-11-07T10:00:00+00:00"
+ },
+ "official_since": {
+  "31": "2026-08-19T10:00:00+00:00"
+ },
+ "official_spans": {
+  "31": [
+   [
+    "2026-08-24T10:00:00+00:00",
+    "2026-08-24T10:20:00+00:00"
+   ],
+   [
+    "2026-08-30T09:00:00+00:00",
+    "2026-08-30T09:27:00+00:00"
+   ],
+   [
+    "2026-09-05T08:00:00+00:00",
+    "2026-09-05T08:34:00+00:00"
+   ],
+   [
+    "2026-09-11T07:00:00+00:00",
+    "2026-09-11T07:41:00+00:00"
+   ],
+   [
+    "2026-09-17T06:00:00+00:00",
+    "2026-09-17T06:48:00+00:00"
+   ],
+   [
+    "2026-09-23T10:00:00+00:00",
+    "2026-09-23T10:55:00+00:00"
+   ],
+   [
+    "2026-09-29T09:00:00+00:00",
+    "2026-09-29T10:02:00+00:00"
+   ],
+   [
+    "2026-10-05T08:00:00+00:00",
+    "2026-10-05T09:09:00+00:00"
+   ],
+   [
+    "2026-10-11T07:00:00+00:00",
+    "2026-10-11T08:16:00+00:00"
+   ],
+   [
+    "2026-10-17T06:00:00+00:00",
+    "2026-10-17T07:23:00+00:00"
+   ],
+   [
+    "2026-10-23T10:00:00+00:00",
+    "2026-10-23T11:30:00+00:00"
+   ],
+   [
+    "2026-10-29T09:00:00+00:00",
+    "2026-10-29T10:37:00+00:00"
+   ],
+   [
+    "2026-11-04T08:00:00+00:00",
+    "2026-11-04T09:44:00+00:00"
+   ],
+   [
+    "2026-11-10T07:00:00+00:00",
+    "2026-11-10T08:51:00+00:00"
+   ],
+   [
+    "2026-11-12T06:58:00+00:00",
+    "2026-11-12T08:30:00+00:00"
+   ]
+  ]
+ },
+ "official_synced_at": "2026-11-17T10:00:00+00:00",
+ "official_synced_regions": [
+  "31",
+  "695"
+ ],
+ "open_gaps": {},
+ "retained_from": {},
+ "schema_version": 2
+}

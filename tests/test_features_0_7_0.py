@@ -73,10 +73,6 @@ RAW = {
 def _mock_unrelated_history_network(monkeypatch):
     """Clock-driven entity/storage tests must not contact unrelated endpoints."""
     monkeypatch.setattr(
-        "custom_components.ukraine_alarm_pro.backfill._fetch",
-        AsyncMock(return_value=[]),
-    )
-    monkeypatch.setattr(
         "custom_components.ukraine_alarm_pro.regions.async_refresh_region_cache",
         AsyncMock(),
     )
@@ -222,10 +218,6 @@ async def test_ignores_a_stale_stored_snapshot(
 async def test_stores_the_snapshot_for_the_next_start(
     hass: HomeAssistant, enable_custom_integrations, hass_storage, monkeypatch
 ):
-    monkeypatch.setattr(
-        "custom_components.ukraine_alarm_pro.backfill._fetch",
-        AsyncMock(return_value=[]),
-    )
     _, push = await _setup(hass)
     push(parse_alert_payload(RAW))
     await hass.async_block_till_done()

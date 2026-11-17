@@ -279,7 +279,6 @@ async def async_setup_entry(
     await supervisor.start(_create_task)
     _async_schedule_descendant_backfill(hass, entry, session)
     _async_schedule_region_cache_refresh(hass, entry)
-    _async_schedule_history_backfill(hass, entry)
     return True
 
 
@@ -349,30 +348,6 @@ def _async_purge_deselected_regions(
                 region_id,
             )
             registry.async_remove(reg_entry.entity_id)
-
-
-@callback
-def _async_schedule_history_backfill(
-    hass: HomeAssistant, entry: UkraineAlarmProConfigEntry
-) -> None:
-    """Fill the alert journal from the official history, off the startup path.
-
-    Five minutes after setup (a post-blackout boot has better things to do),
-    then daily, which also fills any outage since the previous run.
-    """
-
-    @callback
-    def _run(_now) -> None:
-        entry.async_create_background_task(
-            hass,
-            entry.runtime_data.async_backfill_history(),
-            name="alert-history-backfill",
-        )
-
-    entry.async_on_unload(async_call_later(hass, 300, _run))
-    # Complete roots are skipped until their daily refresh; interrupted roots
-    # resume their persisted chunk cursor on this hourly retry.
-    entry.async_on_unload(async_track_time_interval(hass, _run, timedelta(hours=1)))
 
 
 @callback

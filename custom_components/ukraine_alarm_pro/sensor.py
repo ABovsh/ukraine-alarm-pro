@@ -421,7 +421,7 @@ class AlertClearedSensor(RegionSensor):
     """When the last alert affecting the region ended.
 
     Read from the journal, so it survives a restart and covers alerts seen
-    only in the official history. Written once per clear: no state_class,
+    only in history imported by earlier versions. Written once per clear: no state_class,
     no attributes that move.
     """
 
