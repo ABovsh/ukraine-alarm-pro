@@ -29,8 +29,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.storage import Store
 
-from .api.poll import PollTransport
-from .api.supervisor import TransportSupervisor
+from .api.poll import ChainedPollTransport, OfficialPollTransport, PollTransport
+from .api.supervisor import MODE_POLL, TransportSupervisor
 from .api.ws import WsTransport
 from .const import (
     CONF_REGIONS,
@@ -203,9 +203,12 @@ async def async_setup_entry(
     # user problem, so drop a leftover issue on upgrade.
     ir.async_delete_issue(hass, DOMAIN, ISSUE_WS_UNAVAILABLE)
     session = async_get_clientsession(hass)
+    # One map answer covers every region: the official snapshot first, the
+    # volunteer proxy when it fails; country-wide data stays WebSocket-only.
+    poll = ChainedPollTransport([OfficialPollTransport(session), PollTransport(session)])
     supervisor = TransportSupervisor(
         ws=WsTransport(session),
-        poll=PollTransport(session),
+        poll=poll,
         stale_after=CROSS_CHECK_AFTER_SECONDS,
     )
     store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
@@ -230,6 +233,13 @@ async def async_setup_entry(
         coordinator.handle_mode_change(mode)
 
     supervisor.set_mode_listener(_on_mode_change)
+
+    @callback
+    def _on_source_switch() -> None:
+        if supervisor.mode == MODE_POLL:
+            coordinator.handle_mode_change(supervisor.mode)
+
+    poll.on_switch = _on_source_switch
 
     @callback
     def _create_task(coro, name: str) -> asyncio.Task:

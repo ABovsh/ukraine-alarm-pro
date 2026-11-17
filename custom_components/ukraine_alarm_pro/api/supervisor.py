@@ -343,6 +343,11 @@ class TransportSupervisor:
             await asyncio.sleep(max(delay, self._poll_retry_after))
 
     @property
+    def poll_source(self) -> str:
+        """Which HTTP source the fallback uses now."""
+        return getattr(self._poll, "source", MODE_POLL)
+
+    @property
     def seconds_since_snapshot(self) -> float | None:
         """Age of the last accepted snapshot, or None if none arrived yet."""
         if self._last_success is None:

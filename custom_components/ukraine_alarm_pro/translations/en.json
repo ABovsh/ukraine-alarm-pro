@@ -68,7 +68,17 @@
         "name": "{region} alert cleared"
       },
       "transport": {
-        "name": "Transport"
+        "name": "Transport",
+        "state_attributes": {
+          "source": {
+            "name": "Source",
+            "state": {
+              "websocket": "WebSocket",
+              "official_http": "Official map (HTTP)",
+              "siren": "siren.pp.ua"
+            }
+          }
+        }
       },
       "active_regions": {
         "name": "Active regions"

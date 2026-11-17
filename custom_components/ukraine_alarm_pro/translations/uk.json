@@ -68,7 +68,17 @@
         "name": "{region}: відбій тривоги"
       },
       "transport": {
-        "name": "Канал даних"
+        "name": "Канал даних",
+        "state_attributes": {
+          "source": {
+            "name": "Джерело",
+            "state": {
+              "websocket": "WebSocket",
+              "official_http": "Офіційна мапа (HTTP)",
+              "siren": "siren.pp.ua"
+            }
+          }
+        }
       },
       "active_regions": {
         "name": "Регіонів у тривозі"

@@ -240,7 +240,7 @@ if you rename them, use your own IDs in automations.
 | `sensor.uap_strategic_aviation` | enum | strategic aviation: `none`, `active` (airborne), `launch` (missile launch) |
 | `sensor.uap_tactical_aviation` | enum | tactical aviation: `none`, `active`, `launch` |
 | `sensor.uap_missile_carriers` | enum | missile carriers at sea: `none`, `active`, `launch` |
-| `sensor.uap_transport` | diagnostic | `websocket` or `polling` |
+| `sensor.uap_transport` | diagnostic | `websocket` or `polling`; the `source` attribute names the source: `websocket`, `official_http` or `siren` |
 | `sensor.uap_last_update` | diagnostic | last data received, rounded to a minute |
 | `sensor.uap_active_regions` | diagnostic | how many regions are in alert country-wide |
 | `binary_sensor.uap_data_stale` | diagnostic | on when no data has arrived for 15 minutes |
@@ -501,14 +501,23 @@ remains available for existing automations.
 ## Data sources
 
 - [ukrainealarm.com](https://map.ukrainealarm.com/) — primary, push over a WebSocket.
-- [siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, fallback.
+- A snapshot of the same map over HTTP — first fallback.
+- [siren.pp.ua](https://siren.pp.ua/) — volunteer proxy, second fallback.
 
-After repeated WebSocket failures, the integration switches to polling siren.pp.ua
-with a 60-second pause between successful requests. Failures use bounded backoff;
-429 responses and `Retry-After` are respected. Concurrent maintenance requests share
-one HTTP request. It periodically retries the WebSocket and
-switches back after receiving data. The data channel and the time of the last data
-received are visible in the diagnostic entities. An issue appears under Repairs only when
+After repeated WebSocket failures, the integration switches to polling with a 60-second
+pause between successful requests. It polls the official map first; it moves to
+siren.pp.ua after two failures in a row or a 429/503 answer, and returns to the map after a
+successful trial request, at most once every 10 minutes. The fallbacks carry regional
+alerts only: country-wide threats and the MiG-31K come from the WebSocket alone. Failures
+use bounded backoff; `Retry-After` is respected. Concurrent maintenance requests share one
+HTTP request.
+
+When the WebSocket has sent nothing for 12 minutes, or 10 during an alert in the selected
+regions while the map updates often, the integration cross-checks the map with the fallback. A match means the map did
+not change; a mismatch means the WebSocket missed updates, and the integration switches to
+polling. It periodically retries the WebSocket and switches back after receiving data. The
+data channel, the source and the time of the last data received are visible in the
+diagnostic entities. An issue appears under Repairs only when
 neither the WebSocket nor the fallback source has delivered data for 15 minutes.
 
 Confirmed state is checkpointed at most once every five minutes for an unchanged map

@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import UkraineAlarmProConfigEntry
+from .api.supervisor import MODE_WS
 from .const import CONF_REGIONS
 from .entity import UapDiagnosticEntity, UapEntity, UapStalenessEntity
 from .models import AIR_LEVEL_OPTIONS, COUNTRY_THREATS, RegionView, ThreatLevel
@@ -301,6 +302,14 @@ class TransportSensor(UapDiagnosticEntity, SensorEntity):
     @property
     def native_value(self) -> str:
         return self.coordinator.supervisor.mode
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        # Recorded: it changes only when the feed switches source.
+        supervisor = self.coordinator.supervisor
+        return {
+            "source": MODE_WS if supervisor.mode == MODE_WS else supervisor.poll_source
+        }
 
 
 class ActiveRegionsSensor(UapDiagnosticEntity, SensorEntity):

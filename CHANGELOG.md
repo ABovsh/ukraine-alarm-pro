@@ -13,11 +13,20 @@ This project follows [Semantic Versioning](https://semver.org/).
   earlier versions (`start_origin: history`) stay in the journal and statistics until
   they leave the 90-day window.
 
+### ✨ Added
+
+- The official map's HTTP snapshot is the first fallback when the WebSocket fails;
+  siren.pp.ua becomes the second. The integration moves on after two failures in a row
+  or a rate limit and tries the official map again at most every 10 minutes. Country-wide
+  threats and the MiG-31K still come from the WebSocket only.
+- `sensor.uap_transport` has a `source` attribute: `websocket`, `official_http` or `siren`.
+
 ### 🔧 Changed
 
-- While a selected region is under alert, a silent WebSocket is checked against the
-  fallback source after 10 minutes instead of 12, so a stalled connection is replaced
-  sooner. Without an alert in the selected regions the check stays at 12 minutes.
+- While a selected region is under alert, a silent WebSocket is cross-checked after
+  10–12 minutes instead of 12, depending on how often the map publishes, so a stalled
+  connection is replaced sooner.
+- siren.pp.ua is asked with `If-None-Match`; an unchanged answer costs no download.
 
 ## [0.15.0] - 2026-11-12
 
