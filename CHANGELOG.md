@@ -5,14 +5,6 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## [0.16.0] - Unreleased
 
-### 🗑️ Removed
-
-- Downloading official air-alert history from the map. Its endpoint no longer answers,
-  and the integration stopped requesting the map page and the history every hour. The
-  journal now holds only what the integration received itself. Episodes imported by
-  earlier versions (`start_origin: history`) stay in the journal and statistics until
-  they leave the 90-day window.
-
 ### ✨ Added
 
 - The official map's HTTP snapshot is the first fallback when the WebSocket fails;
@@ -30,6 +22,14 @@ This project follows [Semantic Versioning](https://semver.org/).
   10–12 minutes instead of 12, depending on how often the map publishes, so a stalled
   connection is replaced sooner.
 - siren.pp.ua is asked with `If-None-Match`; an unchanged answer costs no download.
+
+### 🗑️ Removed
+
+- Downloading official air-alert history from the map: its endpoint no longer answers.
+  The integration no longer requests the map page and the history every hour, and the
+  journal holds only what the integration received itself. Episodes imported by
+  earlier versions (`start_origin: history`) stay in the journal and statistics until
+  they leave the 90-day window.
 
 ## [0.15.0] - 2026-11-12
 
