@@ -19,7 +19,6 @@ from custom_components.ukraine_alarm_pro.api.supervisor import (
     MODE_POLL,
     TransportSupervisor,
 )
-from custom_components.ukraine_alarm_pro.config_flow import _flatten
 from custom_components.ukraine_alarm_pro.const import (
     DOMAIN,
     STALE_AFTER_SECONDS,
@@ -123,24 +122,6 @@ def test_unrecognized_alert_type_warns_once(caplog):
         assert region_threat(snap, "1") is ThreatLevel.UNKNOWN
         assert region_threat(snap, "1") is ThreatLevel.UNKNOWN
     assert sum("PLASMA" in rec.message for rec in caplog.records) == 1
-
-
-# --- region tree -------------------------------------------------------------
-
-
-def test_flatten_builds_descendants():
-    flat = _flatten(TREE)
-    assert flat["14"]["descendants"] == ["114", "703"]
-    assert flat["114"]["descendants"] == ["703"]
-    assert flat["703"]["descendants"] == []
-    assert flat["703"]["ancestors"] == ["114", "14"]
-
-
-def test_flatten_survives_a_self_referential_tree():
-    node = {"regionId": "1", "regionName": "loop"}
-    node["regionChildIds"] = [node]
-    flat = _flatten({"states": [node]})
-    assert list(flat) == ["1"]
 
 
 # --- coordinator -------------------------------------------------------------

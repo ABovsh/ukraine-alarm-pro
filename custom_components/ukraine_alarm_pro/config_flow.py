@@ -21,47 +21,6 @@ from .regions import async_fetch_regions, async_get_region_tree
 
 __all__ = ["async_fetch_regions"]
 
-# The administrative tree is oblast > raion > hromada; the cap only keeps a
-# malformed or self-referential feed from blowing the Python stack.
-_MAX_TREE_DEPTH = 8
-
-
-def _flatten(tree: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Flatten the tree into {region_id: {name, ancestors, descendants, label}}."""
-    flat: dict[str, dict[str, Any]] = {}
-
-    def walk(
-        node: dict[str, Any],
-        ancestors: list[str],
-        path: list[str],
-        seen: frozenset[str],
-    ) -> None:
-        rid = str(node.get("regionId", ""))
-        if not rid or rid in seen or len(ancestors) >= _MAX_TREE_DEPTH:
-            return
-        name = node.get("regionName", rid)
-        flat[rid] = {
-            "name": name,
-            "ancestors": list(ancestors),
-            "descendants": [],
-            "label": " / ".join([*path, name]),
-        }
-        for child in node.get("regionChildIds") or []:
-            if isinstance(child, dict):
-                walk(child, [rid, *ancestors], [*path, name], seen | {rid})
-
-    for state in tree.get("states") or []:
-        if isinstance(state, dict):
-            walk(state, [], [], frozenset())
-
-    # Alerts are published at the level they were declared at, so every region
-    # also needs to know what lies beneath it.
-    for rid, info in flat.items():
-        for ancestor in info["ancestors"]:
-            if ancestor in flat:
-                flat[ancestor]["descendants"].append(rid)
-    return flat
-
 
 def _regions_schema(
     flat: dict[str, dict[str, Any]],
