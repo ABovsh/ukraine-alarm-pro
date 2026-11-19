@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
-## [0.16.0] - Unreleased
+## [0.16.0] - 2026-11-19
 
 ### ✨ Added
 
@@ -30,6 +30,15 @@ This project follows [Semantic Versioning](https://semver.org/).
   journal holds only what the integration received itself. Episodes imported by
   earlier versions (`start_origin: history`) stay in the journal and statistics until
   they leave the 90-day window.
+
+### Fixed
+
+- Alert-time percentages exclude outages from the time under alert as well as the
+  observation period. A restart during a day-long alert can no longer push the share
+  above 100%. Daily totals for multi-day alerts account for daylight-saving changes.
+- A newly selected region shows unknown coverage until the journal first observes it.
+- When two region editors are open, an outdated selection prompts for review before
+  saving. An invalid date in the saved region list is handled as a damaged cache.
 
 ## [0.15.0] - 2026-11-12
 
