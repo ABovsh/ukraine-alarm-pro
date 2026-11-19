@@ -459,7 +459,7 @@ async def test_list_redraws_at_once_when_only_the_hub_changes(page):
     assert await page.evaluate("c.shadowRoot.querySelector('.mig')") is None
     await page.evaluate("""c.hass = { ...hass, states: { ...hass.states,
       'sensor.uap_mig_status': { state: 'takeoff', attributes: { airfield: 'mozdok', since: '' }, last_updated: 'b' } } };""")
-    assert "Mozdok" in await page.evaluate("c.shadowRoot.querySelector('.mig').textContent")
+    assert "Mozdok" in await page.evaluate("c.shadowRoot.querySelector('.mig').title")
     await page.evaluate("c.shadowRoot.querySelector('.mig').click()")
     assert await page.evaluate("opened.at(-1)") == "sensor.uap_mig_status"
     await page.evaluate("""c.hass = { ...c._hass, states: { ...c._hass.states,
@@ -484,3 +484,114 @@ async def test_editor_checkboxes_keep_their_size_next_to_a_long_hint(page):
     assert all(width == 18 for width in items), items
     hint = await page.evaluate("ed.querySelector('[data-toggle=stats]').closest('label').textContent")
     assert "month chart" in hint
+
+
+async def test_chart_details_stay_in_place_and_do_not_run_card_actions(page):
+    await page.evaluate("""window.hass = makeHass(); window.c = makeCard(hass);
+      c.id = 'chart-test';
+      c.setConfig({entity:'binary_sensor.uap_31_alert', language:'en',
+        tap_action:{action:'toggle'}, hold_action:{action:'more-info'}, double_tap_action:{action:'toggle'}});
+      window.actions = []; c.addEventListener('hass-action', (e) => actions.push(e.detail.action));
+      hass.states['sensor.uap_31_threat'].attributes.region_name =
+        'A long name for an administrative region with several settlements';
+      c.hass = hass;""")
+    await page.clock.run_for(200)
+    await page.wait_for_function("c._stats?.summary")
+    await page.evaluate("""c._stats.summary.calendar.month.daily = [
+      {date:'2026-10-01', count:0, observed_duration_seconds:0, quality:'before_start'},
+      {date:'2026-10-02', count:0, observed_duration_seconds:0, quality:'gaps'},
+      {date:'2026-10-03', count:4, observed_duration_seconds:36000, quality:'complete'},
+      {date:'2026-10-04', count:1, observed_duration_seconds:3600, quality:'complete'},
+    ]; c._stats.summary.rolling_24h.intervals.push({
+      start:new Date(Date.now()-10800000).toISOString(), end:new Date(Date.now()-7200000).toISOString()
+    }); c._render();""")
+    root = page.locator("#chart-test")
+    month = root.locator("[data-chart=month]")
+    timeline = root.locator("[data-chart=timeline]")
+    caption = month.locator(".mhint")
+    assert await month.locator(".bar.before_start").count() == 1
+    assert await month.locator(".bar.gaps").count() == 1
+    assert await caption.text_content() == "max 03.10 · 10 h 0 min"
+
+    for width, theme, status in (
+        (320, "dark", ("on", "off")),
+        (360, "light", ("off", "off")),
+        (400, "dark", ("on", "on")),
+        (320, "light", ("unknown", "off")),
+    ):
+        await page.set_viewport_size({"width": width, "height": 800})
+        await page.emulate_media(color_scheme=theme)
+        # Render the new state without refetching the mocked history for this check.
+        await page.evaluate("""([alert, stale])=>{
+          hass.states['binary_sensor.uap_31_alert'].state=alert;
+          hass.states['binary_sensor.uap_data_stale'].state=stale;
+          c._render();
+        }""", status)
+        height = (await root.locator("ha-card").bounding_box())["height"]
+        bar = await month.locator(".bar").nth(2).bounding_box()
+        await page.mouse.click(bar["x"] + bar["width"] / 2, bar["y"] + 4)
+        assert "4 alerts" in await caption.text_content()
+        assert await caption.evaluate("(e) => e.scrollWidth <= e.clientWidth")
+        assert (await root.locator("ha-card").bounding_box())["height"] == height
+
+        await month.focus()
+        await page.keyboard.press("ArrowLeft")
+        assert "02.10" in await caption.text_content()
+        await page.keyboard.press("ArrowLeft")
+        assert "01.10" in await caption.text_content()
+        await page.keyboard.press("Escape")
+        assert "max" in await caption.text_content()
+        assert await month.evaluate("(e) => e.getRootNode().activeElement === e")
+
+        strip = await timeline.locator(".strip").bounding_box()
+        await page.mouse.click(strip["x"] + strip["width"] * 0.87, strip["y"] + 4)
+        assert "–" in await timeline.locator(".axis").text_content()
+        assert (await root.locator("ha-card").bounding_box())["height"] == height
+        await page.mouse.click(strip["x"] + strip["width"] * 0.87, strip["y"] + 4)
+        assert "now" in await timeline.locator(".axis").text_content()
+        await timeline.focus()
+        await page.keyboard.press("ArrowRight")
+        assert "–" in await timeline.locator(".axis").text_content()
+        await page.mouse.click(2, 2)
+        assert "now" in await timeline.locator(".axis").text_content()
+        assert await page.evaluate("actions") == []
+
+    await page.mouse.move(strip["x"] + 20, strip["y"] + 4)
+    await page.mouse.down()
+    await page.clock.run_for(1000)
+    await page.mouse.up()
+    assert await page.evaluate("actions") == []
+    await root.locator(".head").click()
+    await page.clock.run_for(500)
+    assert await page.evaluate("actions") == ["tap"]
+
+
+async def test_country_scope_and_partial_coverage_reuse_card_rows(page):
+    await page.evaluate("""window.hass = makeHass();
+      const ts = '2026-10-04T10:00:00Z';
+      for (const [key, state] of Object.entries({mig_status:'takeoff',ballistics:'active',
+        strategic_aviation:'launch',tactical_aviation:'active',missile_carriers:'launch'})){
+        const id = 'sensor.uap_' + key;
+        hass.states[id] = {state, attributes:{since:ts, airfield:'mozdok'}, last_updated:'a'};
+        hass.entities[id] = {platform:'ukraine_alarm_pro',translation_key:key};
+      }
+      hass.states['binary_sensor.uap_31_alert'].state = 'on';
+      const attrs = hass.states['sensor.uap_31_threat'].attributes;
+      Object.assign(attrs, {coverage:'partial', active_threat_types:'air',
+        affected_regions:[{region_name:'North'},{region_name:'Central'},{region_name:'South'}],
+        affected_region_count: 7});
+      window.c = makeCard(hass); c.id = 'scope-test';""")
+    await page.clock.run_for(200)
+    root = page.locator("#scope-test")
+    assert await root.locator(".country .scope").text_content() == "Country-wide"
+    assert await root.locator(".country .ct").count() == 5
+    assert "Mozdok" in await root.locator(".country .mig").get_attribute("title")
+    assert "Mozdok" not in await root.locator(".country .mig").text_content()
+    coverage = root.locator("[data-coverage]")
+    assert await coverage.text_content() == "Part of the region"
+    await coverage.press("Enter")
+    assert await coverage.text_content() == "North, Central, South +4"
+    assert await coverage.get_attribute("aria-expanded") == "true"
+    await coverage.click()
+    assert await coverage.get_attribute("aria-expanded") == "false"
+    assert await page.evaluate("opened") == []

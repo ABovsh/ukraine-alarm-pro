@@ -72,7 +72,8 @@ def test_missing_or_damaged_data_is_unknown_and_never_costs_the_map():
     assert "31" in snap.regions
     assert snap.country is None
     # One damaged flag does not invent a threat.
-    assert parse_country(_feed(hasBallistics="yes"))["ballistics"] == CountryThreat()
+    assert "ballistics" not in parse_country(_feed(hasBallistics="yes"))
+    assert parse_country({"mapNotifications": {}}) is None
 
 
 async def test_sensors_follow_the_feed(hass: HomeAssistant, enable_custom_integrations):
@@ -151,3 +152,96 @@ async def test_hub_sensors_survive_region_cleanup(hass: HomeAssistant, enable_cu
     _async_purge_deselected_regions(hass, entry)
     registry = er.async_get(hass)
     assert all(registry.async_get(entity_id) is not None for entity_id in SENSORS.values())
+
+
+COUNTRY_EVENT = "event.uap_country_threat_event"
+
+
+def _country_events(hass):
+    rows = []
+
+    @callback
+    def seen(event):
+        if event.data["entity_id"] == COUNTRY_EVENT:
+            rows.append(event.data["new_state"].attributes)
+
+    hass.bus.async_listen("state_changed", seen)
+    return rows
+
+
+async def test_country_event_transitions_and_payload(hass, enable_custom_integrations):
+    entry, push = await _setup(hass)
+    registry = er.async_get(hass)
+    entity = registry.async_get(COUNTRY_EVENT)
+    assert entity is not None
+    assert entity.unique_id == f"{entry.entry_id}_country_threat_events"
+    _async_purge_deselected_regions(hass, entry)
+    events = _country_events(hass)
+    active = _feed(hasBoats=True, hasBallistics=True)
+    launch = _feed(
+        hasBoats=True,
+        boatsRockets=True,
+        hasBallistics=True,
+        lastBoatsRocketsUpdateTime="2026-11-12T18:05:00Z",
+    )
+    for raw in (_feed(), active, active, launch, active, _feed()):
+        push(parse_alert_payload(raw))
+        await hass.async_block_till_done()
+
+    assert [(e["threat"], e["event_type"]) for e in events] == [
+        ("ballistics", "started"),
+        ("missile_carriers", "started"),
+        ("missile_carriers", "launch"),
+        ("ballistics", "cleared"),
+        ("missile_carriers", "cleared"),
+    ]
+    assert {k: events[2][k] for k in (
+        "schema_version", "previous", "current", "since", "origin"
+    )} == {
+        "schema_version": 1,
+        "previous": "active",
+        "current": "launch",
+        "since": "2026-11-12T18:05:00Z",
+        "origin": "live",
+    }
+    assert "state_class" not in events[-1]
+
+
+async def test_country_event_ignores_unknown_and_reports_recovery(
+    hass, enable_custom_integrations
+):
+    entry, push = await _setup(hass)
+    coordinator = entry.runtime_data
+    events = _country_events(hass)
+    push(parse_alert_payload(_feed(hasBallistics=True)))
+    push(parse_alert_payload([]))  # HTTP cross-check preserves country data.
+    await hass.async_block_till_done()
+    assert events == []
+
+    incomplete = _feed()
+    del incomplete["mapNotifications"]["hasBallistics"]
+    push(parse_alert_payload(incomplete))
+    assert hass.states.get(SENSORS["ballistics"]).state == "unknown"
+    assert events == []
+    push(parse_alert_payload(_feed()))
+    await hass.async_block_till_done()
+    assert [(e["event_type"], e["origin"]) for e in events] == [
+        ("cleared", "recovery"),
+    ]
+
+    coordinator.supervisor.mode = "polling"
+    coordinator.handle_mode_change("polling")
+    push(parse_alert_payload(_feed(hasBallistics=True)))  # Polling must never publish.
+    push(parse_alert_payload([]))
+    coordinator.supervisor.mode = "websocket"
+    coordinator.handle_mode_change("websocket")
+    push(parse_alert_payload(_feed(hasBallistics=True)))
+    coordinator._last_push_monotonic -= STALE_AFTER_SECONDS + 1
+    push(parse_alert_payload([]))  # Regional data recovered first.
+    push(parse_alert_payload(_feed()))
+    await hass.async_block_till_done()
+    assert [(e["event_type"], e["origin"]) for e in events] == [
+        ("cleared", "recovery"),
+        ("started", "recovery"),
+        ("cleared", "recovery"),
+    ]

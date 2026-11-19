@@ -94,8 +94,8 @@ async def test_daily_splits_one_alert_over_two_days(hass):
     history.confirm(["31"], clock["now"])
 
     daily = {d["date"]: d for d in history.calendar("31")["month"]["daily"]}
-    assert daily["2026-10-10"] == {"date": "2026-10-10", "count": 1, "observed_duration_seconds": 3600}
-    assert daily["2026-10-11"] == {"date": "2026-10-11", "count": 1, "observed_duration_seconds": 3600}
+    assert daily["2026-10-10"] == {"date": "2026-10-10", "count": 1, "observed_duration_seconds": 3600, "quality": "complete"}
+    assert daily["2026-10-11"] == {"date": "2026-10-11", "count": 1, "observed_duration_seconds": 3600, "quality": "complete"}
 
 
 async def test_active_alert_ends_at_now_and_counts_in_both_periods(hass):
@@ -310,3 +310,44 @@ async def test_multiday_episode_agrees_with_month_total_across_dst(hass, before,
     daily = {row["date"]: row["observed_duration_seconds"] for row in month["daily"]}
     assert daily[day] == hours * 3600
     assert sum(daily.values()) == month["observed_duration_seconds"]
+
+
+async def test_daily_quality_marks_start_and_gap_without_tainting_other_days(hass):
+    start = datetime(2026, 10, 2, 3, tzinfo=UTC)
+    now = datetime(2026, 10, 6, 9, tzinfo=UTC)
+    history, clock = await _journal(hass, now, created=start)
+    gap = datetime(2026, 10, 4, 9, tzinfo=UTC)
+    history.confirm(["31"], gap)
+    history.mark_gap(["31"])
+    history.confirm(["31"], gap + timedelta(hours=2))
+    clock["now"] = now
+    daily = history.calendar("31")["month"]["daily"]
+    assert [day["quality"] for day in daily] == [
+        "before_start", "gaps", "complete", "gaps", "complete", "complete",
+    ]
+    assert all(day["count"] == 0 for day in daily)
+
+
+async def test_daily_quality_open_gap_crosses_midnight(hass):
+    last = datetime(2026, 10, 4, 20, tzinfo=UTC)
+    now = last + timedelta(hours=3)
+    history, clock = await _journal(hass, last)
+    history.confirm(["31"], last)
+    history.mark_gap(["31"])
+    clock["now"] = now
+    daily = history.calendar("31")["month"]["daily"]
+    assert [day["quality"] for day in daily] == [
+        "complete", "complete", "complete", "gaps", "gaps",
+    ]
+
+
+async def test_daily_quality_respects_legacy_journal_before_per_region_tracking(hass):
+    now = datetime(2026, 10, 6, 9, tzinfo=UTC)
+    history, clock = await _journal(hass, now)
+    _episode(history, datetime(2026, 10, 2, 3, tzinfo=UTC), datetime(2026, 10, 2, 4, tzinfo=UTC))
+    # An upgraded journal contains recordings before it began tracking live_since.
+    history._live_since["31"] = datetime(2026, 10, 4, 3, tzinfo=UTC).isoformat()
+    history.confirm(["31"], clock["now"])
+    day = history.calendar("31")["month"]["daily"][1]
+    assert day["observed_duration_seconds"] == 3600
+    assert day["quality"] == "complete"

@@ -171,6 +171,18 @@
           }
         }
       },
+      "country_threat": {
+        "name": "Події загроз по Україні",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Початок загрози",
+              "launch": "Пуск ракет",
+              "cleared": "Загроза минула"
+            }
+          }
+        }
+      },
       "mig": {
         "name": "Події МіГ-31К",
         "state_attributes": {

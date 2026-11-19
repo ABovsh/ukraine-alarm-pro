@@ -186,23 +186,25 @@ def parse_country(raw: Any) -> dict[str, CountryThreat] | None:
     """Read the country-wide threats; None means the feed says nothing about them.
 
     Only the WebSocket feed carries `mapNotifications`. As with the MiG, a
-    launch flag counts only together with its threat, and anything but a
-    real `true` reads as no threat rather than inventing one.
+    launch flag counts only together with its threat. A missing or malformed
+    threat flag is unknown, not an all clear.
     """
     notes = raw.get("mapNotifications") if isinstance(raw, dict) else None
     if not isinstance(notes, dict):
         return None
     threats = {}
     for key, (flag, rockets, stamp, rockets_stamp) in COUNTRY_THREATS.items():
-        if notes.get(flag) is not True:
+        if notes.get(flag) is False:
             threats[key] = CountryThreat()
+        elif notes.get(flag) is not True:
+            continue
         elif rockets and notes.get(rockets) is True:
             threats[key] = CountryThreat(
                 "launch", _stamp(notes.get(rockets_stamp)) or _stamp(notes.get(stamp))
             )
         else:
             threats[key] = CountryThreat("active", _stamp(notes.get(stamp)))
-    return threats
+    return threats or None
 
 
 @dataclass

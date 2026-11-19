@@ -85,7 +85,11 @@ async def test_a_0_15_0_store_reports_what_0_15_0_reported(hass: HomeAssistant):
     history.confirm(["31", "695"], T0)
     expected = _expected()
     for region_id in ("31", "695"):
-        assert _report(history, region_id) == expected[region_id]
+        report = _report(history, region_id)
+        # v0.17 adds a day-quality field. Every value present in v0.15 still matches.
+        for day in report["calendar"]["month"]["daily"]:
+            assert day.pop("quality") in {"complete", "gaps", "before_start"}
+        assert report == expected[region_id]
     origins = [ep["start_origin"] for ep in history.history("31", 50)]
     assert origins.count("history") == 14
     # 90 days of imported coverage, not the ten days since installation.

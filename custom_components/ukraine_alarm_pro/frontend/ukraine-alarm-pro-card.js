@@ -57,16 +57,20 @@ const I18N = {
     clearedAt: "відбій",
     mig: { takeoff: "Зліт МіГ-31К", launch: "Пуск «Кинджала» з МіГ-31К" },
     airfields: { savasleika: "Саваслейка", mozdok: "Моздок" },
+    countryScope: "По країні",
     country: {
-      ballistics: { active: "Загроза балістики" },
-      strategic_aviation: { active: "Стратегічна авіація в повітрі", launch: "Пуск ракет зі стратегічної авіації" },
-      tactical_aviation: { active: "Тактична авіація в повітрі", launch: "Пуск ракет з тактичної авіації" },
-      missile_carriers: { active: "Ракетоносії в морі", launch: "Пуск ракет з кораблів" },
+      ballistics: { active: "Балістика" },
+      strategic_aviation: { active: "Стратегічна авіація", launch: "Пуск зі стратегічної авіації" },
+      tactical_aviation: { active: "Тактична авіація", launch: "Пуск з тактичної авіації" },
+      missile_carriers: { active: "Ракетоносії", launch: "Пуск з кораблів" },
     },
     usually: "Зазвичай",
     oneInFour: "кожна четверта довше",
     days: "днів",
     chartTitle: "години тривоги",
+    timelineLabel: "Смуга тривог за 24 год",
+    dataGap: "неповні дані",
+    beforeStart: "до початку спостережень",
     max: "макс.",
   },
   en: {
@@ -118,16 +122,20 @@ const I18N = {
     clearedAt: "cleared",
     mig: { takeoff: "MiG-31K take-off", launch: "Kinzhal launch from MiG-31K" },
     airfields: { savasleika: "Savasleyka", mozdok: "Mozdok" },
+    countryScope: "Country-wide",
     country: {
       ballistics: { active: "Ballistic threat" },
-      strategic_aviation: { active: "Strategic aviation airborne", launch: "Missile launch from strategic aviation" },
-      tactical_aviation: { active: "Tactical aviation airborne", launch: "Missile launch from tactical aviation" },
-      missile_carriers: { active: "Missile carriers at sea", launch: "Missile launch from ships" },
+      strategic_aviation: { active: "Strategic aviation", launch: "Strategic aviation launch" },
+      tactical_aviation: { active: "Tactical aviation", launch: "Tactical aviation launch" },
+      missile_carriers: { active: "Missile carriers", launch: "Missile launch from ships" },
     },
     usually: "Usually",
     oneInFour: "one in four over",
     days: "days",
     chartTitle: "alert hours",
+    timelineLabel: "Alerts over the last 24 h",
+    dataGap: "partial data",
+    beforeStart: "before observations",
     max: "max",
   },
 };
@@ -370,6 +378,8 @@ class UkraineAlarmProCard extends HTMLElement {
   setConfig(config) {
     this._config = normalizeConfig(config);
     this._stats = null;
+    this._chartSelection = null;
+    this._coverageOpen = false;
     this._key = null;
     this._generation = (this._generation || 0) + 1;
     this._loading = false;
@@ -385,6 +395,8 @@ class UkraineAlarmProCard extends HTMLElement {
       this._generation = (this._generation || 0) + 1;
       this._loading = false;
       this._stats = null;
+      this._chartSelection = null;
+      this._coverageOpen = false;
       this._statsFailed = null;
       this._entityCache = null;
       this._key = null;
@@ -406,7 +418,15 @@ class UkraineAlarmProCard extends HTMLElement {
       this._render();
     };
     this._visibility = tick;
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", tick);
+    this._outsideChart = (event) => {
+      if (!this._chartSelection) return;
+      const inside = event.composedPath().some((node) => node?.dataset?.chart && node.getRootNode() === this.shadowRoot);
+      if (!inside) this._selectChart(null);
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", tick);
+      document.addEventListener("click", this._outsideChart, true);
+    }
     if (typeof IntersectionObserver !== "undefined") {
       this._observer = new IntersectionObserver(([entry]) => { this._inView = entry.isIntersecting; tick(); });
       this._observer.observe(this);
@@ -419,7 +439,10 @@ class UkraineAlarmProCard extends HTMLElement {
   disconnectedCallback() {
     clearInterval(this._timer);
     this._observer?.disconnect();
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this._visibility);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this._visibility);
+      document.removeEventListener("click", this._outsideChart, true);
+    }
     this._generation = (this._generation || 0) + 1;
     this._loading = false;
   }
@@ -568,6 +591,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const incomplete = !Number.isFinite(day?.percentage);
     // Complete 24 h union supplied by the same calculation as the sensors.
     const lo = hi - 86400000;
+    let selectedTitle = "";
     const segments = (day?.intervals || []).map((interval) => {
       const from = Math.max(dateOf(interval.start)?.getTime() || lo, lo);
       const to = Math.min(dateOf(interval.end)?.getTime() || hi, hi);
@@ -575,7 +599,9 @@ class UkraineAlarmProCard extends HTMLElement {
       const width = Math.max(((to - from) / 86400000) * 100, 0.6);
       const title = `${hhmm(new Date(from), fmt)}–${hhmm(new Date(to), fmt)} · ${span(t, (to-from)/1000)}`;
       const level = ["red", "yellow"].includes(interval.maximum_air_level) ? interval.maximum_air_level : "other";
-      return `<span class="seg ${level}${interval.ongoing ? " live" : ""}${interval.had_gap ? " gap" : ""}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
+      const selected = this._chartSelected("timeline", interval.start);
+      if (selected) selectedTitle = title;
+      return `<span class="seg ${level}${interval.ongoing ? " live" : ""}${interval.had_gap ? " gap" : ""}${selected ? " selected" : ""}" data-chart-item="${esc(interval.start)}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%" title="${esc(title)}"></span>`;
     }).join("");
     // The strip is a rolling 24 h; mark the real local 00/06/12/18 hours on it.
     const marks = clockMarks(lo, hi, fmt.config?.time_zone);
@@ -585,7 +611,7 @@ class UkraineAlarmProCard extends HTMLElement {
       .map((mark) => `<span style="left:${mark.left.toFixed(2)}%">${String(mark.hour).padStart(2, "0")}:00</span>`)
       .join("");
     return `<div class="strip${incomplete ? " incomplete" : ""}">${ticks}${segments}</div>
-      <div class="axis">${labels}<span class="end">${esc(t.now)}</span></div>`;
+      <div class="axis" aria-live="polite">${selectedTitle ? esc(selectedTitle) : `${labels}<span class="end">${esc(t.now)}</span>`}</div>`;
   }
 
   // The share of time as text; the sensors know it only with complete coverage.
@@ -652,18 +678,25 @@ class UkraineAlarmProCard extends HTMLElement {
     for (const [day, entry] of byDay) {
       if ((entry.observed_duration_seconds || 0) > (top?.seconds || 0)) top = { day, seconds: entry.observed_duration_seconds };
     }
+    let selectedTitle = "";
     const bars = Array.from({ length: days }, (_, i) => {
       const entry = byDay.get(i + 1);
       if (!entry) return `<div class="bar future"></div>`;
       const seconds = Math.max(entry.observed_duration_seconds || 0, 0);
-      const title = seconds ? `${label(i + 1)} · ${span(t, seconds)} · ${alerts(t, entry.count || 0)}` : `${label(i + 1)} · ${t.noAlerts}`;
+      const quality = ["gaps", "before_start"].includes(entry.quality) ? entry.quality : "";
+      const title = monthDayDetail(t, label(i + 1), entry, seconds, quality);
+      const selected = this._chartSelected("month", entry.date);
+      if (selected) selectedTitle = title;
       const height = Math.min(seconds / 86400, 1) * 100;
-      return `<div class="bar${top?.day === i + 1 ? " top" : ""}" title="${esc(title)}"><i style="height:${(seconds ? Math.max(height, 2) : 0).toFixed(1)}%"></i></div>`;
+      const classes = ["bar", top?.day === i + 1 && "top", quality, selected && "selected"].filter(Boolean);
+      return `<div class="${classes.join(" ")}" data-chart-item="${esc(entry.date)}" title="${esc(title)}"><i style="height:${(seconds ? Math.max(height, 2) : 0).toFixed(1)}%"></i></div>`;
     }).join("");
     const hint = top ? `${t.max} ${label(top.day)} · ${span(t, top.seconds)}` : t.noAlerts;
     const axis = [1, 8, 15, 22, 29].filter((day) => day <= days)
       .map((day) => `<span style="left:${(((day - 0.5) / days) * 100).toFixed(2)}%">${day}</span>`).join("");
-    return `<div class="mchart"><div class="mtitle"><span>${esc(name)} · ${esc(t.chartTitle)}</span><span class="mhint">${esc(hint)}</span></div>`
+    const title = `${name} · ${t.chartTitle}`;
+    return `<div class="mchart" data-chart="month" role="group" tabindex="0" aria-label="${esc(title)}">`
+      + `<div class="mtitle"><span>${esc(selectedTitle ? name : title)}</span><span class="mhint" aria-live="polite">${esc(selectedTitle || hint)}</span></div>`
       + `<div class="mbars"><span class="mgrid"></span>${bars}</div><div class="axis">${axis}</div></div>`;
   }
 
@@ -709,6 +742,7 @@ class UkraineAlarmProCard extends HTMLElement {
       return;
     }
     const view = this._view(t, ids);
+    if (!view.active || view.threat?.attributes?.coverage !== "partial") this._coverageOpen = false;
     const { sections } = this._config;
     const compact = sections.length === 1 && sections[0] === "status";
     const parts = sections.map((section) => this._sectionHtml(section, t, view)).filter(Boolean);
@@ -731,6 +765,7 @@ class UkraineAlarmProCard extends HTMLElement {
     const card = this.shadowRoot.querySelector("ha-card");
     if (!card || this._eventCard === card) return;
     this._eventCard = card;
+    const detail = (event) => event.composedPath().find((el) => el?.dataset?.chart || el?.hasAttribute?.("data-coverage"));
     const aim = (event) => {
       const path = event?.composedPath?.() || [];
       const chip = path.find((el) => el?.dataset?.more);
@@ -747,6 +782,7 @@ class UkraineAlarmProCard extends HTMLElement {
       held = false;
       start = [event.clientX, event.clientY];
       release();
+      if (detail(event)) return;
       const target = aim(event);
       if (!this._hasAction("hold_action") || !target.entity) return;
       holdTimer = setTimeout(() => { held = true; holdTimer = null; this._act("hold", target.entity); }, HOLD_MS);
@@ -767,11 +803,71 @@ class UkraineAlarmProCard extends HTMLElement {
     card.addEventListener("click", (event) => {
       // The release that ends a hold is not also a tap.
       if (held) { held = false; return; }
+      const control = detail(event);
+      if (control) {
+        event.stopPropagation();
+        if (control.dataset.chart) this._pickChartAt(control, event.clientX);
+        else this._toggleCoverage();
+        return;
+      }
       tap(event, false);
     });
     card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); tap(event, true); }
+      const control = detail(event);
+      if (control?.dataset.chart) {
+        this._chartKey(control, event);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        if (control) this._toggleCoverage(); else tap(event, true);
+      }
     });
+  }
+
+  _chartSelected(name, key) {
+    return this._chartSelection?.name === name && this._chartSelection.key === key;
+  }
+
+  _selectChart(name, key) {
+    this._chartSelection = name ? { name, key } : null;
+    this._render();
+  }
+
+  _pickChartAt(chart, x) {
+    let nearest = null, distance = Infinity;
+    for (const item of chart.querySelectorAll("[data-chart-item]")) {
+      const { left, right } = item.getBoundingClientRect();
+      const gap = Math.max(left - x, x - right, 0);
+      if (gap < distance) { nearest = item; distance = gap; }
+    }
+    if (!nearest) return;
+    const name = chart.dataset.chart;
+    const key = nearest.dataset.chartItem;
+    if (this._chartSelected(name, key)) this._selectChart(null);
+    else this._selectChart(name, key);
+  }
+
+  _chartKey(chart, event) {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Escape", "Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      if (this._chartSelection) this._selectChart(null);
+      return;
+    }
+    const items = [...chart.querySelectorAll("[data-chart-item]")];
+    if (!items.length || event.key === "Enter" || event.key === " ") return;
+    const name = chart.dataset.chart;
+    const selected = items.findIndex((item) => this._chartSelected(name, item.dataset.chartItem));
+    const left = event.key === "ArrowLeft" || event.key === "ArrowUp";
+    const index = left
+      ? (selected < 0 ? items.length - 1 : Math.max(0, selected - 1))
+      : Math.min(items.length - 1, selected + 1);
+    this._selectChart(name, items[index].dataset.chartItem);
+  }
+
+  _toggleCoverage() {
+    this._coverageOpen = !this._coverageOpen;
+    this._render();
   }
 
   _hasAction(key) {
@@ -808,7 +904,7 @@ class UkraineAlarmProCard extends HTMLElement {
       chips.push([key, state.state, ids[key], icon, [text, since && `${t.since} ${hhmm(since, this._fmt())}`]]);
     }
     if (!chips.length) return "";
-    return `<div class="country">${chips.map(countryChip).join("")}</div>`;
+    return `<div class="country"><span class="scope">${esc(t.countryScope)}</span>${chips.map(countryChip).join("")}</div>`;
   }
 
   // The listed regions that exist, each with the sensors its row reads.
@@ -944,12 +1040,19 @@ class UkraineAlarmProCard extends HTMLElement {
     const coverage = this._shows("details", "coverage") ? view.threat?.attributes?.coverage : undefined;
     if (coverage === "whole") chips.push(chip("mdi:map", t.whole));
     if (coverage === "unrecognized") chips.push(chip("mdi:map-search", t.unknownCoverage));
-    if (coverage === "partial") {
-      const areas = (view.threat.attributes.affected_regions || []).map((r) => r.region_name).filter(Boolean);
-      const listed = areas.length > 3 ? `${areas.slice(0, 3).join(", ")}…` : areas.join(", ");
-      chips.push(chip("mdi:map-marker-radius", areas.length ? `${t.partial}: ${listed}` : t.partial));
-    }
+    if (coverage === "partial") chips.push(this._coverageChip(t, view.threat.attributes));
     return chips;
+  }
+
+  _coverageChip(t, attrs) {
+    const areas = (attrs.affected_regions || []).map((region) => region.region_name).filter(Boolean);
+    if (!areas.length) return chip("mdi:map-marker-radius", t.partial);
+    const names = areas.slice(0, 3);
+    const more = (attrs.affected_region_count ?? areas.length) - names.length;
+    const details = names.map(shortName).join(", ") + (more > 0 ? ` +${more}` : "");
+    const label = this._coverageOpen ? details : t.partial;
+    return `<span class="chip coverage" data-coverage role="button" tabindex="0" aria-expanded="${this._coverageOpen}" title="${esc(details)}">`
+      + `<ha-icon icon="mdi:map-marker-radius"></ha-icon><span>${esc(label)}</span></span>`;
   }
 
   // The reasons without their "(… рівень)" tail, when the level chip carries them.
@@ -980,7 +1083,8 @@ class UkraineAlarmProCard extends HTMLElement {
     }
     if (!view.journal) return "";
     const html = { timeline: this._timelineHtml, stats: this._statsHtml }[section].call(this, t, view.journal);
-    return html ? `<div class="sec ${section}">${html}</div>` : "";
+    const chart = section === "timeline" ? ` data-chart="timeline" role="group" tabindex="0" aria-label="${esc(t.timelineLabel)}"` : "";
+    return html ? `<div class="sec ${section}"${chart}>${html}</div>` : "";
   }
 
   // How long an alert here usually lasts, against how long this one has run.
@@ -1023,9 +1127,17 @@ const COUNTRY = [
   ["missile_carriers", "mdi:ferry"],
 ];
 const countryHubs = (hass) => Object.fromEntries(COUNTRY.map(([key]) => [key, hub(hass, key)]));
-const countryChip = ([key, state, id, icon, parts]) =>
-  `<span class="ct ${key} ${esc(state)}" data-more="${esc(id)}" role="button" tabindex="0">`
-  + `<ha-icon icon="${icon}"></ha-icon><span>${esc(parts.filter(Boolean).join(" · "))}</span></span>`;
+const countryChip = ([key, state, id, icon, parts]) => {
+  const detail = esc(parts.filter(Boolean).join(" · "));
+  return `<span class="ct ${key} ${esc(state)}" data-more="${esc(id)}" role="button" tabindex="0" title="${detail}" aria-label="${detail}">`
+    + `<ha-icon icon="${icon}"></ha-icon><span>${esc(parts[0])}</span></span>`;
+};
+
+function monthDayDetail(t, date, entry, seconds, quality) {
+  if (quality === "before_start") return `${date} · ${t.beforeStart}`;
+  if (!seconds && !entry.count) return `${date} · ${quality ? t.dataGap : t.noAlerts}`;
+  return `${date} · ${span(t, seconds)} · ${alerts(t, entry.count || 0)}${quality ? ` · ${t.dataGap}` : ""}`;
+}
 // "Ракетна загроза (червоний рівень)" -> "Ракетна загроза": drop a trailing "(…)".
 const withoutLevel = (reason) => {
   const text = String(reason).trim();
@@ -1123,6 +1235,12 @@ const STYLE = `<style>
   .chip.level.red .dot { background: var(--uap-red); }
   .chip.level.yellow .dot { background: var(--uap-yellow); }
   .chip.level.unrecognized .dot { background: var(--uap-gray); }
+  .coverage { min-width: 0; cursor: pointer; }
+  .coverage ha-icon { flex: none; }
+  .coverage > span { white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .coverage[aria-expanded="true"] { flex: 1 1 6rem; }
+  .coverage:focus-visible, [data-chart]:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  [data-chart] { cursor: pointer; }
   .chips + .reasons { margin-top: 6px; }
   .reasons { font-size: 12.5px; color: var(--secondary-text-color);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1185,6 +1303,13 @@ const STYLE = `<style>
   .bar { height: 100%; display: flex; align-items: flex-end; }
   .bar i { display: block; width: 100%; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--primary-color) 70%, transparent); }
   .bar.top i { background: var(--primary-color); }
+  .bar.gaps, .bar.before_start {
+    background: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--primary-text-color) 24%, transparent) 2px 3px);
+  }
+  .bar.selected, .seg.selected { outline: 1px solid var(--primary-color); outline-offset: -1px; }
+  .bar.selected { background-color: color-mix(in srgb, var(--primary-color) 20%, transparent); }
+  .seg.selected { outline-color: var(--primary-text-color); }
+  .country .scope { align-self: center; color: var(--secondary-text-color); font-size: 11px; white-space: nowrap; }
   /* Country-wide threats: the MiG-31K, ballistics, aviation, missile carriers. */
   .country { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
   .ct { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 8px; border-radius: 6px; font-size: 12px;

@@ -3,6 +3,28 @@
 All notable changes to this project are documented here.
 This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] - Unreleased
+
+### ✨ Added
+
+- Country-wide threat events for ballistics, strategic and tactical aviation, and
+  missile carriers. The notification blueprint filters by threat and event type
+  and offers Ukrainian and English messages.
+- Select an interval on the 24 h strip or a day on the month chart for details in
+  the existing caption. The month chart hatches days with incomplete coverage.
+- A coverage indicator for each day in the monthly `get_summary` response.
+
+### 🔧 Changed
+
+- Country-wide threats have a shared label and compact buttons. Tap a button to
+  open its sensor and see details.
+- Tap the partial-coverage badge to see up to three affected areas and the count
+  of any remaining areas.
+
+### 🐛 Fixed
+
+- A missing or invalid country-wide threat flag now leaves that threat unknown.
+
 ## [0.16.0] - 2026-11-19
 
 ### ✨ Added

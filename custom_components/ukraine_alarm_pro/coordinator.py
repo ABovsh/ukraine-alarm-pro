@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any
@@ -28,10 +29,15 @@ from .const import (
     STALE_AFTER_SECONDS,
 )
 from .events import (
+    EVENT_CLEARED,
+    EVENT_LAUNCH,
+    EVENT_STARTED,
     ORIGIN_BOOTSTRAP,
     ORIGIN_LIVE,
     ORIGIN_RECOVERY,
+    SCHEMA_VERSION,
     AlertEventHub,
+    EventListener,
     RegionState,
 )
 from .history import (
@@ -101,6 +107,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self._mig_announced: str | None = None
         self._mig_event_listeners: list = []
         self._country: dict[str, CountryThreat] | None = None
+        self._country_announced: dict[str, str] = {}
+        self._country_event_listeners: list[EventListener] = []
         self._region_detail_listeners: list = []
         self._views: dict[str, RegionView] = {}
         self._views_of: Snapshot | None = None
@@ -231,6 +239,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         # compares state AND attributes before emitting state_changed; skipping
         # callbacks also avoids aggregation/serialization work before that check.
         was_stale = self.is_stale
+        previous_country = self._country if self._ws_value_is_fresh(self._country_monotonic) else None
         if was_stale:
             self._mig = None
             self._country = None
@@ -299,6 +308,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.changed_regions = None
         if snap.mig is not None:
             self._publish_mig_event(snap.mig)
+        if snap.country is not None and self.supervisor.mode == MODE_WS:
+            self._publish_country_events(snap.country, previous_country or {})
         if was_stale:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
@@ -309,7 +320,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             changed = snap.mig != self.mig_state
             self._mig = snap.mig
             self._mig_monotonic = received
-        if snap.country is not None:
+        if snap.country is not None and self.supervisor.mode == MODE_WS:
             changed |= (
                 snap.country != self._country
                 or not self._ws_value_is_fresh(self._country_monotonic)
@@ -337,6 +348,39 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         for listener in tuple(self._mig_event_listeners):
             listener(event_type, {"airfield": mig.airfield, "since": mig.since})
 
+    @callback
+    def _publish_country_events(
+        self, country: dict[str, CountryThreat], previous_country: dict[str, CountryThreat]
+    ) -> None:
+        """Announce observed status changes after updating the sensors."""
+        for key, current in country.items():
+            previous = self._country_announced.get(key)
+            self._country_announced[key] = current.status
+            if previous is None or previous == current.status:
+                continue
+            # A launch flag dropping while a threat persists is not a new start.
+            if previous == "launch" and current.status == "active":
+                continue
+            event_type = {
+                "none": EVENT_CLEARED,
+                "active": EVENT_STARTED,
+                "launch": EVENT_LAUNCH,
+            }[current.status]
+            payload = {
+                "schema_version": SCHEMA_VERSION,
+                "threat": key,
+                "previous": previous,
+                "current": current.status,
+                "since": current.since,
+                "origin": ORIGIN_LIVE if key in previous_country else ORIGIN_RECOVERY,
+            }
+            for listener in tuple(self._country_event_listeners):
+                listener(event_type, payload)
+
+    def add_country_event_listener(self, listener: EventListener) -> Callable[[], None]:
+        self._country_event_listeners.append(listener)
+        return lambda: self._country_event_listeners.remove(listener)
+
     @property
     def mig_state(self) -> MigState | None:
         """Known only on a live WebSocket; polling carries no MiG data."""
@@ -353,7 +397,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             self.supervisor.mode == MODE_WS
             and not self.is_stale
             and received is not None
-            and time.monotonic() - received < COUNTRY_UNAVAILABLE_AFTER_SECONDS
+            and time.monotonic() < received + COUNTRY_UNAVAILABLE_AFTER_SECONDS
         )
 
     def add_mig_event_listener(self, listener):
@@ -420,9 +464,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         now = time.monotonic()
         no_feed = now - reference > STALE_AFTER_SECONDS
         last_country = self._country_monotonic
-        country_age = now - (self._started_monotonic if last_country is None else last_country)
+        country_reference = self._started_monotonic if last_country is None else last_country
         # With no data at all, the general issue says enough.
-        no_country = not no_feed and country_age >= COUNTRY_UNAVAILABLE_AFTER_SECONDS
+        no_country = not no_feed and now >= country_reference + COUNTRY_UNAVAILABLE_AFTER_SECONDS
         for issue_id, active in (
             (ISSUE_FEED_UNAVAILABLE, no_feed),
             (ISSUE_COUNTRY_FEED_UNAVAILABLE, no_country),

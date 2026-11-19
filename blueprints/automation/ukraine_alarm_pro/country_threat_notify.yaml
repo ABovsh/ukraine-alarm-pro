@@ -1,0 +1,128 @@
+blueprint:
+  name: Ukraine Alarm Pro — country-wide threat notifications
+  description: >-
+    Reports changes to ballistics, strategic and tactical aviation, or missile
+    carriers from the official map. Choose the threats and transitions to report.
+    Your action can use `message`, `threat`, `event_type`, `origin`, and `payload`.
+  domain: automation
+  source_url: https://github.com/ABovsh/ukraine-alarm-pro/blob/main/blueprints/automation/ukraine_alarm_pro/country_threat_notify.yaml
+  input:
+    event_entity:
+      name: Country-wide threat events
+      description: Select event.uap_country_threat_event.
+      selector:
+        entity:
+          filter:
+            - integration: ukraine_alarm_pro
+              domain: event
+    stale_entity:
+      name: Data freshness
+      default: binary_sensor.uap_data_stale
+      selector:
+        entity:
+          filter:
+            - integration: ukraine_alarm_pro
+              domain: binary_sensor
+              device_class: problem
+    threats:
+      name: Threats
+      default: [ballistics, strategic_aviation, tactical_aviation, missile_carriers]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Ballistic threat
+              value: ballistics
+            - label: Strategic aviation
+              value: strategic_aviation
+            - label: Tactical aviation
+              value: tactical_aviation
+            - label: Missile carriers
+              value: missile_carriers
+    event_types:
+      name: Changes
+      default: [started, launch, cleared]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Threat started
+              value: started
+            - label: Missile launch
+              value: launch
+            - label: Threat ended
+              value: cleared
+    language:
+      name: Message language
+      default: uk
+      selector:
+        select:
+          options:
+            - label: Українська
+              value: uk
+            - label: English
+              value: en
+    notify_on_recovery:
+      name: Report changes found when data returns
+      default: false
+      selector:
+        boolean:
+    notify_action:
+      name: What to do
+      description: 'For example, send a notification with message: "{{ message }}".'
+      selector:
+        action:
+
+mode: queued
+max: 20
+
+triggers:
+  - trigger: state
+    entity_id: !input event_entity
+
+variables:
+  threats: !input threats
+  event_types: !input event_types
+  language: !input language
+  notify_on_recovery: !input notify_on_recovery
+
+conditions:
+  - condition: state
+    entity_id: !input stale_entity
+    state: "off"
+  - condition: template
+    value_template: >-
+      {% set before = trigger.from_state %}
+      {% set after = trigger.to_state %}
+      {% set p = after.attributes if after else {} %}
+      {{ before is not none and after is not none
+         and after.state not in ['unknown', 'unavailable']
+         and p.get('schema_version') == 1
+         and p.get('threat') in threats and p.get('event_type') in event_types
+         and (p.get('origin') == 'live' or (p.get('origin') == 'recovery' and notify_on_recovery))
+         and (before.state != after.state
+              or before.attributes.get('threat') != p.threat
+              or before.attributes.get('event_type') != p.event_type
+              or before.attributes.get('since') != p.since) }}
+
+actions:
+  - variables:
+      payload: "{{ trigger.to_state.attributes | tojson | from_json }}"
+      threat: "{{ payload.threat }}"
+      event_type: "{{ payload.event_type }}"
+      origin: "{{ payload.origin }}"
+      message: >-
+        {% set names = {
+          'uk': {'ballistics': 'балістична загроза', 'strategic_aviation': 'стратегічна авіація',
+                 'tactical_aviation': 'тактична авіація', 'missile_carriers': 'ракетоносії'},
+          'en': {'ballistics': 'ballistic threat', 'strategic_aviation': 'strategic aviation',
+                 'tactical_aviation': 'tactical aviation', 'missile_carriers': 'missile carriers'}
+        } %}
+        {% set kinds = {
+          'uk': {'started': 'початок', 'launch': 'пуск ракет', 'cleared': 'загроза минула'},
+          'en': {'started': 'threat started', 'launch': 'missile launch', 'cleared': 'threat ended'}
+        } %}
+        {% set uk = language == 'uk' %}
+        {{ 'По Україні' if uk else 'Country-wide' }} · {{ names[language][threat] }} · {{ kinds[language][event_type] }}
+        {{- (' (дані відновлено)' if uk else ' (data restored)') if origin == 'recovery' else '' }}
+  - sequence: !input notify_action

@@ -1,7 +1,7 @@
 # Ukraine Alarm Pro
 
 [![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/default)
-![Version](https://img.shields.io/badge/version-0.16.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.17.0-blue?style=for-the-badge)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1%2B-41BDF5?style=for-the-badge&logo=home-assistant)
 [![Downloads](https://img.shields.io/github/downloads/ABovsh/ukraine-alarm-pro/total?style=for-the-badge&color=41BDF5&label=downloads)](https://github.com/ABovsh/ukraine-alarm-pro/releases)
 
@@ -77,7 +77,7 @@ list. You can combine them, for example a list of all regions and a full card fo
 
 | Several regions | One region |
 | --- | --- |
-| <img src="docs/images/card-regions-0.15.png" alt="Compact list: country-wide threats, a line per region with the state, duration and share of time under alert over 24 h" width="400"> | <img src="docs/images/card-full-0.15.png" alt="Full card: country-wide threats, status, how long alerts usually last, alert details, day strip, statistics table and month chart" width="400"> |
+| <img src="docs/images/card-regions-0.17.png" alt="Compact list: threats under the country-wide label, a line per region with the state, duration and share of time under alert over 24 h" width="400"> | <img src="docs/images/card-full-0.17.png" alt="Full card: country-wide threats, status, how long alerts usually last, alert details, day strip, statistics table and the selected day on the month chart" width="400"> |
 
 The values in the screenshots are examples.
 
@@ -108,6 +108,15 @@ Enter or Space opens the same sensor. **Tap action** and **Hold action** in the 
 `tap_action`, `hold_action` and `double_tap_action` in YAML, set another action, as in Home
 Assistant's standard cards. In the list the action applies to the region whose line was
 tapped. A country-wide threat label always opens its own sensor.
+
+Tap “Part of the region” during an alert to see up to three affected districts or
+communities and the count of the remaining ones.
+
+Tap the 24 h strip or month chart to show the nearest alert interval or day in
+the chart caption. Use the arrow keys when a chart has focus. Tap again, tap
+outside the chart, or press Esc to restore the usual caption. Hatching on the
+month chart marks days with partial data or days before observations began.
+Taps inside the chart select details and do not run the card's `tap_action`.
 
 ### Adding the card
 
@@ -236,6 +245,7 @@ if you rename them, use your own IDs in automations.
 | `event.uap_<id>_event` | event | alert changes in the region: one event per accepted change |
 | `sensor.uap_mig_status` | enum | MiG-31K: `none`, `takeoff`, `launch`; see [Country-wide threats](#country-wide-threats) |
 | `event.uap_mig_event` | event | events `takeoff`, `launch`, `cleared` |
+| `event.uap_country_threat_event` | event | country-wide threat events `started`, `launch`, `cleared` |
 | `sensor.uap_ballistics` | enum | ballistic threat: `none`, `active` |
 | `sensor.uap_strategic_aviation` | enum | strategic aviation: `none`, `active` (airborne), `launch` (missile launch) |
 | `sensor.uap_tactical_aviation` | enum | tactical aviation: `none`, `active`, `launch` |
@@ -353,9 +363,31 @@ Country-wide threat data comes from the official alert map.
   and `sensor.uap_missile_carriers`: `none`, `active` (aviation airborne, ships at sea) or
   `launch` (missile launch; ballistics has no separate launch). The `since` attribute is the
   map's time when it gives one. They are `unknown` in polling mode or with stale data too.
-  A sensor writes a new state only on a change.
-- The card shows a line of labels only while at least one threat is active. Tapping a
-  label opens its sensor; hide the line with `status.mig`.
+  A missing threat flag also makes that threat's state `unknown`.
+- The card shows threat labels under “Country-wide” while a threat is active. Tap a
+  label to open its sensor for details. To show these labels on only one card,
+  use `hide: [status.mig]` on the others or turn off “Country-wide threats” in
+  their editors.
+
+#### Country-wide threat notifications
+
+`event.uap_country_threat_event` reports the start of a threat (`started`), a missile
+launch (`launch`), and the end of a threat (`cleared`). The first known status of
+each threat after Home Assistant starts establishes its initial state. If several
+threats change in one snapshot, the integration publishes one event per threat.
+
+Event attributes:
+
+- `schema_version: 1`
+- `threat` — `ballistics`, `strategic_aviation`, `tactical_aviation`, or `missile_carriers`
+- `previous`, `current` — previous and current statuses (`none`, `active`, `launch`)
+- `since` — time of the current status from the map, if available
+- `origin` — `live` for a live change or `recovery` for a change found when
+  data returns
+
+In the [notification blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FABovsh%2Fukraine-alarm-pro%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fukraine_alarm_pro%2Fcountry_threat_notify.yaml), choose the threats, event types, and language.
+Use `{{ message }}` in the notification action. By default, the blueprint skips
+`recovery` events and checks that `binary_sensor.uap_data_stale` is off.
 
 ## Alert history
 
@@ -382,8 +414,10 @@ duration per day — over Home Assistant's local days.
 `month` (from the first of the current month, in Home Assistant's time zone). Each period
 has `count`, `observed_duration_seconds`, `longest_duration_seconds`,
 `average_duration_seconds` (`null` when there were no alerts), `percentage` (share of time under alert over the time the journal covers; `null` when nothing is covered), `quality`,
-`coverage_complete` and `gap_seconds`; `calendar.month.daily` has the count and duration
-for each day of the month. An alert that crosses midnight is split: each period counts it
+`coverage_complete` and `gap_seconds`; `calendar.month.daily` has the count, duration,
+and data quality for each day of the month. A day's `quality` is `complete`,
+`gaps` (a data gap or partial coverage), or `before_start` (before observations began).
+An alert that crosses midnight is split: each period counts it
 once and only its own part of the duration. If the journal starts after the period
 start, `quality` is `incomplete` and `coverage_complete` is `false`: the data is partial,
 not zero.
@@ -487,7 +521,7 @@ with your integration and Home Assistant versions, a description and relevant di
 
 ## Updating
 
-Version **0.16.0** is a stable release. Back up Home Assistant first. To roll back,
+Back up Home Assistant before installing **0.17.0**. To roll back,
 choose the earlier version in HACS and restart HA.
 
 Update through HACS, restart Home Assistant and reload the page containing the card.

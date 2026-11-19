@@ -171,6 +171,18 @@
           }
         }
       },
+      "country_threat": {
+        "name": "Country-wide threat events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "started": "Threat started",
+              "launch": "Missile launch",
+              "cleared": "Threat ended"
+            }
+          }
+        }
+      },
       "mig": {
         "name": "MiG-31K events",
         "state_attributes": {

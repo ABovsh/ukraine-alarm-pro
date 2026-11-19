@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import UkraineAlarmProConfigEntry
 from .const import CONF_REGIONS
 from .entity import UapEntity
-from .events import EVENT_TYPES
+from .events import COUNTRY_EVENT_TYPES, EVENT_TYPES
 
 
 async def async_setup_entry(
@@ -25,6 +25,7 @@ async def async_setup_entry(
         for rid, info in entry.data[CONF_REGIONS].items()
     ]
     entities.append(MigEvent(coordinator, entry.entry_id))
+    entities.append(CountryThreatEvent(coordinator, entry.entry_id))
     async_add_entities(entities)
 
 
@@ -69,7 +70,24 @@ class RegionAlertEvent(UapEntity, EventEntity):
         self.async_write_ha_state()
 
 
-class MigEvent(UapEntity, EventEntity):
+class _HubEvent(UapEntity, EventEntity):
+    """Stay available and only write on an event."""
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Map updates are not events; only transitions write this entity."""
+
+    @callback
+    def _on_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        self._trigger_event(event_type, payload)
+        self.async_write_ha_state()
+
+
+class MigEvent(_HubEvent):
     """MiG-31K transitions on the live feed; a row only when one fires."""
 
     _attr_event_types = ["takeoff", "launch", "cleared"]  # noqa: RUF012
@@ -81,19 +99,22 @@ class MigEvent(UapEntity, EventEntity):
         self._attr_unique_id = f"{entry_id}_mig_events"
         self.entity_id = "event.uap_mig_event"
 
-    @property
-    def available(self) -> bool:
-        return True
-
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(self.coordinator.add_mig_event_listener(self._on_event))
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Map updates are not events; only transitions write this entity."""
 
-    @callback
-    def _on_event(self, event_type: str, payload: dict[str, Any]) -> None:
-        self._trigger_event(event_type, payload)
-        self.async_write_ha_state()
+class CountryThreatEvent(_HubEvent):
+    """Country-wide threat transitions on the live feed."""
+
+    _attr_event_types = COUNTRY_EVENT_TYPES
+    _attr_translation_key = "country_threat"
+
+    def __init__(self, coordinator, entry_id) -> None:
+        super().__init__(coordinator, entry_id)
+        self._attr_unique_id = f"{entry_id}_country_threat_events"
+        self.entity_id = "event.uap_country_threat_event"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self.coordinator.add_country_event_listener(self._on_event))

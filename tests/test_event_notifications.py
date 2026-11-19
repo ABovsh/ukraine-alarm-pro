@@ -177,3 +177,67 @@ async def test_test_script_runs_actions_without_touching_alerts(
     after = {s.entity_id: s.state for s in hass.states.async_all() if s.entity_id.split(".")[0] != "script" and "uap_" in s.entity_id}
     assert after == before
     assert entry.runtime_data.history.history("31", 100) == history_before
+
+
+async def test_country_blueprint_delivers_same_timestamp_and_filters(
+    hass, enable_custom_integrations
+):
+    from unittest.mock import patch
+
+    from test_country_threats import COUNTRY_EVENT, _feed
+
+    entry, push = await _setup(hass)
+    name = "country_threat_notify.yaml"
+    relative = f"automation/ukraine_alarm_pro/{name}"
+    dest = Path(hass.config.path("blueprints", relative))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text((ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    assert await async_setup_component(hass, "automation", {
+        "automation": [
+            {"alias": "Full notifications", "use_blueprint": {
+                "path": f"ukraine_alarm_pro/{name}",
+                "input": {"event_entity": COUNTRY_EVENT,
+                          "notify_action": _action("uk")},
+            }},
+            {"alias": "Filtered notifications", "use_blueprint": {
+                "path": f"ukraine_alarm_pro/{name}",
+                "input": {"event_entity": COUNTRY_EVENT, "language": "en",
+                          "threats": ["missile_carriers"], "event_types": ["launch", "cleared"],
+                          "notify_on_recovery": True, "notify_action": _action("en")},
+            }},
+        ],
+    })
+    await hass.async_block_till_done()
+    events = async_capture_events(hass, "uap_test")
+    push(parse_alert_payload(_feed()))
+    await hass.async_block_till_done()
+    assert events == []
+
+    with patch.object(dt_util, "utcnow", return_value=dt_util.utcnow()):
+        push(parse_alert_payload(_feed(hasBallistics=True, hasBoats=True, boatsRockets=True)))
+    await hass.async_block_till_done()
+    assert [e.data["msg"] for e in events if e.data["kind"] == "uk"] == [
+        "По Україні · балістична загроза · початок",
+        "По Україні · ракетоносії · пуск ракет",
+    ]
+    assert [e.data["msg"] for e in events if e.data["kind"] == "en"] == [
+        "Country-wide · missile carriers · missile launch",
+    ]
+    coordinator = entry.runtime_data
+    coordinator.supervisor.mode = "polling"
+    coordinator.handle_mode_change("polling")
+    coordinator.supervisor.mode = "websocket"
+    coordinator.handle_mode_change("websocket")
+    push(parse_alert_payload(_feed()))
+    await hass.async_block_till_done()
+    assert [e.data["msg"] for e in events[3:]] == [
+        "Country-wide · missile carriers · threat ended (data restored)",
+    ]
+
+    # A real automation condition also rejects events while the health sensor is on.
+    hass.states.async_set("binary_sensor.uap_data_stale", "on")
+    attrs = dict(hass.states.get(COUNTRY_EVENT).attributes)
+    attrs.update(event_type="launch", previous="active", current="launch", origin="live")
+    hass.states.async_set(COUNTRY_EVENT, "2026-11-20T00:00:00.000+00:00", attrs)
+    await hass.async_block_till_done()
+    assert len(events) == 4

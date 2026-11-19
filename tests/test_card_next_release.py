@@ -50,7 +50,7 @@ async def test_country_threats_share_one_row_in_feed_order(page):
     await page.evaluate("window.hass = makeHass()")
     await page.evaluate(HUB)
     await page.evaluate(_card("{ sections: ['status'] }"))
-    chips = await page.evaluate("[...c.shadowRoot.querySelectorAll('.country .ct')].map((e) => [e.className, e.textContent])")
+    chips = await page.evaluate("[...c.shadowRoot.querySelectorAll('.country .ct')].map((e) => [e.className, e.title])")
     assert [cls for cls, _ in chips] == ["ct mig takeoff", "ct ballistics active", "ct missile_carriers launch"]
     assert "Savasleyka" in chips[0][1]
     assert chips[1][1] == "Ballistic threat"

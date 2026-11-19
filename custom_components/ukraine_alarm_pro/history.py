@@ -595,10 +595,28 @@ class AlertHistory:
                 daily[index]["observed_duration_seconds"] += (
                     min(end, hi).timestamp() - max(start, lo).timestamp()
                 )
-        for bucket in daily:
-            bucket["observed_duration_seconds"] = round(
-                bucket["observed_duration_seconds"]
-            )
+        coverage_start = self._coverage_floor(region_id)
+        retained = _parse(self._retained_from.get(region_id))
+        confirmed = _parse(self._confirmed.get(region_id))
+        gaps = shared[1].copy()
+        opened = _parse(self._open_gaps.get(region_id))
+        if opened is None and region_id in self._resync:
+            opened = confirmed
+        if opened is not None:
+            gaps.append((opened, now))
+        for bucket, lo, hi in zip(daily, bounds, bounds[1:], strict=False):
+            bucket["observed_duration_seconds"] = round(bucket["observed_duration_seconds"])
+            if coverage_start is None or (lo < hi <= coverage_start):
+                bucket["quality"] = "before_start"
+            elif (
+                lo < coverage_start
+                or (retained is not None and lo < retained)
+                or (confirmed is not None and confirmed > now and hi == now)
+                or any(start < hi and end > lo for start, end in gaps)
+            ):
+                bucket["quality"] = "gaps"
+            else:
+                bucket["quality"] = "complete"
         return {
             "today": self._period(self._window(region_id, day_start, now, now=now, render=False, shared=shared), day_start, now),
             "month": {**self._period(month, month_start, now), "daily": daily},
@@ -637,6 +655,17 @@ class AlertHistory:
         if own is not None and first is not None and own > first:
             return self._live_since[region_id]
         return self._created_at
+
+    def _coverage_floor(self, region_id: str) -> datetime | None:
+        """First known coverage, including a journal from before per-region tracking."""
+        return min(
+            filter(None, (
+                _parse(self._live_since.get(region_id)),
+                _parse(self._official_since.get(region_id)),
+                _parse(self._journal_start(region_id)),
+            )),
+            default=None,
+        )
 
     def _spans(self, region_id: str, now: datetime) -> list[tuple[datetime, datetime]]:
         """Journal episodes and official intervals; an open episode runs until `now`."""
@@ -727,20 +756,7 @@ class AlertHistory:
                 row["maximum_air_level"] = ep["maximum_air_level"]
             row["had_gap"] |= ep["had_gap"]
             row["ongoing"] |= ep["observed_cleared_at"] is None
-        # The journal's own coverage start (what `coverage_start` reports): official
-        # history reaches back before the live feed was first seen.
-        floor = min(
-            (
-                stamp
-                for stamp in (
-                    since,
-                    _parse(self._official_since.get(region_id)),
-                    _parse(self._journal_start(region_id)),
-                )
-                if stamp
-            ),
-            default=None,
-        )
+        floor = self._coverage_floor(region_id)
         return {
             "spans": intervals,
             "percentage": _covered_share(intervals, holes, max(lo, floor) if floor else hi, hi),
