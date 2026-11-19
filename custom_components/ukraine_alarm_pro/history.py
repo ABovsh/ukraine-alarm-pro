@@ -545,17 +545,11 @@ class AlertHistory:
             region_id, now - timedelta(seconds=window_seconds), now, now=now
         )
         complete = window["coverage_complete"]
-        duration = window["observed_duration_seconds"]
         gap = window["gap_seconds"]
         # A gap under 1 % of the window (a restart) cannot move the share by
         # more than that: report it over the covered time, quality stays "gaps".
         small_gap = window["only_gaps"] and gap < SMALL_GAP_SHARE * window_seconds
-        if complete:
-            percentage = round(100 * duration / window_seconds, 1)
-        elif small_gap:
-            percentage = round(100 * duration / (window_seconds - gap), 1)
-        else:
-            percentage = None
+        percentage = window["percentage"] if complete or small_gap else None
         return {
             "region_id": region_id,
             "window_seconds": window_seconds,
@@ -599,8 +593,8 @@ class AlertHistory:
                     break
                 daily[index]["count"] += 1
                 daily[index]["observed_duration_seconds"] += (
-                    min(end, hi) - max(start, lo)
-                ).total_seconds()
+                    min(end, hi).timestamp() - max(start, lo).timestamp()
+                )
         for bucket in daily:
             bucket["observed_duration_seconds"] = round(
                 bucket["observed_duration_seconds"]
@@ -614,7 +608,6 @@ class AlertHistory:
     def _period(window: dict[str, Any], start: datetime, end: datetime) -> dict[str, Any]:
         count = window["count"]
         duration = window["observed_duration_seconds"]
-        covered = window["covered_seconds"]
         return {
             "start": dt_util.as_local(start).isoformat(),
             "end": dt_util.as_local(end).isoformat(),
@@ -624,7 +617,7 @@ class AlertHistory:
             "average_duration_seconds": round(duration / count) if count else None,
             # Share of the time the journal covers, so a gap or a late start
             # does not read as quiet time; None when nothing is covered.
-            "percentage": round(100 * duration / covered, 1) if covered else None,
+            "percentage": window["percentage"],
             "quality": window["quality"],
             "coverage_complete": window["coverage_complete"],
             "gap_seconds": window["gap_seconds"],
@@ -638,6 +631,8 @@ class AlertHistory:
         the journal's start, which predates per-region tracking.
         """
         own = _parse(self._live_since.get(region_id))
+        if own is None and not self._episodes(region_id):
+            return None
         first = min(filter(None, map(_parse, self._live_since.values())), default=None)
         if own is not None and first is not None and own > first:
             return self._live_since[region_id]
@@ -746,14 +741,9 @@ class AlertHistory:
             ),
             default=None,
         )
-        covered = (
-            max((hi - max(lo, floor)).total_seconds() - gap_seconds, 0)
-            if floor is not None
-            else 0
-        )
         return {
             "spans": intervals,
-            "covered_seconds": covered,
+            "percentage": _covered_share(intervals, holes, max(lo, floor) if floor else hi, hi),
             "coverage_complete": quality == "complete",
             "quality": quality,
             "only_gaps": only_gaps and quality == "gaps",
@@ -805,6 +795,26 @@ class AlertHistory:
             return False
         # An ongoing episode that began this very moment still counts.
         return end > lo or (ongoing and end >= lo)
+
+
+def _covered_share(
+    alerts: list[tuple[datetime, datetime]],
+    gaps: list[tuple[datetime, datetime]],
+    start: datetime,
+    end: datetime,
+) -> float | None:
+    """Alert share over known time. Both sets are already clipped to the window."""
+    def seconds_since_start(spans: list[tuple[datetime, datetime]]) -> float:
+        return sum((hi - max(lo, start)).total_seconds() for lo, hi in spans if hi > start)
+
+    missing = seconds_since_start(gaps)
+    covered = (end - start).total_seconds() - missing
+    if covered <= 0:
+        return None
+    # The union counts a gap inside an episode once. Subtracting all gaps
+    # leaves exactly the alert time that was actually covered.
+    active = seconds_since_start(_union(alerts + gaps) if gaps else alerts) - missing
+    return round(100 * active / covered, 1)
 
 
 def _union(spans: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:

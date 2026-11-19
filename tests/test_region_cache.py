@@ -110,6 +110,7 @@ async def test_no_cache_and_no_network_raises(hass: HomeAssistant):
         {"schema": 99, "tree": REGIONS_TREE, "fetched_at": "2026-09-15T00:00:00+00:00"},
         {"schema": 1, "tree": {"states": []}, "fetched_at": "2026-09-15T00:00:00+00:00"},
         {"schema": 1, "tree": REGIONS_TREE, "fetched_at": "garbage"},
+        {"schema": 1, "tree": REGIONS_TREE, "fetched_at": "2026-02-30T00:00:00+00:00"},
         # Not written by us: comparing it with an aware clock would raise.
         {"schema": 1, "tree": REGIONS_TREE, "fetched_at": "2026-09-15T00:00:00"},
         "junk",
@@ -211,3 +212,24 @@ async def test_a_cache_stamp_without_offset_is_refetched_not_fatal(hass: HomeAss
     with patch(FETCH, return_value=REGIONS_TREE) as fetch:
         await async_refresh_region_cache(hass)
         assert fetch.call_count == 1
+
+
+@pytest.mark.parametrize("selection", [["999"], ["703", "999"]])
+async def test_stale_options_form_cannot_save_a_partial_or_empty_selection(
+    hass: HomeAssistant, enable_custom_integrations, selection
+):
+    entry = await _entry(hass)
+    with patch(FLOW_FETCH, return_value=REGIONS_TREE):
+        first = await hass.config_entries.options.async_init(entry.entry_id)
+        second = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(first["flow_id"], {"regions": ["31"]})
+        result = await hass.config_entries.options.async_configure(
+            second["flow_id"], {"regions": selection}
+        )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "regions_changed"}
+    assert set(entry.data["regions"]) == {"31"}
+    assert "999" not in {o["value"] for o in result["data_schema"].schema["regions"].config["options"]}
+    retry = await hass.config_entries.options.async_configure(second["flow_id"], {"regions": ["703"]})
+    assert retry["type"] == "create_entry"
+    assert set(entry.data["regions"]) == {"703"}

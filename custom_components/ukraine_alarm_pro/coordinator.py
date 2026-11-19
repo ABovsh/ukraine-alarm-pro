@@ -96,6 +96,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         self.percentages: dict[tuple[str, int], dict[str, Any]] = {}
         self._percentage_listeners: list = []
         self._health_listeners: list = []
+        self._mig_monotonic: float | None = None
         self._mig: MigState | None = None
         self._mig_announced: str | None = None
         self._mig_event_listeners: list = []
@@ -231,6 +232,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         # callbacks also avoids aggregation/serialization work before that check.
         was_stale = self.is_stale
         if was_stale:
+            self._mig = None
+            self._country = None
             self.history.mark_gap(self._regions)
         now = dt_util.utcnow()
         monotonic = time.monotonic()
@@ -247,6 +250,7 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             self.history.mark_gap(self._regions)
         self.last_push = now
         self._last_push_monotonic = monotonic
+        country_updated = self._update_country_fields(snap, monotonic)
         old = self.data
         sources = set(snap.signature) | set(old.signature if old else {})
         changed_sources = {
@@ -284,34 +288,44 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
             # health entities must not wait for their minute tick. HA drops
             # the identical region states, so this costs no region rows.
             self.async_update_listeners()
+        elif not changed and country_updated:
+            # Health entities compare their publish keys, including recovery
+            # with the same value after the country feed expired.
+            for listener in tuple(self._health_listeners):
+                listener()
         self._publish_events(was_stale=was_stale, changed=changed)
         if clock_jump or affected:
             self.async_update_percentages(region_ids=None if clock_jump else affected)
         self.changed_regions = None
         if snap.mig is not None:
-            self._accept_mig(snap.mig)
-        # A poll cross-check carries none of it and keeps the live status.
-        if snap.country is not None:
-            self._country_monotonic = monotonic
-            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_COUNTRY_FEED_UNAVAILABLE)
-        if snap.country is not None and snap.country != self._country:
-            self._country = snap.country
-            for listener in tuple(self._health_listeners):
-                listener()
+            self._publish_mig_event(snap.mig)
         if was_stale:
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_FEED_UNAVAILABLE)
 
+    def _update_country_fields(self, snap: Snapshot, received: float) -> bool:
+        """Store fresh fields before listeners read this snapshot. HTTP has neither."""
+        changed = False
+        if snap.mig is not None:
+            changed = snap.mig != self.mig_state
+            self._mig = snap.mig
+            self._mig_monotonic = received
+        if snap.country is not None:
+            changed |= (
+                snap.country != self._country
+                or not self._ws_value_is_fresh(self._country_monotonic)
+            )
+            self._country = snap.country
+            self._country_monotonic = received
+            ir.async_delete_issue(self.hass, DOMAIN, ISSUE_COUNTRY_FEED_UNAVAILABLE)
+        return changed
+
     @callback
-    def _accept_mig(self, mig: MigState) -> None:
-        """Publish the status, then a transition seen on the live feed.
+    def _publish_mig_event(self, mig: MigState) -> None:
+        """Publish a transition after its sensor state is up to date.
 
         The first status of a run is no transition: a flight already under way
         at start-up must not be announced again after every restart.
         """
-        if mig != self._mig:
-            self._mig = mig
-            for listener in tuple(self._health_listeners):
-                listener()
         previous = self._mig_announced
         self._mig_announced = mig.status
         if previous is None or previous == mig.status:
@@ -326,15 +340,21 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
     @property
     def mig_state(self) -> MigState | None:
         """Known only on a live WebSocket; polling carries no MiG data."""
-        if self.supervisor.mode != MODE_WS or self.is_stale:
-            return None
-        return self._mig
+        return self._mig if self._ws_value_is_fresh(self._mig_monotonic) else None
 
     def country_state(self, key: str) -> CountryThreat | None:
         """Like the MiG: known only on a live WebSocket with fresh data."""
-        if self.supervisor.mode != MODE_WS or self.is_stale or self._country is None:
+        if self._country is None or not self._ws_value_is_fresh(self._country_monotonic):
             return None
         return self._country.get(key)
+
+    def _ws_value_is_fresh(self, received: float | None) -> bool:
+        return (
+            self.supervisor.mode == MODE_WS
+            and not self.is_stale
+            and received is not None
+            and time.monotonic() - received < COUNTRY_UNAVAILABLE_AFTER_SECONDS
+        )
 
     def add_mig_event_listener(self, listener):
         self._mig_event_listeners.append(listener)
@@ -399,7 +419,8 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
         )
         now = time.monotonic()
         no_feed = now - reference > STALE_AFTER_SECONDS
-        country_age = now - (self._country_monotonic or self._started_monotonic)
+        last_country = self._country_monotonic
+        country_age = now - (self._started_monotonic if last_country is None else last_country)
         # With no data at all, the general issue says enough.
         no_country = not no_feed and country_age >= COUNTRY_UNAVAILABLE_AFTER_SECONDS
         for issue_id, active in (
@@ -464,6 +485,9 @@ class AlarmCoordinator(DataUpdateCoordinator[Snapshot]):
 
     def handle_mode_change(self, mode: str) -> None:
         """Refresh entities immediately so the transport sensor never lags."""
+        if mode != MODE_WS:
+            self._mig = None
+            self._country = None
         self.async_update_listeners()
 
     @property

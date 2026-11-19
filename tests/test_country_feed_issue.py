@@ -8,6 +8,7 @@ start: a Home Assistant restart starts it again.
 
 import time
 from datetime import timedelta
+from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
@@ -99,3 +100,43 @@ async def test_the_count_starts_at_start_up(
 
 def test_the_window_is_six_hours():
     assert COUNTRY_UNAVAILABLE_AFTER_SECONDS == 6 * 3600 > STALE_AFTER_SECONDS
+
+
+async def test_silent_socket_with_successful_regional_checks_expires_country_states(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    entry, sup = await _setup(hass)
+    push = sup.set_listener.call_args[0][0]
+    push(WS)
+    received = entry.runtime_data._country_monotonic
+    with patch("custom_components.ukraine_alarm_pro.coordinator.time") as clock:
+        clock.monotonic.return_value = received + COUNTRY_UNAVAILABLE_AFTER_SECONDS
+        # Regional checks throughout the outage keep the general feed healthy.
+        entry.runtime_data._last_push_monotonic = clock.monotonic.return_value - 60
+        push(RAION_AIR)
+        await _tick(hass)
+        assert _issue(hass, ISSUE_COUNTRY_FEED_UNAVAILABLE) is not None
+        for entity_id in ("sensor.uap_ballistics", "sensor.uap_mig_status"):
+            assert hass.states.get(entity_id).state == "unknown"
+        # Each field recovers only when the source confirms it.
+        push(parse_alert_payload({"alerts": [], "migAlerts": []}))
+        assert hass.states.get("sensor.uap_mig_status").state == "none"
+        assert hass.states.get("sensor.uap_ballistics").state == "unknown"
+        assert _issue(hass, ISSUE_COUNTRY_FEED_UNAVAILABLE) is not None
+        push(WS)
+        assert hass.states.get("sensor.uap_ballistics").state == "none"
+        assert _issue(hass, ISSUE_COUNTRY_FEED_UNAVAILABLE) is None
+
+
+async def test_regional_recovery_alone_keeps_stale_country_values_unknown(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    entry, sup = await _setup(hass)
+    push = sup.set_listener.call_args[0][0]
+    push(WS)
+    entry.runtime_data._last_push_monotonic = time.monotonic() - STALE_AFTER_SECONDS - 1
+    await _tick(hass)
+    push(RAION_AIR)
+    assert not entry.runtime_data.is_stale
+    for entity_id in ("sensor.uap_ballistics", "sensor.uap_mig_status"):
+        assert hass.states.get(entity_id).state == "unknown"

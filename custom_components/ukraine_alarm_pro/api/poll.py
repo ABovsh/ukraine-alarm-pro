@@ -64,7 +64,9 @@ class PollTransport:
                 self._retry_at = time.monotonic() + retry
                 raise RateLimited(retry)
             # Not modified confirms the previous answer, nothing new to parse.
-            if resp.status == 304 and self._last is not None:
+            if resp.status == 304:
+                if "If-None-Match" not in headers or self._last is None:
+                    raise TransportError(f"{self.source} returned an unsolicited 304")
                 return self._last
             resp.raise_for_status()
             snap = self._parse(await resp.json())

@@ -288,3 +288,25 @@ async def test_a_region_added_later_is_covered_from_its_own_first_sight(hass):
     assert history.calendar("692")["month"]["percentage"] == 0.8
     # The region present from the start keeps the journal's coverage.
     assert history.summary("31", 7)["coverage_start"] == CREATED.isoformat()
+
+
+async def test_newly_selected_region_without_observations_has_no_coverage(hass):
+    history, clock = await _journal(hass, datetime(2026, 10, 11, 8, tzinfo=UTC))
+    assert history.summary("692", 1)["coverage_start"] is None
+    assert history.calendar("692")["month"]["percentage"] is None
+    history.confirm(["692"], clock["now"])
+    clock["now"] += timedelta(minutes=1)
+    assert history.calendar("692")["month"]["percentage"] == 0.0
+
+
+@pytest.mark.parametrize(("before", "after", "day", "hours"), [
+    (datetime(2026, 3, 27, tzinfo=UTC), datetime(2026, 3, 31, tzinfo=UTC), "2026-03-29", 23),
+    (datetime(2026, 10, 23, tzinfo=UTC), datetime(2026, 10, 27, tzinfo=UTC), "2026-10-25", 25),
+])
+async def test_multiday_episode_agrees_with_month_total_across_dst(hass, before, after, day, hours):
+    history, _ = await _journal(hass, after, created=before - timedelta(days=1))
+    _episode(history, before, after)
+    month = history.calendar("31")["month"]
+    daily = {row["date"]: row["observed_duration_seconds"] for row in month["daily"]}
+    assert daily[day] == hours * 3600
+    assert sum(daily.values()) == month["observed_duration_seconds"]

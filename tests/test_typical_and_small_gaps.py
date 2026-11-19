@@ -22,7 +22,9 @@ async def test_a_gap_under_one_percent_still_gives_the_share():
         assert result["coverage_complete"] is False
         assert result["gap_seconds"] == 360
         known = window - result["gap_seconds"]
-        assert result["percentage"] == round(100 * result["observed_duration_seconds"] / known, 1)
+        assert result["observed_duration_seconds"] == 110 * 60
+        # Alert before the restart (50 min) and after recovery (54 min).
+        assert result["percentage"] == round(100 * 104 * 60 / known, 1)
         assert result["percentage"] > 0
 
 
@@ -111,3 +113,12 @@ async def test_a_small_gap_in_a_journal_younger_than_the_window_stays_unknown():
     clock["now"] = T0 + timedelta(hours=1)
     history.confirm(["31"], clock["now"])
     assert history.rolling("31", DAY)["percentage"] is None
+
+
+async def test_a_full_day_under_alert_cannot_exceed_one_hundred_percent_after_restart():
+    store = await _journal(active_from=T0 - timedelta(days=2))
+    history, clock = await _restart(store, T0 + timedelta(minutes=6), active=True)
+    clock["now"] = T0 + timedelta(hours=1)
+    history.confirm(["31"], clock["now"])
+    assert history.rolling("31", DAY)["percentage"] == 100.0
+    assert history.calendar("31")["today"]["percentage"] == 100.0

@@ -112,6 +112,8 @@ async def test_polling_and_stale_data_make_them_unknown(hass: HomeAssistant, ena
     assert hass.states.get(SENSORS["ballistics"]).state == "unknown"
     coordinator.supervisor.mode = "websocket"
     coordinator.handle_mode_change("websocket")
+    assert hass.states.get(SENSORS["ballistics"]).state == "unknown"
+    push(parse_alert_payload(_feed(hasBallistics=True)))
     await hass.async_block_till_done()
     assert hass.states.get(SENSORS["ballistics"]).state == "active"
     coordinator.last_push = dt_util.utcnow() - timedelta(seconds=STALE_AFTER_SECONDS + 60)

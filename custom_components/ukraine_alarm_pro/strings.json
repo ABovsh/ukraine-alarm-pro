@@ -38,7 +38,8 @@
       "cannot_connect": "Could not fetch the region list"
     },
     "error": {
-      "no_regions": "Select at least one region."
+      "no_regions": "Select at least one region.",
+      "regions_changed": "The available regions have changed. Review your selection and save again."
     }
   },
   "issues": {

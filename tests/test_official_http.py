@@ -401,3 +401,16 @@ async def test_an_http_snapshot_keeps_the_websocket_country_data(
     push(official)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.uap_ballistics").state == "active"
+
+
+async def test_unconditional_304_cannot_refresh_an_unvalidated_snapshot():
+    server, seen = await _serve({"/alerts": [(200, SIREN, {}), (304, None, {})]})
+    try:
+        async with ClientSession() as session:
+            transport = PollTransport(session, base_url=_url(server))
+            await transport.fetch()
+            with pytest.raises(TransportError):
+                await transport.fetch()
+        assert "If-None-Match" not in seen["/alerts"][1]
+    finally:
+        await server.close()

@@ -144,6 +144,8 @@ async def test_polling_and_stale_data_make_the_status_unknown(hass: HomeAssistan
     assert hass.states.get(STATUS).state == "unknown"
     coordinator.supervisor.mode = "websocket"
     coordinator.handle_mode_change("websocket")
+    assert hass.states.get(STATUS).state == "unknown"
+    push(parse_alert_payload(_feed()))
     await hass.async_block_till_done()
     assert hass.states.get(STATUS).state == "none"
     coordinator.last_push = dt_util.utcnow() - timedelta(seconds=STALE_AFTER_SECONDS + 60)

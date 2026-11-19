@@ -142,28 +142,22 @@ class UkraineAlarmProOptionsFlow(config_entries.OptionsFlow):
         self._flat: dict[str, dict[str, Any]] = {}
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None and not user_input.get(CONF_REGIONS):
-            stored = self.config_entry.data.get(CONF_REGIONS, {})
-            return self.async_show_form(
-                step_id="init",
-                data_schema=_regions_schema(self._flat, list(stored), stored),
-                errors={"base": "no_regions"},
-                description_placeholders={"tree_note": ""},
-            )
         if user_input is not None:
-            # Re-read at submit: another flow or the backfill may have written
-            # the entry since this form was opened.
+            # Another options form may have removed a stored-only region
+            # since this form opened. Validate the whole selection before saving.
             data = self.config_entry.data
+            stored = data.get(CONF_REGIONS, {})
+            requested = user_input.get(CONF_REGIONS, [])
+            selected = _selected_regions(self._flat, requested, stored)
+            if not requested or selected.keys() != set(requested):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_regions_schema(self._flat, list(stored), stored),
+                    errors={"base": "regions_changed" if requested else "no_regions"},
+                    description_placeholders={"tree_note": ""},
+                )
             self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={
-                    **data,
-                    CONF_REGIONS: _selected_regions(
-                        self._flat,
-                        user_input[CONF_REGIONS],
-                        data.get(CONF_REGIONS, {}),
-                    ),
-                },
+                self.config_entry, data={**data, CONF_REGIONS: selected}
             )
             return self.async_create_entry(title="", data={})
 
