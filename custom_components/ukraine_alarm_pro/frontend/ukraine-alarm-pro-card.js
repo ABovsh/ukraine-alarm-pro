@@ -610,8 +610,9 @@ class UkraineAlarmProCard extends HTMLElement {
       .filter((mark) => mark.left > 7 && mark.left < 86)
       .map((mark) => `<span style="left:${mark.left.toFixed(2)}%">${String(mark.hour).padStart(2, "0")}:00</span>`)
       .join("");
+    const axis = selectedTitle ? esc(selectedTitle) : `${labels}<span class="end">${esc(t.now)}</span>`;
     return `<div class="strip${incomplete ? " incomplete" : ""}">${ticks}${segments}</div>
-      <div class="axis" aria-live="polite">${selectedTitle ? esc(selectedTitle) : `${labels}<span class="end">${esc(t.now)}</span>`}</div>`;
+      <div class="axis" aria-live="polite">${axis}</div>`;
   }
 
   // The share of time as text; the sensors know it only with complete coverage.
@@ -859,9 +860,9 @@ class UkraineAlarmProCard extends HTMLElement {
     const name = chart.dataset.chart;
     const selected = items.findIndex((item) => this._chartSelected(name, item.dataset.chartItem));
     const left = event.key === "ArrowLeft" || event.key === "ArrowUp";
-    const index = left
-      ? (selected < 0 ? items.length - 1 : Math.max(0, selected - 1))
-      : Math.min(items.length - 1, selected + 1);
+    const last = items.length - 1;
+    const step = left ? -1 : 1;
+    const index = left && selected < 0 ? last : Math.max(0, Math.min(last, selected + step));
     this._selectChart(name, items[index].dataset.chartItem);
   }
 
@@ -1136,7 +1137,8 @@ const countryChip = ([key, state, id, icon, parts]) => {
 function monthDayDetail(t, date, entry, seconds, quality) {
   if (quality === "before_start") return `${date} · ${t.beforeStart}`;
   if (!seconds && !entry.count) return `${date} · ${quality ? t.dataGap : t.noAlerts}`;
-  return `${date} · ${span(t, seconds)} · ${alerts(t, entry.count || 0)}${quality ? ` · ${t.dataGap}` : ""}`;
+  const detail = `${date} · ${span(t, seconds)} · ${alerts(t, entry.count || 0)}`;
+  return quality ? `${detail} · ${t.dataGap}` : detail;
 }
 // "Ракетна загроза (червоний рівень)" -> "Ракетна загроза": drop a trailing "(…)".
 const withoutLevel = (reason) => {
